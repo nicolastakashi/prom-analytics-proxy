@@ -17,22 +17,34 @@ type routes struct {
 	handler  http.Handler
 	mux      *http.ServeMux
 
+	queryC chan queryColumns
+
 	db *sql.DB
 }
 
-func newRoutes(upstream *url.URL, db *sql.DB) (*routes, error) {
+type queryColumns struct {
+	ts                time.Time
+	queryParam        string
+	timeParam         time.Time
+	labelMatchersBlob string
+	duration          time.Duration
+}
+
+func newRoutes(upstream *url.URL, db *sql.DB, bufSize int) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
 		upstream: upstream,
 		handler:  proxy,
-
-		db: db,
+		queryC:   make(chan queryColumns, bufSize),
+		db:       db,
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
 	r.mux = mux
+
+	go r.recordQueries()
 
 	return r, nil
 }
@@ -59,12 +71,27 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 
 	r.handler.ServeHTTP(w, req)
 
-	duration := time.Since(start).Milliseconds()
+	duration := time.Since(start)
 	labelMatchers := labelMatchersFromQuery(queryParam)
 	labelMatchersBlob, _ := json.Marshal(labelMatchers)
 
-	if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", start, queryParam, timeParamNormalized, string(labelMatchersBlob), duration); err != nil {
-		log.Printf("unable to write to duckdb: %v", err)
+	select {
+	case r.queryC <- queryColumns{
+		ts:                start,
+		queryParam:        queryParam,
+		timeParam:         timeParamNormalized,
+		labelMatchersBlob: string(labelMatchersBlob),
+		duration:          duration,
+	}:
+	default:
+	}
+}
+
+func (r *routes) recordQueries() {
+	for q := range r.queryC {
+		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", q.ts, q.queryParam, q.timeParam, q.labelMatchersBlob, q.duration.Milliseconds()); err != nil {
+			log.Printf("unable to write to duckdb: %v", err)
+		}
 	}
 }
 
