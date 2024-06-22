@@ -47,23 +47,23 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
-	query_param := req.FormValue("query")
-	time_param := req.FormValue("time")
+	queryParam := req.FormValue("query")
+	timeParam := req.FormValue("time")
 
-	var time_param_normalized time.Time
-	if time_param == "" {
-		time_param_normalized = time.Now()
+	var timeParamNormalized time.Time
+	if timeParam == "" {
+		timeParamNormalized = time.Now()
 	} else {
-		time_param_normalized, _ = time.Parse(time.RFC3339, time_param)
+		timeParamNormalized, _ = time.Parse(time.RFC3339, timeParam)
 	}
 
 	r.handler.ServeHTTP(w, req)
 
 	duration := time.Since(start).Milliseconds()
-	labelMatchers := labelMatchersFromQuery(query_param)
+	labelMatchers := labelMatchersFromQuery(queryParam)
 	labelMatchersBlob, _ := json.Marshal(labelMatchers)
 
-	if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", start, query_param, time_param_normalized, string(labelMatchersBlob), duration); err != nil {
+	if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", start, queryParam, timeParamNormalized, string(labelMatchersBlob), duration); err != nil {
 		log.Printf("unable to write to duckdb: %v", err)
 	}
 }
