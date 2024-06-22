@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -85,12 +87,32 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 
 func (r *routes) recordQueries() {
 	for q := range r.queryC {
+		fingerprint := fingerprintFromQuery(q.queryParam)
 		labelMatchers := labelMatchersFromQuery(q.queryParam)
 		labelMatchersBlob, _ := json.Marshal(labelMatchers)
-		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", q.ts, q.queryParam, q.timeParam, labelMatchersBlob, q.duration.Milliseconds()); err != nil {
+		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?)", q.ts, fingerprint, q.queryParam, q.timeParam, labelMatchersBlob, q.duration.Milliseconds()); err != nil {
 			log.Printf("unable to write to duckdb: %v", err)
 		}
 	}
+}
+
+func fingerprintFromQuery(query string) string {
+	expr, err := parser.ParseExpr(query)
+	if err != nil {
+		return ""
+	}
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		switch n := node.(type) {
+		case *parser.VectorSelector:
+			for _, m := range n.LabelMatchers {
+				if m.Name != "__name__" {
+					m.Value = "MASKED"
+				}
+			}
+		}
+		return nil
+	})
+	return fmt.Sprintf("%x", (md5.Sum([]byte(expr.String()))))
 }
 
 func labelMatchersFromQuery(query string) []map[string]string {
