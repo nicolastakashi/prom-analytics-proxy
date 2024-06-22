@@ -90,6 +90,8 @@ func (r *routes) recordQueries() {
 		fingerprint := fingerprintFromQuery(q.queryParam)
 		labelMatchers := labelMatchersFromQuery(q.queryParam)
 		labelMatchersBlob, _ := json.Marshal(labelMatchers)
+
+		//TODO: use context and consider batches
 		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?)", q.ts, fingerprint, q.queryParam, q.timeParam, labelMatchersBlob, q.duration.Milliseconds()); err != nil {
 			log.Printf("unable to write to duckdb: %v", err)
 		}
@@ -101,6 +103,7 @@ func fingerprintFromQuery(query string) string {
 	if err != nil {
 		return ""
 	}
+
 	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
 		switch n := node.(type) {
 		case *parser.VectorSelector:
