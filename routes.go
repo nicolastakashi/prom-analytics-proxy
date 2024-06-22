@@ -23,11 +23,10 @@ type routes struct {
 }
 
 type queryColumns struct {
-	ts                time.Time
-	queryParam        string
-	timeParam         time.Time
-	labelMatchersBlob string
-	duration          time.Duration
+	ts         time.Time
+	queryParam string
+	timeParam  time.Time
+	duration   time.Duration
 }
 
 func newRoutes(upstream *url.URL, db *sql.DB, bufSize int) (*routes, error) {
@@ -72,16 +71,13 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	r.handler.ServeHTTP(w, req)
 
 	duration := time.Since(start)
-	labelMatchers := labelMatchersFromQuery(queryParam)
-	labelMatchersBlob, _ := json.Marshal(labelMatchers)
 
 	select {
 	case r.queryC <- queryColumns{
-		ts:                start,
-		queryParam:        queryParam,
-		timeParam:         timeParamNormalized,
-		labelMatchersBlob: string(labelMatchersBlob),
-		duration:          duration,
+		ts:         start,
+		queryParam: queryParam,
+		timeParam:  timeParamNormalized,
+		duration:   duration,
 	}:
 	default:
 	}
@@ -89,7 +85,9 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 
 func (r *routes) recordQueries() {
 	for q := range r.queryC {
-		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", q.ts, q.queryParam, q.timeParam, q.labelMatchersBlob, q.duration.Milliseconds()); err != nil {
+		labelMatchers := labelMatchersFromQuery(q.queryParam)
+		labelMatchersBlob, _ := json.Marshal(labelMatchers)
+		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?)", q.ts, q.queryParam, q.timeParam, labelMatchersBlob, q.duration.Milliseconds()); err != nil {
 			log.Printf("unable to write to duckdb: %v", err)
 		}
 	}
