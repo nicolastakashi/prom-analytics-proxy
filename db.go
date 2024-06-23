@@ -22,8 +22,6 @@ type dbProvider struct {
 }
 
 func newDBProvider(ctx context.Context, dbDir string) (*dbProvider, error) {
-	res := &dbProvider{dbDir: dbDir}
-
 	if err := os.MkdirAll(dbDir, os.ModePerm); err != nil {
 		return nil, err
 	}
@@ -32,8 +30,7 @@ func newDBProvider(ctx context.Context, dbDir string) (*dbProvider, error) {
 	if err != nil {
 		return nil, err
 	}
-	res.curDB = curDB
-	return res, nil
+	return &dbProvider{dbDir: dbDir, curDB: curDB}, nil
 }
 
 func (dbp *dbProvider) WithDB(f func(db *sql.DB)) {
