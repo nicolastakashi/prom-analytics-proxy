@@ -13,9 +13,13 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
+type dbProvider interface {
+	WithDB(func(db *sql.DB))
+}
+
 type QueryIngester struct {
-	db       *sql.DB
-	queriesC chan Query
+	dbProvider dbProvider
+	queriesC   chan Query
 
 	mu     sync.RWMutex
 	closed bool
@@ -33,9 +37,9 @@ type Query struct {
 	BodySize   int
 }
 
-func NewQueryIngester(db *sql.DB, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
+func NewQueryIngester(dbProvider dbProvider, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
 	return &QueryIngester{
-		db:                  db,
+		dbProvider:          dbProvider,
 		queriesC:            make(chan Query, bufferSize),
 		ingestTimeout:       ingestTimeout,
 		shutdownGracePeriod: gracePeriod,
@@ -108,19 +112,20 @@ func (i *QueryIngester) ingest(ctx context.Context, query Query) {
 		return
 	}
 
-	_, err = i.db.ExecContext(
-		ingestCtx,
-		insertQuery,
-		query.TS,
-		fingerprint,
-		query.QueryParam,
-		query.TimeParam,
-		string(labelMatchersBlob),
-		query.Duration.Milliseconds(),
-		query.StatusCode,
-		query.BodySize,
-	)
-
+	i.dbProvider.WithDB(func(db *sql.DB) {
+		_, err = db.ExecContext(
+			ingestCtx,
+			insertQuery,
+			query.TS,
+			fingerprint,
+			query.QueryParam,
+			query.TimeParam,
+			string(labelMatchersBlob),
+			query.Duration.Milliseconds(),
+			query.StatusCode,
+			query.BodySize,
+		)
+	})
 	if err != nil {
 		log.Printf("unable to insert query: %v", err)
 		return

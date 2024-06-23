@@ -2,11 +2,8 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -15,29 +12,31 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
+	"github.com/efficientgo/core/runutil"
 	"github.com/oklog/run"
 
-	"github.com/marcboeker/go-duckdb"
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 )
 
 func main() {
 	var (
 		insecureListenAddress string
 		upstream              string
-		dbPath                string
+		dbDir                 string
 		bufSize               int
 		gracePeriod           time.Duration
 		ingestTimeout         time.Duration
+		dbFlushPeriod         time.Duration
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
-	flagset.StringVar(&dbPath, "db-path", "prom-analytics.db", "The path to the duckdb file.")
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
+	flagset.StringVar(&dbDir, "db-dir", "data", "The directory to the local duckdb parquet files.")
+	flagset.DurationVar(&dbFlushPeriod, "db-flush-period", 1*time.Minute, "Interval to cut new parquet file from the current duckdb state.")
 	flagset.Parse(os.Args[1:])
 
 	upstreamURL, err := url.Parse(upstream)
@@ -52,13 +51,28 @@ func main() {
 
 	var g run.Group
 
-	db, err := connectToDb(context.Background(), dbPath)
+	dbProvider, err := newDBProvider(context.Background(), dbDir)
 	if err != nil {
 		log.Fatalf("unable to connect to db: %v", err)
 	}
-	defer db.Close()
+	defer dbProvider.Close()
 
-	queryIngester := ingester.NewQueryIngester(db, bufSize, ingestTimeout, gracePeriod)
+	{
+		ctx, cancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			return runutil.Repeat(dbFlushPeriod, ctx.Done(), func() error {
+				if err := dbProvider.nextDB(); err != nil {
+					return err
+				}
+				return nil
+			})
+		}, func(error) {
+			log.Printf("stopping DBProvider")
+			cancel()
+		})
+	}
+
+	queryIngester := ingester.NewQueryIngester(dbProvider, bufSize, ingestTimeout, gracePeriod)
 
 	// Run Ingester loop
 	{
@@ -116,27 +130,4 @@ func main() {
 		}
 		log.Print("caught signal; exiting gracefully...")
 	}
-}
-
-func connectToDb(ctx context.Context, dbPath string) (*sql.DB, error) {
-	connector, err := duckdb.NewConnector(dbPath, func(execer driver.ExecerContext) error {
-		bootQueries := []string{
-			"INSTALL 'json'",
-			"LOAD 'json'",
-			"CREATE TABLE IF NOT EXISTS queries (ts TIMESTAMP, fingerprint VARCHAR, query_param VARCHAR, time_param TIMESTAMP, label_matchers_list JSON, duration_ms BIGINT, status_code INT, body_size_bytes BIGINT)",
-		}
-
-		for _, query := range bootQueries {
-			_, err := execer.ExecContext(ctx, query, nil)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("unable to open DB connector: %v", err)
-	}
-
-	return sql.OpenDB(connector), nil
 }
