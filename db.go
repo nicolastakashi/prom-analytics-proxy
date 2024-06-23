@@ -8,10 +8,12 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/marcboeker/go-duckdb"
+	"github.com/oklog/ulid/v2"
 )
+
+const flushStmt = `COPY (SELECT * FROM queries) TO '%s/%s.parquet' (FORMAT 'parquet');`
 
 type dbProvider struct {
 	dbDir string
@@ -47,12 +49,7 @@ func (dbp *dbProvider) nextDB() error {
 	// flush into parquet file
 	log.Println("flushing parquet file from DB")
 
-	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(`
-COPY
-    (SELECT * FROM queries)
-    TO '%s/%d.parquet'
-    (FORMAT 'parquet');
-`, dbp.dbDir, time.Now().Unix())); err != nil {
+	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(flushStmt, dbp.dbDir, ulid.Make())); err != nil {
 		log.Println("flushing parquet file from DB failed: ", err)
 	}
 
@@ -72,12 +69,7 @@ func (dbp *dbProvider) Close() {
 	// flush into parquet file
 	log.Println("flushing parquet file from DB before closing")
 
-	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(`
-COPY
-    (SELECT * FROM queries)
-    TO '%s/%d.parquet'
-    (FORMAT 'parquet');
-`, dbp.dbDir, time.Now().Unix())); err != nil {
+	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(flushStmt, dbp.dbDir, ulid.Make())); err != nil {
 		log.Println("flushing parquet file from DB before closing failed: ", err)
 	}
 
