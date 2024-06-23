@@ -1,15 +1,12 @@
 package main
 
 import (
-	"crypto/md5"
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
 
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type routes struct {
@@ -58,51 +55,9 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 
 	r.handler.ServeHTTP(w, req)
 	r.queryIngester.Ingest(req.Context(), ingester.Query{
-		TS:            start,
-		Fingerprint:   fingerprintFromQuery(queryParam),
-		QueryParam:    queryParam,
-		TimeParam:     timeParamNormalized,
-		LabelMatchers: labelMatchersFromQuery(queryParam),
-		Duration:      time.Since(start),
+		TS:         start,
+		QueryParam: queryParam,
+		TimeParam:  timeParamNormalized,
+		Duration:   time.Since(start),
 	})
-}
-
-func fingerprintFromQuery(query string) string {
-	expr, err := parser.ParseExpr(query)
-	if err != nil {
-		return ""
-	}
-
-	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
-		switch n := node.(type) {
-		case *parser.VectorSelector:
-			for _, m := range n.LabelMatchers {
-				if m.Name != "__name__" {
-					m.Value = "MASKED"
-				}
-			}
-		}
-		return nil
-	})
-	return fmt.Sprintf("%x", (md5.Sum([]byte(expr.String()))))
-}
-
-func labelMatchersFromQuery(query string) []map[string]string {
-	expr, err := parser.ParseExpr(query)
-	if err != nil {
-		return nil
-	}
-	res := make([]map[string]string, 0)
-	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
-		switch n := node.(type) {
-		case *parser.VectorSelector:
-			v := make(map[string]string, 0)
-			for _, m := range n.LabelMatchers {
-				v[m.Name] = m.Value
-			}
-			res = append(res, v)
-		}
-		return nil
-	})
-	return res
 }
