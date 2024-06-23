@@ -2,10 +2,14 @@ package ingester
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
+
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type QueryIngester struct {
@@ -14,12 +18,10 @@ type QueryIngester struct {
 }
 
 type Query struct {
-	TS            time.Time
-	QueryParam    string
-	TimeParam     time.Time
-	LabelMatchers []map[string]string
-	Duration      time.Duration
-	Fingerprint   string
+	TS         time.Time
+	QueryParam string
+	TimeParam  time.Time
+	Duration   time.Duration
 }
 
 func NewQueryIngester(db *sql.DB, bufferSize int) *QueryIngester {
@@ -54,8 +56,10 @@ func (i *QueryIngester) Run(ctx context.Context) {
 				log.Printf("channel closed, stopping query ingester")
 				return
 			}
+			fingerprint := fingerprintFromQuery(query.QueryParam)
+			labelMatchers := labelMatchersFromQuery(query.QueryParam)
 
-			labelMatchersBlob, err := json.Marshal(query.LabelMatchers)
+			labelMatchersBlob, err := json.Marshal(labelMatchers)
 			if err != nil {
 				log.Printf("unable to marshal label matchers: %v", err)
 				continue
@@ -65,7 +69,7 @@ func (i *QueryIngester) Run(ctx context.Context) {
 				ctx,
 				insertQuery,
 				query.TS,
-				query.Fingerprint,
+				fingerprint,
 				query.QueryParam,
 				query.TimeParam,
 				labelMatchersBlob,
@@ -76,4 +80,44 @@ func (i *QueryIngester) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func fingerprintFromQuery(query string) string {
+	expr, err := parser.ParseExpr(query)
+	if err != nil {
+		return ""
+	}
+
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		switch n := node.(type) {
+		case *parser.VectorSelector:
+			for _, m := range n.LabelMatchers {
+				if m.Name != "__name__" {
+					m.Value = "MASKED"
+				}
+			}
+		}
+		return nil
+	})
+	return fmt.Sprintf("%x", (md5.Sum([]byte(expr.String()))))
+}
+
+func labelMatchersFromQuery(query string) []map[string]string {
+	expr, err := parser.ParseExpr(query)
+	if err != nil {
+		return nil
+	}
+	res := make([]map[string]string, 0)
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+		switch n := node.(type) {
+		case *parser.VectorSelector:
+			v := make(map[string]string, 0)
+			for _, m := range n.LabelMatchers {
+				v[m.Name] = m.Value
+			}
+			res = append(res, v)
+		}
+		return nil
+	})
+	return res
 }
