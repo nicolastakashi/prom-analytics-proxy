@@ -29,6 +29,8 @@ type Query struct {
 	QueryParam string
 	TimeParam  time.Time
 	Duration   time.Duration
+	StatusCode int
+	BodySize   int
 }
 
 func NewQueryIngester(db *sql.DB, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
@@ -56,8 +58,6 @@ func (i *QueryIngester) Ingest(query Query) {
 		log.Printf("blocked: dropping query: %v", query)
 	}
 }
-
-const insertQuery = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?)`
 
 func (i *QueryIngester) Run(ctx context.Context) {
 	for {
@@ -92,6 +92,8 @@ func (i *QueryIngester) drainWithGracePeriod() {
 	}
 }
 
+const insertQuery = `INSERT INTO queries VALUES (?, ?, ?, ?, ?::JSON, ?, ?, ?)`
+
 // TODO(mhoffm): we should ingest in batches probably
 func (i *QueryIngester) ingest(ctx context.Context, query Query) {
 	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
@@ -113,8 +115,11 @@ func (i *QueryIngester) ingest(ctx context.Context, query Query) {
 		fingerprint,
 		query.QueryParam,
 		query.TimeParam,
-		labelMatchersBlob,
-		query.Duration.Milliseconds())
+		string(labelMatchersBlob),
+		query.Duration.Milliseconds(),
+		query.StatusCode,
+		query.BodySize,
+	)
 
 	if err != nil {
 		log.Printf("unable to insert query: %v", err)

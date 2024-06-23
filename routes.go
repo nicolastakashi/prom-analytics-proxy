@@ -41,6 +41,24 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 	r.handler.ServeHTTP(w, req)
 }
 
+type recordingResponseWriter struct {
+	http.ResponseWriter
+
+	statusCode int
+	bodySize   int
+}
+
+func (r *recordingResponseWriter) WriteHeader(status int) {
+	r.statusCode = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *recordingResponseWriter) Write(p []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(p)
+	r.bodySize += n
+	return n, err
+}
+
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	queryParam := req.FormValue("query")
@@ -53,11 +71,15 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 		timeParamNormalized, _ = time.Parse(time.RFC3339, timeParam)
 	}
 
-	r.handler.ServeHTTP(w, req)
+	recw := &recordingResponseWriter{ResponseWriter: w}
+	r.handler.ServeHTTP(recw, req)
+
 	r.queryIngester.Ingest(ingester.Query{
 		TS:         start,
 		QueryParam: queryParam,
 		TimeParam:  timeParamNormalized,
 		Duration:   time.Since(start),
+		StatusCode: recw.statusCode,
+		BodySize:   recw.bodySize,
 	})
 }

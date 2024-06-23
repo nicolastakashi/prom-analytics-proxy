@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -16,7 +18,7 @@ import (
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 	"github.com/oklog/run"
 
-	_ "github.com/marcboeker/go-duckdb"
+	"github.com/marcboeker/go-duckdb"
 )
 
 func main() {
@@ -48,23 +50,13 @@ func main() {
 		log.Fatalf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream)
 	}
 
-	db, err := sql.Open("duckdb", dbPath)
+	var g run.Group
+
+	db, err := connectToDb(context.Background(), dbPath)
 	if err != nil {
-		log.Fatalf("unable to open DB: %v", err)
+		log.Fatalf("unable to connect to db: %v", err)
 	}
 	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("unable to ping DB: %v", err)
-	}
-
-	if _, err = db.Exec(`
-    CREATE TABLE IF NOT EXISTS queries (ts TIMESTAMP, fingerprint VARCHAR, query_param VARCHAR, time_param TIMESTAMP, label_matchers_list STRING, duration_ms BIGINT)
-`); err != nil {
-		log.Fatal(err)
-	}
-
-	var g run.Group
 
 	queryIngester := ingester.NewQueryIngester(db, bufSize, ingestTimeout, gracePeriod)
 
@@ -124,4 +116,27 @@ func main() {
 		}
 		log.Print("caught signal; exiting gracefully...")
 	}
+}
+
+func connectToDb(ctx context.Context, dbPath string) (*sql.DB, error) {
+	connector, err := duckdb.NewConnector(dbPath, func(execer driver.ExecerContext) error {
+		bootQueries := []string{
+			"INSTALL 'json'",
+			"LOAD 'json'",
+			"CREATE TABLE IF NOT EXISTS queries (ts TIMESTAMP, fingerprint VARCHAR, query_param VARCHAR, time_param TIMESTAMP, label_matchers_list JSON, duration_ms BIGINT, status_code INT, body_size_bytes BIGINT)",
+		}
+
+		for _, query := range bootQueries {
+			_, err := execer.ExecContext(ctx, query, nil)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to open DB connector: %v", err)
+	}
+
+	return sql.OpenDB(connector), nil
 }
