@@ -7,14 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
 type QueryIngester struct {
-	db      *sql.DB
-	queries chan Query
+	db       *sql.DB
+	queriesC chan Query
+
+	mu     sync.RWMutex
+	closed bool
+
+	shutdownGracePeriod time.Duration
+	ingestTimeout       time.Duration
 }
 
 type Query struct {
@@ -24,22 +31,29 @@ type Query struct {
 	Duration   time.Duration
 }
 
-func NewQueryIngester(db *sql.DB, bufferSize int) *QueryIngester {
+func NewQueryIngester(db *sql.DB, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
 	return &QueryIngester{
-		db:      db,
-		queries: make(chan Query, bufferSize),
+		db:                  db,
+		queriesC:            make(chan Query, bufferSize),
+		ingestTimeout:       ingestTimeout,
+		shutdownGracePeriod: gracePeriod,
 	}
 }
 
-func (i *QueryIngester) Ingest(ctx context.Context, query Query) {
+func (i *QueryIngester) Ingest(query Query) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	if i.closed {
+		//TODO(nicolastakashi): expose this to a metric
+		log.Printf("closed: dropping query: %v", query)
+		return
+	}
 	select {
-	case i.queries <- query:
-	case <-ctx.Done():
-		log.Printf("Ingestion stopped, closing queries channel")
-		close(i.queries)
+	case i.queriesC <- query:
 	default:
-		//TODO:(nicolastakashi) expose this to a metric
-		log.Printf("dropping query: %v", query)
+		//TODO(nicolastakashi): expose this to a metric
+		log.Printf("blocked: dropping query: %v", query)
 	}
 }
 
@@ -49,36 +63,62 @@ func (i *QueryIngester) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("stopping query ingester")
+			i.mu.Lock()
+			defer i.mu.Unlock()
+			i.closed = true
+			close(i.queriesC)
+
+			i.drainWithGracePeriod()
 			return
-		case query, ok := <-i.queries:
-			if !ok {
-				log.Printf("channel closed, stopping query ingester")
-				return
-			}
-			fingerprint := fingerprintFromQuery(query.QueryParam)
-			labelMatchers := labelMatchersFromQuery(query.QueryParam)
-
-			labelMatchersBlob, err := json.Marshal(labelMatchers)
-			if err != nil {
-				log.Printf("unable to marshal label matchers: %v", err)
-				continue
-			}
-
-			_, err = i.db.ExecContext(
-				ctx,
-				insertQuery,
-				query.TS,
-				fingerprint,
-				query.QueryParam,
-				query.TimeParam,
-				labelMatchersBlob,
-				query.Duration.Milliseconds())
-
-			if err != nil {
-				log.Printf("unable to insert query: %v", err)
-			}
+		case query := <-i.queriesC:
+			i.ingest(ctx, query)
 		}
+	}
+}
+
+func (i *QueryIngester) drainWithGracePeriod() {
+	log.Printf("draining with grace period: %v", i.shutdownGracePeriod)
+
+	graceCtx, graceCancel := context.WithTimeout(context.Background(), i.shutdownGracePeriod)
+	defer graceCancel()
+	for query := range i.queriesC {
+		select {
+		case <-graceCtx.Done():
+			log.Printf("grace period expired, discarding remaining queries")
+			return
+		default:
+			i.ingest(graceCtx, query)
+		}
+	}
+}
+
+// TODO(mhoffm): we should ingest in batches probably
+func (i *QueryIngester) ingest(ctx context.Context, query Query) {
+	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
+	defer ingestCancel()
+
+	fingerprint := fingerprintFromQuery(query.QueryParam)
+	labelMatchers := labelMatchersFromQuery(query.QueryParam)
+
+	labelMatchersBlob, err := json.Marshal(labelMatchers)
+	if err != nil {
+		log.Printf("unable to marshal label matchers: %v", err)
+		return
+	}
+
+	_, err = i.db.ExecContext(
+		ingestCtx,
+		insertQuery,
+		query.TS,
+		fingerprint,
+		query.QueryParam,
+		query.TimeParam,
+		labelMatchersBlob,
+		query.Duration.Milliseconds())
+
+	if err != nil {
+		log.Printf("unable to insert query: %v", err)
+		return
 	}
 }
 

@@ -25,13 +25,17 @@ func main() {
 		upstream              string
 		dbPath                string
 		bufSize               int
+		gracePeriod           time.Duration
+		ingestTimeout         time.Duration
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9090", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
+	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.StringVar(&dbPath, "db-path", "prom-analytics.db", "The path to the duckdb file.")
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
+	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
+	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
 	flagset.Parse(os.Args[1:])
 
 	upstreamURL, err := url.Parse(upstream)
@@ -41,7 +45,7 @@ func main() {
 	}
 
 	if upstreamURL.Scheme != "http" && upstreamURL.Scheme != "https" {
-		log.Fatalf("Invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream)
+		log.Fatalf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream)
 	}
 
 	db, err := sql.Open("duckdb", dbPath)
@@ -54,28 +58,33 @@ func main() {
 		log.Fatalf("unable to ping DB: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	if _, err = db.ExecContext(ctx, `
+	if _, err = db.Exec(`
     CREATE TABLE IF NOT EXISTS queries (ts TIMESTAMP, fingerprint VARCHAR, query_param VARCHAR, time_param TIMESTAMP, label_matchers_list STRING, duration_ms BIGINT)
 `); err != nil {
 		log.Fatal(err)
 	}
 
-	queryIngester := ingester.NewQueryIngester(db, bufSize)
-
 	var g run.Group
 
-	g.Add(func() error {
-		queryIngester.Run(ctx)
-		return nil
-	}, func(error) {
-		cancel()
-	})
+	queryIngester := ingester.NewQueryIngester(db, bufSize, ingestTimeout, gracePeriod)
+
+	// Run Ingester loop
+	{
+		ctx, cancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			queryIngester.Run(ctx)
+			return nil
+		}, func(error) {
+			log.Printf("stopping Query Ingester")
+			cancel()
+		})
+	}
 
 	// Register proxy HTTP Server
 	{
-		routes, err := newRoutes(upstreamURL, *queryIngester)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		routes, err := newRoutes(upstreamURL, queryIngester)
 		if err != nil {
 			log.Fatalf("unable to create routes: %v", err)
 		}
@@ -83,61 +92,36 @@ func main() {
 		mux.Handle("/", routes)
 		l, err := net.Listen("tcp", insecureListenAddress)
 		if err != nil {
-			log.Fatalf("Failed to listen on address: %v", err)
+			log.Fatalf("failed to listen on address: %v", err)
 		}
 		srv := &http.Server{
 			Handler: mux,
-			BaseContext: func(_ net.Listener) context.Context {
-				return ctx
-			},
 		}
 
 		g.Add(func() error {
-			log.Printf("Listening insecurely on %v", l.Addr())
+			log.Printf("listening insecurely on %v", l.Addr())
 			if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
-				log.Printf("Server stopped with %v", err)
+				log.Printf("server stopped with %v", err)
 				return err
 			}
 			return nil
 		}, func(error) {
-			srv.Close()
+			log.Printf("stopping HTTP Server")
 			cancel()
+			srv.Shutdown(ctx)
 		})
 	}
 
 	// Register Signal Handler
 	{
-		g.Add(run.SignalHandler(ctx, syscall.SIGINT, syscall.SIGTERM))
+		g.Add(run.SignalHandler(context.Background(), syscall.SIGINT, syscall.SIGTERM))
 	}
-
-	// Goroutine to enforce a timeout after receiving SIGTERM
-	g.Add(func() error {
-		<-ctx.Done()
-		log.Printf("Received signal. Waiting up to 30 seconds to finish processing...")
-
-		timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer timeoutCancel()
-
-		select {
-		case <-timeoutCtx.Done():
-			if timeoutCtx.Err() == context.DeadlineExceeded {
-				log.Printf("Timeout reached. Forcing shutdown.")
-				os.Exit(1)
-			}
-		case <-ctx.Done():
-			// This case might never be selected since ctx.Done() has already been triggered.
-		}
-		return nil
-	}, func(error) {
-		cancel()
-	})
 
 	if err := g.Run(); err != nil {
 		if !errors.As(err, &run.SignalError{}) {
-			log.Printf("Server stopped with %v", err)
+			log.Printf("server stopped with %v", err)
 			os.Exit(1)
 		}
-		log.Print("Caught signal; exiting gracefully...")
+		log.Print("caught signal; exiting gracefully...")
 	}
-
 }

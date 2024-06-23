@@ -14,10 +14,10 @@ type routes struct {
 	handler  http.Handler
 	mux      *http.ServeMux
 
-	queryIngester ingester.QueryIngester
+	queryIngester *ingester.QueryIngester
 }
 
-func newRoutes(upstream *url.URL, queryIngester ingester.QueryIngester) (*routes, error) {
+func newRoutes(upstream *url.URL, queryIngester *ingester.QueryIngester) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
@@ -54,7 +54,7 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	}
 
 	r.handler.ServeHTTP(w, req)
-	r.queryIngester.Ingest(req.Context(), ingester.Query{
+	r.queryIngester.Ingest(ingester.Query{
 		TS:         start,
 		QueryParam: queryParam,
 		TimeParam:  timeParamNormalized,
