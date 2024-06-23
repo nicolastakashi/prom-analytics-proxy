@@ -57,6 +57,7 @@ func main() {
 	}
 	defer dbProvider.Close()
 
+	// Run parquet file flush loop
 	{
 		ctx, cancel := context.WithCancel(context.Background())
 		g.Add(func() error {
@@ -67,7 +68,7 @@ func main() {
 				return nil
 			})
 		}, func(error) {
-			log.Printf("stopping DBProvider")
+			log.Printf("stopping to flush parquet files")
 			cancel()
 		})
 	}
@@ -81,7 +82,7 @@ func main() {
 			queryIngester.Run(ctx)
 			return nil
 		}, func(error) {
-			log.Printf("stopping Query Ingester")
+			log.Printf("stopping query ingestion")
 			cancel()
 		})
 	}

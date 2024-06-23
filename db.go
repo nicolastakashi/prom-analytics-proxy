@@ -48,7 +48,7 @@ func (dbp *dbProvider) nextDB() error {
 	defer dbp.mu.Unlock()
 
 	// flush into parquet file
-	log.Println("Flushing parquet file from DB")
+	log.Println("flushing parquet file from DB")
 
 	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(`
 COPY
@@ -56,7 +56,7 @@ COPY
     TO '%s/%d.parquet'
     (FORMAT 'parquet');
 `, dbp.dbDir, time.Now().Unix())); err != nil {
-		log.Println("Flushing parquet file from DB failed: ", err)
+		log.Println("flushing parquet file from DB failed: ", err)
 	}
 
 	newDB, err := connectToDb(context.Background())
@@ -69,22 +69,20 @@ COPY
 }
 
 func (dbp *dbProvider) Close() {
-	dbp.WithDB(func(db *sql.DB) {
-		// flush into parquet file
-		log.Println("Flushing parquet file from DB")
+	dbp.mu.Lock()
+	defer dbp.mu.Unlock()
 
-		if _, err := db.ExecContext(context.Background(), fmt.Sprintf(`
+	// flush into parquet file
+	log.Println("flushing parquet file from DB before closing")
+
+	if _, err := dbp.curDB.ExecContext(context.Background(), fmt.Sprintf(`
 COPY
     (SELECT * FROM queries)
     TO '%s/%d.parquet'
     (FORMAT 'parquet');
 `, dbp.dbDir, time.Now().Unix())); err != nil {
-			log.Println("Flushing parquet file from DB failed: ", err)
-		}
-	})
-
-	dbp.mu.Lock()
-	defer dbp.mu.Unlock()
+		log.Println("flushing parquet file from DB before closing failed: ", err)
+	}
 
 	dbp.curDB.Close()
 }
