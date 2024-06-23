@@ -2,15 +2,13 @@ package main
 
 import (
 	"crypto/md5"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
 
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -19,33 +17,21 @@ type routes struct {
 	handler  http.Handler
 	mux      *http.ServeMux
 
-	queryC chan queryColumns
-
-	db *sql.DB
+	queryIngester ingester.QueryIngester
 }
 
-type queryColumns struct {
-	ts         time.Time
-	queryParam string
-	timeParam  time.Time
-	duration   time.Duration
-}
-
-func newRoutes(upstream *url.URL, db *sql.DB, bufSize int) (*routes, error) {
+func newRoutes(upstream *url.URL, queryIngester ingester.QueryIngester) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
-		upstream: upstream,
-		handler:  proxy,
-		queryC:   make(chan queryColumns, bufSize),
-		db:       db,
+		upstream:      upstream,
+		handler:       proxy,
+		queryIngester: queryIngester,
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
 	r.mux = mux
-
-	go r.recordQueries()
 
 	return r, nil
 }
@@ -71,31 +57,14 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	}
 
 	r.handler.ServeHTTP(w, req)
-
-	duration := time.Since(start)
-
-	select {
-	case r.queryC <- queryColumns{
-		ts:         start,
-		queryParam: queryParam,
-		timeParam:  timeParamNormalized,
-		duration:   duration,
-	}:
-	default:
-	}
-}
-
-func (r *routes) recordQueries() {
-	for q := range r.queryC {
-		fingerprint := fingerprintFromQuery(q.queryParam)
-		labelMatchers := labelMatchersFromQuery(q.queryParam)
-		labelMatchersBlob, _ := json.Marshal(labelMatchers)
-
-		//TODO: use context and consider batches
-		if _, err := r.db.Exec("INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?)", q.ts, fingerprint, q.queryParam, q.timeParam, labelMatchersBlob, q.duration.Milliseconds()); err != nil {
-			log.Printf("unable to write to duckdb: %v", err)
-		}
-	}
+	r.queryIngester.Ingest(req.Context(), ingester.Query{
+		TS:            start,
+		Fingerprint:   fingerprintFromQuery(queryParam),
+		QueryParam:    queryParam,
+		TimeParam:     timeParamNormalized,
+		LabelMatchers: labelMatchersFromQuery(queryParam),
+		Duration:      time.Since(start),
+	})
 }
 
 func fingerprintFromQuery(query string) string {
