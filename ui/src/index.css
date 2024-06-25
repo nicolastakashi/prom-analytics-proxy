@@ -1,0 +1,6 @@
+/* @import 'codemirror/lib/codemirror.css';
+@import 'codemirror/theme/material.css'; */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
