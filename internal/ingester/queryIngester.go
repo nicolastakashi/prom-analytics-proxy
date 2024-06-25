@@ -10,15 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
-type dbProvider interface {
-	WithDB(func(db *sql.DB))
-}
-
 type QueryIngester struct {
-	dbProvider dbProvider
+	dbProvider db.Provider
 	queriesC   chan Query
 
 	mu     sync.RWMutex
@@ -37,7 +34,7 @@ type Query struct {
 	BodySize   int
 }
 
-func NewQueryIngester(dbProvider dbProvider, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
+func NewQueryIngester(dbProvider db.Provider, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
 	return &QueryIngester{
 		dbProvider:          dbProvider,
 		queriesC:            make(chan Query, bufferSize),

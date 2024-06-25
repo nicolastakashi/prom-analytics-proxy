@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type dbProvider struct {
 	curDB *sql.DB
 }
 
-func newDBProvider(ctx context.Context, dbDir string) (*dbProvider, error) {
+func NewDBDuckProvider(ctx context.Context, dbDir string) (*dbProvider, error) {
 	if err := os.MkdirAll(dbDir, os.ModePerm); err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (dbp *dbProvider) WithDB(f func(db *sql.DB)) {
 	f(dbp.curDB)
 }
 
-func (dbp *dbProvider) nextDB() error {
+func (dbp *dbProvider) NextDB() error {
 	dbp.mu.Lock()
 	defer dbp.mu.Unlock()
 

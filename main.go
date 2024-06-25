@@ -15,6 +15,8 @@ import (
 	"github.com/efficientgo/core/runutil"
 	"github.com/oklog/run"
 
+	"github.com/MichaHoffmann/prom-analytics-proxy/api/routes"
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 )
 
@@ -51,7 +53,7 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := newDBProvider(context.Background(), dbDir)
+	dbProvider, err := db.NewDBDuckProvider(context.Background(), dbDir)
 	if err != nil {
 		log.Fatalf("unable to connect to db: %v", err)
 	}
@@ -62,7 +64,7 @@ func main() {
 		ctx, cancel := context.WithCancel(context.Background())
 		g.Add(func() error {
 			return runutil.Repeat(dbFlushPeriod, ctx.Done(), func() error {
-				if err := dbProvider.nextDB(); err != nil {
+				if err := dbProvider.NextDB(); err != nil {
 					return err
 				}
 				return nil
@@ -91,7 +93,7 @@ func main() {
 	{
 		ctx, cancel := context.WithCancel(context.Background())
 
-		routes, err := newRoutes(upstreamURL, queryIngester)
+		routes, err := routes.NewRoutes(upstreamURL, queryIngester)
 		if err != nil {
 			log.Fatalf("unable to create routes: %v", err)
 		}

@@ -1,4 +1,4 @@
-package main
+package routes
 
 import (
 	"net/http"
@@ -17,7 +17,7 @@ type routes struct {
 	queryIngester *ingester.QueryIngester
 }
 
-func newRoutes(upstream *url.URL, queryIngester *ingester.QueryIngester) (*routes, error) {
+func NewRoutes(upstream *url.URL, queryIngester *ingester.QueryIngester) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
@@ -28,6 +28,7 @@ func newRoutes(upstream *url.URL, queryIngester *ingester.QueryIngester) (*route
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
+	mux.Handle("/analytics", http.HandlerFunc(r.query))
 	r.mux = mux
 
 	return r, nil
@@ -82,4 +83,13 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 		StatusCode: recw.statusCode,
 		BodySize:   recw.bodySize,
 	})
+}
+
+func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
+	query := req.FormValue("query")
+	if query == "" {
+		http.Error(w, "missing query parameter", http.StatusBadRequest)
+		return
+	}
+
 }
