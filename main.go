@@ -14,6 +14,7 @@ import (
 
 	"github.com/efficientgo/core/runutil"
 	"github.com/oklog/run"
+	"github.com/rs/cors"
 
 	"github.com/MichaHoffmann/prom-analytics-proxy/api/routes"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
@@ -93,18 +94,25 @@ func main() {
 	{
 		ctx, cancel := context.WithCancel(context.Background())
 
-		routes, err := routes.NewRoutes(upstreamURL, queryIngester)
+		routes, err := routes.NewRoutes(upstreamURL, dbProvider, queryIngester)
 		if err != nil {
 			log.Fatalf("unable to create routes: %v", err)
 		}
+
 		mux := http.NewServeMux()
 		mux.Handle("/", routes)
+		corsHandler := cors.New(cors.Options{
+			AllowedOrigins:   []string{"*"}, // Allow all origins, adjust this for specific origins
+			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Content-Type", "Authorization"},
+			AllowCredentials: true,
+		}).Handler(mux)
 		l, err := net.Listen("tcp", insecureListenAddress)
 		if err != nil {
 			log.Fatalf("failed to listen on address: %v", err)
 		}
 		srv := &http.Server{
-			Handler: mux,
+			Handler: corsHandler,
 		}
 
 		g.Add(func() error {

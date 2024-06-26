@@ -1,11 +1,15 @@
 package routes
 
 import (
+	"database/sql"
+	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"time"
 
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 )
 
@@ -15,20 +19,23 @@ type routes struct {
 	mux      *http.ServeMux
 
 	queryIngester *ingester.QueryIngester
+	dbProvider    db.Provider
 }
 
-func NewRoutes(upstream *url.URL, queryIngester *ingester.QueryIngester) (*routes, error) {
+func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingester.QueryIngester) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
 		upstream:      upstream,
 		handler:       proxy,
 		queryIngester: queryIngester,
+		dbProvider:    dbProvider,
 	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
-	mux.Handle("/analytics", http.HandlerFunc(r.query))
+	mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
 	r.mux = mux
 
 	return r, nil
@@ -92,4 +99,60 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	r.dbProvider.WithDB(func(db *sql.DB) {
+		rows, err := db.QueryContext(req.Context(), query)
+		if err != nil {
+			log.Printf("unable to execute query: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		columns, err := rows.Columns()
+		if err != nil {
+			log.Printf("unable to fetch columns: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var data []map[string]interface{}
+
+		for rows.Next() {
+			columnPointers := make([]interface{}, len(columns))
+			columnValues := make([]sql.RawBytes, len(columns))
+			for i := range columnValues {
+				columnPointers[i] = &columnValues[i]
+			}
+
+			if err := rows.Scan(columnPointers...); err != nil {
+				log.Printf("unable to scan row: %v", err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			rowMap := make(map[string]interface{})
+			for i, colName := range columns {
+				rowMap[colName] = string(columnValues[i])
+			}
+
+			data = append(data, rowMap)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("error iterating rows: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		response := map[string]interface{}{
+			"columns": columns,
+			"data":    data,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("unable to encode results to JSON: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 }
