@@ -1,13 +1,10 @@
 import { useState } from 'react';
 import Header from './components/Header';
 import CodeEditor from './components/CodeEditor';
-import Table from './components/Table';
+import Table, { Result } from './components/Table';
+import { useQuery } from 'react-query';
+import fetchAnalyticsData from './fetch';
 
-interface Result {
-  id: number;
-  name: string;
-  age: number;
-}
 
 const schema = {
   queries: [
@@ -23,15 +20,28 @@ const schema = {
 }
 
 function App() {
-  const [sqlQuery, setSqlQuery] = useState('');
-  const [results, setResults] = useState<Array<Result>>(Array<Result>());
+  const [query, setQuery] = useState('');
+  const { data, error, isLoading, refetch } = useQuery<Result>(
+    ['analyticsData', query],
+    () => fetchAnalyticsData(query),
+    {
+      enabled: false, // Only run the query if the query is not empty
+    }
+  );
 
   const handleRunQuery = () => {
-    setResults([
-      { id: 1, name: 'Alice', age: 25 },
-      { id: 2, name: 'Bob', age: 30 },
-    ]);
+    refetch()
   };
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return <div>Error: {error as string}</div>;
+  }
+
+  console.log(data)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -39,12 +49,12 @@ function App() {
       <main className="flex-grow p-4">
         <div className="flex flex-col h-full">
           <CodeEditor
-            value={sqlQuery}
-            onChange={setSqlQuery}
+            value={query}
+            onChange={setQuery}
             onSubmit={handleRunQuery}
             schema={schema}
           />
-          <Table results={results} />
+          <Table results={data || { columns: [], data: [] }} />
         </div>
       </main>
     </div>
