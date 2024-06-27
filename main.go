@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/efficientgo/core/runutil"
 	"github.com/oklog/run"
 	"github.com/rs/cors"
 
@@ -23,13 +22,12 @@ import (
 
 func main() {
 	var (
-		insecureListenAddress string
-		upstream              string
-		dbDir                 string
-		bufSize               int
-		gracePeriod           time.Duration
-		ingestTimeout         time.Duration
-		dbFlushPeriod         time.Duration
+		insecureListenAddress    string
+		upstream                 string
+		bufSize                  int
+		gracePeriod              time.Duration
+		ingestTimeout            time.Duration
+		clickHouseProviderConfig db.ClickHouseProviderConfig
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -38,8 +36,9 @@ func main() {
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
-	flagset.StringVar(&dbDir, "db-dir", "data", "The directory to the local duckdb parquet files.")
-	flagset.DurationVar(&dbFlushPeriod, "db-flush-period", 1*time.Minute, "Interval to cut new parquet file from the current duckdb state.")
+
+	flagset.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
+	flagset.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
 	flagset.Parse(os.Args[1:])
 
 	upstreamURL, err := url.Parse(upstream)
@@ -54,27 +53,12 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := db.NewDBDuckProvider(context.Background(), dbDir)
+	dbProvider, err := db.NewClickHouseProvider(context.Background(), clickHouseProviderConfig)
+
 	if err != nil {
 		log.Fatalf("unable to connect to db: %v", err)
 	}
 	defer dbProvider.Close()
-
-	// Run parquet file flush loop
-	{
-		ctx, cancel := context.WithCancel(context.Background())
-		g.Add(func() error {
-			return runutil.Repeat(dbFlushPeriod, ctx.Done(), func() error {
-				if err := dbProvider.NextDB(); err != nil {
-					return err
-				}
-				return nil
-			})
-		}, func(error) {
-			log.Printf("stopping to flush parquet files")
-			cancel()
-		})
-	}
 
 	queryIngester := ingester.NewQueryIngester(dbProvider, bufSize, ingestTimeout, gracePeriod)
 

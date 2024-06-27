@@ -3,8 +3,6 @@ package ingester
 import (
 	"context"
 	"crypto/md5"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -16,7 +14,7 @@ import (
 
 type QueryIngester struct {
 	dbProvider db.Provider
-	queriesC   chan Query
+	queriesC   chan db.Query
 
 	mu     sync.RWMutex
 	closed bool
@@ -25,25 +23,16 @@ type QueryIngester struct {
 	ingestTimeout       time.Duration
 }
 
-type Query struct {
-	TS         time.Time
-	QueryParam string
-	TimeParam  time.Time
-	Duration   time.Duration
-	StatusCode int
-	BodySize   int
-}
-
 func NewQueryIngester(dbProvider db.Provider, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
 	return &QueryIngester{
 		dbProvider:          dbProvider,
-		queriesC:            make(chan Query, bufferSize),
+		queriesC:            make(chan db.Query, bufferSize),
 		ingestTimeout:       ingestTimeout,
 		shutdownGracePeriod: gracePeriod,
 	}
 }
 
-func (i *QueryIngester) Ingest(query Query) {
+func (i *QueryIngester) Ingest(query db.Query) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -93,36 +82,18 @@ func (i *QueryIngester) drainWithGracePeriod() {
 	}
 }
 
-const insertQuery = `INSERT INTO queries VALUES (?, ?, ?, ?, ?::JSON, ?, ?, ?)`
-
 // TODO(mhoffm): we should ingest in batches probably
-func (i *QueryIngester) ingest(ctx context.Context, query Query) {
+func (i *QueryIngester) ingest(ctx context.Context, query db.Query) {
 	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
 	defer ingestCancel()
 
 	fingerprint := fingerprintFromQuery(query.QueryParam)
 	labelMatchers := labelMatchersFromQuery(query.QueryParam)
 
-	labelMatchersBlob, err := json.Marshal(labelMatchers)
-	if err != nil {
-		log.Printf("unable to marshal label matchers: %v", err)
-		return
-	}
+	query.LabelMatchers = labelMatchers
+	query.Fingerprint = fingerprint
 
-	i.dbProvider.WithDB(func(db *sql.DB) {
-		_, err = db.ExecContext(
-			ingestCtx,
-			insertQuery,
-			query.TS,
-			fingerprint,
-			query.QueryParam,
-			query.TimeParam,
-			string(labelMatchersBlob),
-			query.Duration.Milliseconds(),
-			query.StatusCode,
-			query.BodySize,
-		)
-	})
+	err := i.dbProvider.Insert(ingestCtx, query)
 	if err != nil {
 		log.Printf("unable to insert query: %v", err)
 		return

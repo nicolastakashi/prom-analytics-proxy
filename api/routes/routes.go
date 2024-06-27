@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -82,7 +81,7 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	recw := &recordingResponseWriter{ResponseWriter: w}
 	r.handler.ServeHTTP(recw, req)
 
-	r.queryIngester.Ingest(ingester.Query{
+	r.queryIngester.Ingest(db.Query{
 		TS:         start,
 		QueryParam: queryParam,
 		TimeParam:  timeParamNormalized,
@@ -99,60 +98,68 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r.dbProvider.WithDB(func(db *sql.DB) {
-		rows, err := db.QueryContext(req.Context(), query)
-		if err != nil {
-			log.Printf("unable to execute query: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
+	rows, err := r.dbProvider.Query(req.Context(), query)
+	if err != nil {
+		log.Printf("unable to execute query: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		log.Printf("unable to fetch columns: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		columns, err := rows.Columns()
-		if err != nil {
-			log.Printf("unable to fetch columns: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	var data []map[string]interface{}
 
-		var data []map[string]interface{}
-
-		for rows.Next() {
-			columnPointers := make([]interface{}, len(columns))
-			columnValues := make([]sql.RawBytes, len(columns))
-			for i := range columnValues {
-				columnPointers[i] = &columnValues[i]
-			}
-
-			if err := rows.Scan(columnPointers...); err != nil {
-				log.Printf("unable to scan row: %v", err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			rowMap := make(map[string]interface{})
-			for i, colName := range columns {
-				rowMap[colName] = string(columnValues[i])
-			}
-
-			data = append(data, rowMap)
+	for rows.Next() {
+		columnPointers := make([]interface{}, len(columns))
+		columnValues := make([]interface{}, len(columns))
+		for i := range columnValues {
+			columnPointers[i] = &columnValues[i]
 		}
 
-		if err := rows.Err(); err != nil {
-			log.Printf("error iterating rows: %v", err)
+		if err := rows.Scan(columnPointers...); err != nil {
+			log.Printf("unable to scan row: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		response := map[string]interface{}{
-			"columns": columns,
-			"data":    data,
+		rowMap := make(map[string]interface{})
+		for i, colName := range columns {
+			var v interface{}
+			switch columnValues[i].(type) {
+			case []uint8:
+				v = string(columnValues[i].([]uint8))
+			case []string:
+				v = columnValues[i].([]string)
+			case nil:
+				v = nil
+			default:
+				v = columnValues[i]
+			}
+			rowMap[colName] = v
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("unable to encode results to JSON: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	})
+		data = append(data, rowMap)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("error iterating rows: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"columns": columns,
+		"data":    data,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("unable to encode results to JSON: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
