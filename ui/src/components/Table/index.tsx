@@ -1,62 +1,61 @@
+import React from 'react';
+import { format, parseISO } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
 export interface Result {
     columns: string[],
     data: Array<any>
 }
+
 interface TableProps {
     results: Result;
 }
 
 function Table({ results }: TableProps) {
-    debugger;
-    if (results?.columns?.length === 0) {
-        return null;
-    }
+    const formatDateToUTC = (dateString: string) => {
+        const date = parseISO(dateString);
+        const zonedDate = toZonedTime(date, 'UTC');
+        return format(zonedDate, 'yyyy-MM-dd HH:mm:ss \'UTC\'');
+    };
+
     return (
-        <div className="overflow-x-auto">
-            <table className="min-w-full bg-white">
-                <thead className="bg-gray-800 text-white">
-                    <tr>
-                        {results.columns.map((column) => (
-                            <th key={column} className="w-1/3 text-left py-3 px-4 uppercase font-semibold text-sm">
-                                {column}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody className="text-gray-700">
-                    {results.data.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="bg-gray-100 border-b border-gray-200">
-                            {results.columns.map((column) => (
-                                <td key={column} className="w-1/3 text-left py-3 px-4">
-                                    {row[column]}
-                                </td>
+        <div className="bg-white shadow-md rounded-md overflow-hidden h-full">
+            {results?.columns?.length > 0 ? (
+                <div className="overflow-x-auto border border-gray-300 rounded-md h-full flex flex-col">
+                    <table className="min-w-full bg-white">
+                        <thead className="bg-blumine-800 text-white">
+                            <tr>
+                                {results.columns.map((column) => (
+                                    <th key={column} className="w-1/3 text-left py-3 px-4 font-semibold text-sm">
+                                        {column}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="text-gray-700">
+                            {results.data.map((row, rowIndex) => (
+                                <tr key={rowIndex} className="bg-gray-100 border-b border-gray-200">
+                                    {results.columns.map((column) => (
+                                        <td key={column} className="w-1/3 text-left py-3 px-4">
+                                            {column === 'TS' || column === 'TimeParam' ? (
+                                                formatDateToUTC(row[column])
+                                            ) : (
+                                                row[column]
+                                            )}
+                                        </td>
+                                    ))}
+                                </tr>
                             ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <div className="flex items-center justify-center h-full text-center text-gray-500" style={{ minHeight: '150px' }}>
+                    No results found
+                </div>
+            )}
         </div>
-        // <div className="flex-grow overflow-auto">
-        //     <table className="min-w-full bg-white">
-        //         <thead>
-        //             <tr>
-        //                 <th className="py-2 px-4 border-b">ID</th>
-        //                 <th className="py-2 px-4 border-b">Name</th>
-        //                 <th className="py-2 px-4 border-b">Age</th>
-        //             </tr>
-        //         </thead>
-        //         <tbody>
-        //             {/* {props.results.map((result) => (
-        //                 <tr key={result.id}>
-        //                     <td className="py-2 px-4 border-b">{result.id}</td>
-        //                     <td className="py-2 px-4 border-b">{result.name}</td>
-        //                     <td className="py-2 px-4 border-b">{result.age}</td>
-        //                 </tr>
-        //             ))} */}
-        //         </tbody>
-        //     </table>
-        // </div>
-    )
+    );
 }
 
 export default Table;

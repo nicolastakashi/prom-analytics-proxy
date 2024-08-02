@@ -14,6 +14,8 @@
     "@uiw/codemirror-theme-vscode": "^4.22.2",
     "@uiw/react-codemirror": "^4.22.2",
     "axios": "^1.7.2",
+    "date-fns": "^3.6.0",
+    "date-fns-tz": "^3.1.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-query": "^3.39.3"

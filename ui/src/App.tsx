@@ -5,17 +5,17 @@ import Table, { Result } from './components/Table';
 import { useQuery } from 'react-query';
 import fetchAnalyticsData from './fetch';
 
-
 const schema = {
   queries: [
-    'ts',
-    'fingerprint',
-    'query_param',
-    'time_param',
-    'label_matchers_list',
-    'duration_ms',
-    'status_code',
-    'body_size_bytes'
+    'TS',
+    'Fingerprint',
+    'QueryParam',
+    'TimeParam',
+    'LabelMatchers.Key',
+    'LabelMatchers.Value',
+    'Duration',
+    'StatusCode',
+    'BodySize'
   ]
 }
 
@@ -30,21 +30,11 @@ function App() {
   );
 
   const handleRunQuery = () => {
-    refetch()
+    refetch();
   };
 
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
-
-  if (error) {
-    return <div>Error: {error as string}</div>;
-  }
-
-  console.log(data)
-
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gray-50">
       <Header />
       <main className="flex-grow p-4">
         <div className="flex flex-col h-full">
@@ -53,14 +43,25 @@ function App() {
             onChange={setQuery}
             onSubmit={handleRunQuery}
             schema={schema}
+            isLoading={isLoading}
           />
-          <Table results={data || { columns: [], data: [] }} />
+          <div className="flex-grow mt-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center w-full h-full text-center text-gray-500">
+                Loading...
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center w-full h-full text-center text-red-500">
+                Error: {error as string}
+              </div>
+            ) : (
+              <Table results={data || { columns: [], data: [] }} />
+            )}
+          </div>
         </div>
       </main>
     </div>
   );
 }
-
-
 
 export default App;
