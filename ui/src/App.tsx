@@ -4,6 +4,7 @@ import CodeEditor from './components/CodeEditor';
 import Table, { Result } from './components/Table';
 import { useQuery } from 'react-query';
 import fetchAnalyticsData from './fetch';
+import { toast } from 'react-toastify';
 
 const schema = {
   queries: [
@@ -21,11 +22,14 @@ const schema = {
 
 function App() {
   const [query, setQuery] = useState('');
-  const { data, error, isLoading, refetch } = useQuery<Result>(
+  const { data, isLoading, refetch } = useQuery<Result>(
     ['analyticsData', query],
     () => fetchAnalyticsData(query),
     {
-      enabled: false, // Only run the query if the query is not empty
+      enabled: false, // Only run the query if the query is not empty,
+      onError: (error) => {
+        toast.error(`Error: ${(error as Error).message || 'An unknown error occurred'}`);
+      },
     }
   );
 
@@ -46,17 +50,7 @@ function App() {
             isLoading={isLoading}
           />
           <div className="flex-grow mt-4">
-            {isLoading ? (
-              <div className="flex items-center justify-center w-full h-full text-center text-gray-500">
-                Loading...
-              </div>
-            ) : error ? (
-              <div className="flex items-center justify-center w-full h-full text-center text-red-500">
-                Error: {error as string}
-              </div>
-            ) : (
-              <Table results={data || { columns: [], data: [] }} />
-            )}
+            <Table results={data || { columns: [], data: [] }} isLoading={isLoading} />
           </div>
         </div>
       </main>

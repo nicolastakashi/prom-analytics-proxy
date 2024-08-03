@@ -1,4 +1,3 @@
-import React from 'react';
 import { format, parseISO } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
@@ -9,9 +8,10 @@ export interface Result {
 
 interface TableProps {
     results: Result;
+    isLoading: boolean;
 }
 
-function Table({ results }: TableProps) {
+function Table({ results, isLoading }: TableProps) {
     const formatDateToUTC = (dateString: string) => {
         const date = parseISO(dateString);
         const zonedDate = toZonedTime(date, 'UTC');
@@ -51,7 +51,7 @@ function Table({ results }: TableProps) {
                 </div>
             ) : (
                 <div className="flex items-center justify-center h-full text-center text-gray-500" style={{ minHeight: '150px' }}>
-                    No results found
+                    {isLoading ? 'Loading...' : 'No data available'}
                 </div>
             )}
         </div>
