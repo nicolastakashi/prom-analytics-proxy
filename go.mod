@@ -1,6 +1,6 @@
 module github.com/MichaHoffmann/prom-analytics-proxy
 
-go 1.21.10
+go 1.23.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.26.0
