@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"flag"
+	"io/fs"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +23,13 @@ import (
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 )
+
+//go:embed ui/dist/*
+var assets embed.FS
+
+func loadEmbedFS(pathPrefix string) (fs.FS, error) {
+	return fs.Sub(assets, filepath.Clean(pathPrefix))
+}
 
 func main() {
 	var (
@@ -78,7 +89,12 @@ func main() {
 	{
 		ctx, cancel := context.WithCancel(context.Background())
 
-		routes, err := routes.NewRoutes(upstreamURL, dbProvider, queryIngester)
+		uiFS, err := loadEmbedFS("ui/dist")
+		if err != nil {
+			slog.Error(err.Error())
+		}
+
+		routes, err := routes.NewRoutes(upstreamURL, dbProvider, queryIngester, uiFS)
 		if err != nil {
 			log.Fatalf("unable to create routes: %v", err)
 		}

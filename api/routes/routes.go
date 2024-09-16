@@ -1,8 +1,12 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -21,7 +25,7 @@ type routes struct {
 	dbProvider    db.Provider
 }
 
-func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingester.QueryIngester) (*routes, error) {
+func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingester.QueryIngester, uiFS fs.FS) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	r := &routes{
@@ -32,7 +36,8 @@ func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingeste
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", http.HandlerFunc(r.passthrough))
+	mux.Handle("/", uiHandler(uiFS))
+	mux.Handle("/api/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
 	mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
 	r.mux = mux
@@ -162,4 +167,46 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		log.Printf("unable to encode results to JSON: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func uiHandler(uiFS fs.FS) http.HandlerFunc {
+	uiHandler := http.ServeMux{}
+	err := fs.WalkDir(uiFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		b, err := fs.ReadFile(uiFS, path)
+		if err != nil {
+			return fmt.Errorf("failed to read ui file %s: %w", path, err)
+		}
+
+		fi, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to receive file info %s: %w", path, err)
+		}
+
+		paths := []string{fmt.Sprintf("/%s", path)}
+
+		if paths[0] == "/index.html" {
+			paths = append(paths, "/")
+		}
+
+		for _, path := range paths {
+			uiHandler.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+				http.ServeContent(w, r, d.Name(), fi.ModTime(), bytes.NewReader(b))
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Error(err.Error())
+		return nil
+	}
+
+	return uiHandler.ServeHTTP
 }
