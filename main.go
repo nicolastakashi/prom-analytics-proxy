@@ -101,16 +101,19 @@ func main() {
 
 		mux := http.NewServeMux()
 		mux.Handle("/", routes)
+
 		corsHandler := cors.New(cors.Options{
 			AllowedOrigins:   []string{"*"}, // Allow all origins, adjust this for specific origins
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Content-Type", "Authorization"},
 			AllowCredentials: true,
 		}).Handler(mux)
+
 		l, err := net.Listen("tcp", insecureListenAddress)
 		if err != nil {
 			log.Fatalf("failed to listen on address: %v", err)
 		}
+
 		srv := &http.Server{
 			Handler: corsHandler,
 		}

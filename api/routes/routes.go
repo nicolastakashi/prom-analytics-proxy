@@ -27,6 +27,11 @@ type routes struct {
 
 func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingester.QueryIngester, uiFS fs.FS) (*routes, error) {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = upstream.Host // Set the Host header to the target host
+	}
 
 	r := &routes{
 		upstream:      upstream,
@@ -55,45 +60,48 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 
 type recordingResponseWriter struct {
 	http.ResponseWriter
-
 	statusCode int
-	bodySize   int
+	body       *bytes.Buffer
 }
 
-func (r *recordingResponseWriter) WriteHeader(status int) {
-	r.statusCode = status
-	r.ResponseWriter.WriteHeader(status)
+// NewCustomResponseWriter creates a new instance of CustomResponseWriter
+func newCustomResponseWriter(w http.ResponseWriter) *recordingResponseWriter {
+	return &recordingResponseWriter{w, http.StatusOK, &bytes.Buffer{}}
 }
 
-func (r *recordingResponseWriter) Write(p []byte) (int, error) {
-	n, err := r.ResponseWriter.Write(p)
-	r.bodySize += n
-	return n, err
+// WriteHeader to capture status code
+func (rw *recordingResponseWriter) WriteHeader(statusCode int) {
+	rw.statusCode = statusCode
+	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write to capture body
+func (rw *recordingResponseWriter) Write(b []byte) (int, error) {
+	rw.body.Write(b)                  // Write to buffer
+	return rw.ResponseWriter.Write(b) // Write response to client
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
-	queryParam := req.FormValue("query")
-	timeParam := req.FormValue("time")
-
-	var timeParamNormalized time.Time
-	if timeParam == "" {
-		timeParamNormalized = time.Now()
-	} else {
-		timeParamNormalized, _ = time.Parse(time.RFC3339, timeParam)
-	}
-
-	recw := &recordingResponseWriter{ResponseWriter: w}
+	recw := newCustomResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
 
 	r.queryIngester.Ingest(db.Query{
 		TS:         start,
-		QueryParam: queryParam,
-		TimeParam:  timeParamNormalized,
+		QueryParam: req.FormValue("query"),
+		TimeParam:  getTimeParam(req),
 		Duration:   time.Since(start),
 		StatusCode: recw.statusCode,
-		BodySize:   recw.bodySize,
+		BodySize:   recw.body.Len(),
 	})
+}
+
+func getTimeParam(req *http.Request) time.Time {
+	if timeParam := req.FormValue("time"); timeParam != "" {
+		timeParamNormalized, _ := time.Parse(time.RFC3339, timeParam)
+		return timeParamNormalized
+	}
+	return time.Now()
 }
 
 func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
