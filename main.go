@@ -65,7 +65,6 @@ func main() {
 	var g run.Group
 
 	dbProvider, err := db.NewClickHouseProvider(context.Background(), clickHouseProviderConfig)
-
 	if err != nil {
 		log.Fatalf("unable to connect to db: %v", err)
 	}
