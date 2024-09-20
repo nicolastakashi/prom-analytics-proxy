@@ -34,13 +34,12 @@ func loadEmbedFS(pathPrefix string) (fs.FS, error) {
 
 func main() {
 	var (
-		insecureListenAddress    string
-		upstream                 string
-		includeQueryStats        bool
-		bufSize                  int
-		gracePeriod              time.Duration
-		ingestTimeout            time.Duration
-		clickHouseProviderConfig db.ClickHouseProviderConfig
+		insecureListenAddress string
+		upstream              string
+		includeQueryStats     bool
+		bufSize               int
+		gracePeriod           time.Duration
+		ingestTimeout         time.Duration
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -81,7 +80,7 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := db.NewClickHouseProvider(context.Background(), clickHouseProviderConfig)
+	dbProvider, err := db.NewClickHouseProvider(context.Background())
 	if err != nil {
 		slog.Error("unable to create db provider", "err", err)
 		os.Exit(1)
