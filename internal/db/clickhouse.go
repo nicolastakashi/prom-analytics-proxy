@@ -49,18 +49,18 @@ type ClickHouseProviderConfig struct {
 }
 
 var (
-	clickHouseProviderConfig ClickHouseProviderConfig
+	config ClickHouseProviderConfig = ClickHouseProviderConfig{}
 )
 
 func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
-	flagSet.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
-	flagSet.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
-	flagSet.StringVar(&clickHouseProviderConfig.Auth.Database, "clickhouse-database", "default", "Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var.")
-	flagSet.StringVar(&clickHouseProviderConfig.Auth.Username, "clickhouse-username", os.Getenv("CLICKHOUSE_USER"), "Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.")
-	flagSet.StringVar(&clickHouseProviderConfig.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
+	flagSet.DurationVar(&config.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
+	flagSet.StringVar(&config.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
+	flagSet.StringVar(&config.Auth.Database, "clickhouse-database", "default", "Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var.")
+	flagSet.StringVar(&config.Auth.Username, "clickhouse-username", os.Getenv("CLICKHOUSE_USER"), "Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.")
+	flagSet.StringVar(&config.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
 }
 
-func NewClickHouseProvider(ctx context.Context, config ClickHouseProviderConfig) (Provider, error) {
+func NewClickHouseProvider(ctx context.Context) (Provider, error) {
 	opts := &clickhouse.Options{
 		Addr:        strings.Split(config.Addr, ","),
 		DialTimeout: config.DiamTimeout,
