@@ -1,0 +1,102 @@
+name: checks
+on:
+  pull_request:
+  push:
+    branches:
+      - "main"
+jobs:
+  check-golang:
+    runs-on: ubuntu-latest
+    name: Golang and UI Linting
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.node-version }}"
+          check-latest: true
+          cache: "npm"
+          cache-dependency-path: "**/package-lock.json"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+
+      - name: Install UI Dependencies
+        run: make uidependencies
+
+      - name: Build UI
+        run: make uibuild
+
+      - name: Tidy Go modules and check for changes
+        run: make tidy && git diff --exit-code
+
+      - name: Run GolangCI Lint
+        uses: golangci/golangci-lint-action@v6.0.1
+        with:
+          version: v1.60.3
+          args: --timeout 10m0s --go ${{ env.golang-version }}
+
+  format:
+    runs-on: ubuntu-latest
+    name: Documentation Formatting Check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+
+      - name: Tidy Go modules
+        run: make tidy
+
+      - name: Check Documentation
+        run: make check-docs
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+    name: Build API and UI
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.node-version }}"
+          check-latest: true
+          cache: "npm"
+          cache-dependency-path: "**/package-lock.json"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+
+      - name: Install UI Dependencies
+        run: make uidependencies
+
+      - name: Build UI
+        run: make uibuild
+
+      - name: Build API
+        run: make build

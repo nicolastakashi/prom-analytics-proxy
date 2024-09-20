@@ -74,6 +74,19 @@ check-docs: $(MDOX_BINARY)
 
 all: fmt vet tests deps build
 
+.PHONY: tidy
+tidy:
+	go mod tidy -v
+	cd scripts && go mod tidy -v -modfile=go.mod -compat=1.18
+
+.PHONY: uibuild
+uibuild:
+	cd ui && npm run build
+
+.PHONY: uidependencies
+uidependencies:
+	cd ui && npm install
+
 .PHONY: build
 
 $(TOOLS_BIN_DIR):
