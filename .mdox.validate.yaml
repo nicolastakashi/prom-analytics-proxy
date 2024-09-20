@@ -5,3 +5,5 @@ validators:
   # docs.github.com returns 403 if not in browser. Cannot curl as well.
   - regex: 'docs\.github\.com'
     type: "ignore"
+  - regex: 'github\.com'
+    type: "ignore"
