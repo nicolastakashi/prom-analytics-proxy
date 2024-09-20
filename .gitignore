@@ -406,3 +406,4 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/node,react,go,visualstudiocode,goland,vim,macos,linux,windows
 
 data/
+tmp/

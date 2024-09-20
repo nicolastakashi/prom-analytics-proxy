@@ -52,7 +52,10 @@ func main() {
 
 	flagset.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
 	flagset.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
-	flagset.Parse(os.Args[1:])
+	err := flagset.Parse(os.Args[1:])
+	if err != nil {
+		log.Fatalf("unable to parse flags: %v", err)
+	}
 
 	upstreamURL, err := url.Parse(upstream)
 
@@ -136,7 +139,9 @@ func main() {
 		}, func(error) {
 			log.Printf("stopping HTTP Server")
 			cancel()
-			srv.Shutdown(ctx)
+			if err := srv.Shutdown(ctx); err != nil {
+				log.Printf("error shutting down server: %v", err)
+			}
 		})
 	}
 
