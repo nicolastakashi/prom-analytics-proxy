@@ -12,7 +12,7 @@
   "dependencies": {
     "@codemirror/lang-sql": "^6.7.1",
     "@uiw/codemirror-theme-vscode": "^4.22.2",
-    "@uiw/react-codemirror": "^4.22.2",
+    "@uiw/react-codemirror": "^4.23.2",
     "axios": "^1.7.2",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.1.3",
