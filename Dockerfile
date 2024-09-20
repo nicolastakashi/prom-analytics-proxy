@@ -16,15 +16,13 @@ WORKDIR /go/src/github.com/MichaHoffmann/prom-analytics-proxy
 RUN apt-get update
 RUN useradd -ms /bin/bash prom-analytics-proxy
 
-COPY --from=uibuild  /go/src/github.com/MichaHoffmann/prom-analytics-proxy/dist ./ui/dist
-
-RUN ls -la
+COPY --from=uibuild /go/src/github.com/MichaHoffmann/prom-analytics-proxy/dist ./ui/dist
 
 COPY --chown=prom-analytics-proxy:prom-analytics-proxy . .
 
 RUN make all
 
-FROM gcr.io/distroless/static:latest-arm64
+FROM gcr.io/distroless/static:latest
 
 WORKDIR /prom-analytics-proxy
 
