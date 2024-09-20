@@ -53,8 +53,7 @@ func main() {
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
 
-	flagset.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
-	flagset.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
+	db.RegisterClickHouseFlags(flagset)
 
 	err := flagset.Parse(os.Args[1:])
 	if err != nil {
