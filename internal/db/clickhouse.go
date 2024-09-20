@@ -32,11 +32,13 @@ CREATE TABLE IF NOT EXISTS queries (
 	Step Float64,
 	Start DateTime,
 	End DateTime,
+	TotalQueryableSamples Int32,
+	PeakSamples Int32
 ) ENGINE = MergeTree()
 ORDER BY TS;
 `
 
-const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 type ClickHouseProviderConfig struct {
 	Addr        string
@@ -95,6 +97,8 @@ func (c *ClickHouseProvider) Insert(ctx context.Context, query Query) error {
 		query.Step,
 		query.Start,
 		query.End,
+		query.TotalQueryableSamples,
+		query.PeakSamples,
 	)
 
 	return err

@@ -10,16 +10,18 @@ const (
 )
 
 type Query struct {
-	TS            time.Time
-	QueryParam    string
-	TimeParam     time.Time
-	Duration      time.Duration
-	StatusCode    int
-	BodySize      int
-	LabelMatchers []map[string]string
-	Fingerprint   string
-	Type          QueryType
-	Step          float64
-	Start         time.Time
-	End           time.Time
+	TS                    time.Time
+	QueryParam            string
+	TimeParam             time.Time
+	Duration              time.Duration
+	StatusCode            int
+	BodySize              int
+	LabelMatchers         []map[string]string
+	Fingerprint           string
+	Type                  QueryType
+	Step                  float64
+	Start                 time.Time
+	End                   time.Time
+	TotalQueryableSamples int
+	PeakSamples           int
 }

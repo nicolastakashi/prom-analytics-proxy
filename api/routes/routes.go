@@ -23,32 +23,98 @@ type routes struct {
 	handler  http.Handler
 	mux      *http.ServeMux
 
-	queryIngester *ingester.QueryIngester
-	dbProvider    db.Provider
+	queryIngester     *ingester.QueryIngester
+	dbProvider        db.Provider
+	includeQueryStats bool
 }
 
-func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingester.QueryIngester, uiFS fs.FS) (*routes, error) {
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.Host = upstream.Host // Set the Host header to the target host
-	}
+type Response struct {
+	Status string `json:"status"`
+	Data   Data   `json:"data"`
+}
 
+type Data struct {
+	ResultType string `json:"resultType"`
+	Stats      Stats  `json:"stats"`
+}
+
+type Stats struct {
+	Timings Timings `json:"timings"`
+	Samples Samples `json:"samples"`
+}
+
+type Timings struct {
+	EvalTotalTime        float64 `json:"evalTotalTime"`
+	ResultSortTime       float64 `json:"resultSortTime"`
+	QueryPreparationTime float64 `json:"queryPreparationTime"`
+	InnerEvalTime        float64 `json:"innerEvalTime"`
+	ExecQueueTime        float64 `json:"execQueueTime"`
+	ExecTotalTime        float64 `json:"execTotalTime"`
+}
+
+type Samples struct {
+	TotalQueryableSamples int `json:"totalQueryableSamples"`
+	PeakSamples           int `json:"peakSamples"`
+}
+
+type Option func(*routes)
+
+func WithDBProvider(dbProvider db.Provider) Option {
+	return func(r *routes) {
+		r.dbProvider = dbProvider
+	}
+}
+
+func WithQueryIngester(queryIngester *ingester.QueryIngester) Option {
+	return func(r *routes) {
+		r.queryIngester = queryIngester
+	}
+}
+
+func WithUIFS(uiFS fs.FS) Option {
+	return func(r *routes) {
+		mux := http.NewServeMux()
+		mux.Handle("/", r.ui(uiFS))
+		mux.Handle("/api/", http.HandlerFunc(r.passthrough))
+		mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
+		mux.Handle("/api/v1/query_range", http.HandlerFunc(r.query_range))
+		mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
+		r.mux = mux
+	}
+}
+
+func WithProxy(upstream *url.URL) Option {
+	return func(r *routes) {
+		proxy := httputil.NewSingleHostReverseProxy(upstream)
+		originalDirector := proxy.Director
+		proxy.Director = func(req *http.Request) {
+			originalDirector(req)
+			req.Host = upstream.Host // Set the Host header to the target host
+			if r.includeQueryStats {
+				query := req.URL.Query()
+				query.Add("stats", "true")
+				req.URL.RawQuery = query.Encode()
+			}
+		}
+		r.upstream = upstream
+		r.handler = proxy
+	}
+}
+
+func WithIncludeQueryStats(includeQueryStats bool) Option {
+	return func(r *routes) {
+		r.includeQueryStats = includeQueryStats
+	}
+}
+
+func NewRoutes(opts ...Option) (*routes, error) {
 	r := &routes{
-		upstream:      upstream,
-		handler:       proxy,
-		queryIngester: queryIngester,
-		dbProvider:    dbProvider,
+		mux: http.NewServeMux(), // Initialize mux to avoid nil pointer dereference
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/", r.ui(uiFS))
-	mux.Handle("/api/", http.HandlerFunc(r.passthrough))
-	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
-	mux.Handle("/api/v1/query_range", http.HandlerFunc(r.query_range))
-	mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
-	r.mux = mux
+	for _, opt := range opts {
+		opt(r)
+	}
 
 	return r, nil
 }
@@ -84,6 +150,44 @@ func (rw *recordingResponseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b) // Write response to client
 }
 
+func (r *routes) parseQueryResponse(recw *recordingResponseWriter) *Response {
+	if !r.includeQueryStats {
+		return nil
+	}
+
+	var response Response
+	if err := json.NewDecoder(recw.body).Decode(&response); err != nil {
+		log.Printf("unable to decode response body: %v", err)
+		return nil
+	}
+
+	if response.Status != "success" {
+		log.Printf("query did not succeed: %v", response.Status)
+		return nil
+	}
+
+	return &response
+}
+
+func getTimeParam(req *http.Request, param string) time.Time {
+	if timeParam := req.FormValue(param); timeParam != "" {
+		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
+		if err != nil {
+			log.Printf("unable to parse time parameter: %v", err)
+		}
+		return timeParamNormalized
+	}
+	return time.Now()
+}
+
+func getStepParam(req *http.Request) float64 {
+	if stepParam := req.FormValue("step"); stepParam != "" {
+		step, _ := strconv.ParseFloat(stepParam, 64)
+		return step
+	}
+	return 15
+}
+
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	query := db.Query{
@@ -114,6 +218,11 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 
 	recw := newCustomResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
+
+	if response := r.parseQueryResponse(recw); response != nil {
+		query.TotalQueryableSamples = response.Data.Stats.Samples.TotalQueryableSamples
+		query.PeakSamples = response.Data.Stats.Samples.PeakSamples
+	}
 
 	query.Duration = time.Since(start)
 	query.StatusCode = recw.statusCode
@@ -158,30 +267,16 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	recw := newCustomResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
 
+	if response := r.parseQueryResponse(recw); response != nil {
+		query.TotalQueryableSamples = response.Data.Stats.Samples.TotalQueryableSamples
+		query.PeakSamples = response.Data.Stats.Samples.PeakSamples
+	}
+
 	query.Duration = time.Since(start)
 	query.StatusCode = recw.statusCode
 	query.BodySize = recw.body.Len()
 
 	r.queryIngester.Ingest(query)
-}
-
-func getTimeParam(req *http.Request, param string) time.Time {
-	if timeParam := req.FormValue(param); timeParam != "" {
-		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
-		if err != nil {
-			log.Printf("unable to parse time parameter: %v", err)
-		}
-		return timeParamNormalized
-	}
-	return time.Now()
-}
-
-func getStepParam(req *http.Request) float64 {
-	if stepParam := req.FormValue("step"); stepParam != "" {
-		step, _ := strconv.ParseFloat(stepParam, 64)
-		return step
-	}
-	return 15
 }
 
 func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {

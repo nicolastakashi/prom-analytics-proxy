@@ -35,6 +35,7 @@ func main() {
 	var (
 		insecureListenAddress    string
 		upstream                 string
+		includeQueryStats        bool
 		bufSize                  int
 		gracePeriod              time.Duration
 		ingestTimeout            time.Duration
@@ -44,6 +45,7 @@ func main() {
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
+	flagset.BoolVar(&includeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
@@ -93,7 +95,14 @@ func main() {
 			slog.Error(err.Error())
 		}
 
-		routes, err := routes.NewRoutes(upstreamURL, dbProvider, queryIngester, uiFS)
+		routes, err := routes.NewRoutes(
+			routes.WithIncludeQueryStats(includeQueryStats),
+			routes.WithProxy(upstreamURL),
+			routes.WithDBProvider(dbProvider),
+			routes.WithQueryIngester(queryIngester),
+			routes.WithUIFS(uiFS),
+		)
+
 		if err != nil {
 			log.Fatalf("unable to create routes: %v", err)
 		}
