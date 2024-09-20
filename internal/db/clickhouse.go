@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"flag"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -43,13 +45,40 @@ const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 
 type ClickHouseProviderConfig struct {
 	Addr        string
 	DiamTimeout time.Duration
+	Auth        clickhouse.Auth
+}
+
+var (
+	clickHouseProviderConfig ClickHouseProviderConfig
+)
+
+func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
+	flagSet.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
+	flagSet.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
+	flagSet.StringVar(&clickHouseProviderConfig.Auth.Database, "clickhouse-database", "default", "Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var.")
+	flagSet.StringVar(&clickHouseProviderConfig.Auth.Username, "clickhouse-username", os.Getenv("CLICKHOUSE_USER"), "Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.")
+	flagSet.StringVar(&clickHouseProviderConfig.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
 }
 
 func NewClickHouseProvider(ctx context.Context, config ClickHouseProviderConfig) (Provider, error) {
-	db := clickhouse.OpenDB(&clickhouse.Options{
+	opts := &clickhouse.Options{
 		Addr:        strings.Split(config.Addr, ","),
 		DialTimeout: config.DiamTimeout,
-	})
+	}
+
+	if config.Auth.Username != "" {
+		opts.Auth = config.Auth
+	}
+
+	if config.Auth.Password != "" {
+		opts.Auth.Password = config.Auth.Password
+	}
+
+	if config.Auth.Database != "" {
+		opts.Auth.Database = config.Auth.Database
+	}
+
+	db := clickhouse.OpenDB(opts)
 	if _, err := db.ExecContext(ctx, createClickHouseTableStmt); err != nil {
 		return nil, err
 	}
