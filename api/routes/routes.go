@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
@@ -41,9 +43,10 @@ func NewRoutes(upstream *url.URL, dbProvider db.Provider, queryIngester *ingeste
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", uiHandler(uiFS))
+	mux.Handle("/", r.ui(uiFS))
 	mux.Handle("/api/", http.HandlerFunc(r.passthrough))
 	mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
+	mux.Handle("/api/v1/query_range", http.HandlerFunc(r.query_range))
 	mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
 	r.mux = mux
 
@@ -83,25 +86,102 @@ func (rw *recordingResponseWriter) Write(b []byte) (int, error) {
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
+	query := db.Query{
+		TS:   start,
+		Type: db.QueryTypeInstant,
+	}
+
+	if req.Method == http.MethodPost {
+		// Create a buffer to hold the request body
+		var bodyBuffer bytes.Buffer
+		// Create a TeeReader to duplicate the request body
+		bodyReader := io.TeeReader(req.Body, &bodyBuffer)
+
+		// Use bodyReader here so we can both read and pass it downstream
+		req.Body = io.NopCloser(bodyReader)
+
+		query.QueryParam = req.FormValue("query")
+		query.TimeParam = getTimeParam(req, "time")
+
+		// Replace the request body with a new reader from the buffer so the proxy can still read it
+		req.Body = io.NopCloser(&bodyBuffer)
+	}
+
+	if req.Method == http.MethodGet {
+		query.QueryParam = req.FormValue("query")
+		query.TimeParam = getTimeParam(req, "time")
+	}
+
 	recw := newCustomResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
 
-	r.queryIngester.Ingest(db.Query{
-		TS:         start,
-		QueryParam: req.FormValue("query"),
-		TimeParam:  getTimeParam(req),
-		Duration:   time.Since(start),
-		StatusCode: recw.statusCode,
-		BodySize:   recw.body.Len(),
-	})
+	query.Duration = time.Since(start)
+	query.StatusCode = recw.statusCode
+	query.BodySize = recw.body.Len()
+
+	r.queryIngester.Ingest(query)
 }
 
-func getTimeParam(req *http.Request) time.Time {
-	if timeParam := req.FormValue("time"); timeParam != "" {
-		timeParamNormalized, _ := time.Parse(time.RFC3339, timeParam)
+func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
+	start := time.Now()
+	query := db.Query{
+		TS:   start,
+		Type: db.QueryTypeRange,
+	}
+
+	if req.Method == http.MethodPost {
+		// Create a buffer to hold the request body
+		var bodyBuffer bytes.Buffer
+
+		// Create a TeeReader to duplicate the request body
+		bodyReader := io.TeeReader(req.Body, &bodyBuffer)
+
+		// Use bodyReader here so we can both read and pass it downstream
+		req.Body = io.NopCloser(bodyReader)
+
+		query.QueryParam = req.FormValue("query")
+		query.Step = getStepParam(req)
+		query.Start = getTimeParam(req, "start")
+		query.End = getTimeParam(req, "end")
+
+		// Replace the request body with a new reader from the buffer so the proxy can still read it
+		req.Body = io.NopCloser(&bodyBuffer)
+	}
+
+	if req.Method == http.MethodGet {
+		query.QueryParam = req.FormValue("query")
+		query.Step = getStepParam(req)
+		query.Start = getTimeParam(req, "start")
+		query.End = getTimeParam(req, "end")
+	}
+
+	recw := newCustomResponseWriter(w)
+	r.handler.ServeHTTP(recw, req)
+
+	query.Duration = time.Since(start)
+	query.StatusCode = recw.statusCode
+	query.BodySize = recw.body.Len()
+
+	r.queryIngester.Ingest(query)
+}
+
+func getTimeParam(req *http.Request, param string) time.Time {
+	if timeParam := req.FormValue(param); timeParam != "" {
+		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
+		if err != nil {
+			log.Printf("unable to parse time parameter: %v", err)
+		}
 		return timeParamNormalized
 	}
 	return time.Now()
+}
+
+func getStepParam(req *http.Request) float64 {
+	if stepParam := req.FormValue("step"); stepParam != "" {
+		step, _ := strconv.ParseFloat(stepParam, 64)
+		return step
+	}
+	return 15
 }
 
 func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
@@ -177,7 +257,7 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func uiHandler(uiFS fs.FS) http.HandlerFunc {
+func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {
 	uiHandler := http.ServeMux{}
 	err := fs.WalkDir(uiFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

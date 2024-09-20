@@ -27,12 +27,16 @@ CREATE TABLE IF NOT EXISTS queries (
     LabelMatchers Nested (
         key String,
         value String
-    )
+    ),
+	Type String,
+	Step Float64,
+	Start DateTime,
+	End DateTime,
 ) ENGINE = MergeTree()
 ORDER BY TS;
 `
 
-const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 type ClickHouseProviderConfig struct {
 	Addr        string
@@ -87,6 +91,10 @@ func (c *ClickHouseProvider) Insert(ctx context.Context, query Query) error {
 		query.Fingerprint,
 		keys,
 		values,
+		query.Type,
+		query.Step,
+		query.Start,
+		query.End,
 	)
 
 	return err
