@@ -5,8 +5,8 @@ import (
 	"embed"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"github.com/MichaHoffmann/prom-analytics-proxy/api/routes"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
+	"github.com/MichaHoffmann/prom-analytics-proxy/internal/log"
 )
 
 //go:embed ui/dist/*
@@ -43,6 +44,8 @@ func main() {
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	log.RegisterFlags(flagset)
+
 	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.BoolVar(&includeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
@@ -52,26 +55,37 @@ func main() {
 
 	flagset.DurationVar(&clickHouseProviderConfig.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
 	flagset.StringVar(&clickHouseProviderConfig.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
+
 	err := flagset.Parse(os.Args[1:])
 	if err != nil {
-		log.Fatalf("unable to parse flags: %v", err)
+		fmt.Printf("error parsing flags: %v", err)
+		os.Exit(1)
 	}
 
-	upstreamURL, err := url.Parse(upstream)
-
+	logger, err := log.NewLogger()
 	if err != nil {
-		log.Fatalf("unable to parse upstream: %v", err)
+		fmt.Printf("error creating logger: %v", err)
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+
+	upstreamURL, err := url.Parse(upstream)
+	if err != nil {
+		slog.Error("unable to parse upstream", "err", err)
+		os.Exit(1)
 	}
 
 	if upstreamURL.Scheme != "http" && upstreamURL.Scheme != "https" {
-		log.Fatalf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream)
+		slog.Error(fmt.Sprintf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream))
+		os.Exit(1)
 	}
 
 	var g run.Group
 
 	dbProvider, err := db.NewClickHouseProvider(context.Background(), clickHouseProviderConfig)
 	if err != nil {
-		log.Fatalf("unable to connect to db: %v", err)
+		slog.Error("unable to create db provider", "err", err)
+		os.Exit(1)
 	}
 	defer dbProvider.Close()
 
@@ -83,8 +97,7 @@ func main() {
 		g.Add(func() error {
 			queryIngester.Run(ctx)
 			return nil
-		}, func(error) {
-			log.Printf("stopping query ingestion")
+		}, func(err error) {
 			cancel()
 		})
 	}
@@ -95,7 +108,8 @@ func main() {
 
 		uiFS, err := loadEmbedFS("ui/dist")
 		if err != nil {
-			slog.Error(err.Error())
+			slog.Error("unable to load embed FS", "err", err)
+			os.Exit(1)
 		}
 
 		routes, err := routes.NewRoutes(
@@ -107,7 +121,8 @@ func main() {
 		)
 
 		if err != nil {
-			log.Fatalf("unable to create routes: %v", err)
+			slog.Error("unable to create routes", "err", err)
+			os.Exit(1)
 		}
 
 		mux := http.NewServeMux()
@@ -122,7 +137,8 @@ func main() {
 
 		l, err := net.Listen("tcp", insecureListenAddress)
 		if err != nil {
-			log.Fatalf("failed to listen on address: %v", err)
+			slog.Error("failed to listen on address", "err", err)
+			os.Exit(1)
 		}
 
 		srv := &http.Server{
@@ -130,17 +146,17 @@ func main() {
 		}
 
 		g.Add(func() error {
-			log.Printf("listening insecurely on %v", l.Addr())
+			slog.Info("listening insecurely", "addr", l.Addr())
 			if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
-				log.Printf("server stopped with %v", err)
+				slog.Error("server stopped", "err", err)
 				return err
 			}
 			return nil
 		}, func(error) {
-			log.Printf("stopping HTTP Server")
+			slog.Info("stopping HTTP Server")
 			cancel()
 			if err := srv.Shutdown(ctx); err != nil {
-				log.Printf("error shutting down server: %v", err)
+				slog.Error("error shutting down server", "err", err)
 			}
 		})
 	}
@@ -152,9 +168,9 @@ func main() {
 
 	if err := g.Run(); err != nil {
 		if !errors.As(err, &run.SignalError{}) {
-			log.Printf("server stopped with %v", err)
+			slog.Error("server stopped", "err", err)
 			os.Exit(1)
 		}
-		log.Print("caught signal; exiting gracefully...")
+		slog.Info("caught signal; exiting gracefully...")
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -38,14 +38,14 @@ func (i *QueryIngester) Ingest(query db.Query) {
 
 	if i.closed {
 		//TODO(nicolastakashi): expose this to a metric
-		log.Printf("closed: dropping query: %v", query)
+		slog.Error(fmt.Sprintf("closed: dropping query: %v", query))
 		return
 	}
 	select {
 	case i.queriesC <- query:
 	default:
 		//TODO(nicolastakashi): expose this to a metric
-		log.Printf("blocked: dropping query: %v", query)
+		slog.Error(fmt.Sprintf("blocked: dropping query: %v", query))
 	}
 }
 
@@ -67,14 +67,14 @@ func (i *QueryIngester) Run(ctx context.Context) {
 }
 
 func (i *QueryIngester) drainWithGracePeriod() {
-	log.Printf("draining with grace period: %v", i.shutdownGracePeriod)
+	slog.Debug(fmt.Sprintf("draining with grace period: %v", i.shutdownGracePeriod))
 
 	graceCtx, graceCancel := context.WithTimeout(context.Background(), i.shutdownGracePeriod)
 	defer graceCancel()
 	for query := range i.queriesC {
 		select {
 		case <-graceCtx.Done():
-			log.Printf("grace period expired, discarding remaining queries")
+			slog.Debug("grace period expired, discarding remaining queries")
 			return
 		default:
 			i.ingest(graceCtx, query)
@@ -95,7 +95,7 @@ func (i *QueryIngester) ingest(ctx context.Context, query db.Query) {
 
 	err := i.dbProvider.Insert(ingestCtx, query)
 	if err != nil {
-		log.Printf("unable to insert query: %v", err)
+		slog.Error("unable to insert query", "err", err)
 		return
 	}
 }
