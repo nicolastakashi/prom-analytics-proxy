@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -157,12 +156,12 @@ func (r *routes) parseQueryResponse(recw *recordingResponseWriter) *Response {
 
 	var response Response
 	if err := json.NewDecoder(recw.body).Decode(&response); err != nil {
-		log.Printf("unable to decode response body: %v", err)
+		slog.Error("unable to decode response body", "err", err)
 		return nil
 	}
 
 	if response.Status != "success" {
-		log.Printf("query did not succeed: %v", response.Status)
+		slog.Debug("query did not succeed", "status", response.Status)
 		return nil
 	}
 
@@ -173,7 +172,7 @@ func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
 		if err != nil {
-			log.Printf("unable to parse time parameter: %v", err)
+			slog.Error("unable to parse time parameter", "err", err)
 		}
 		return timeParamNormalized
 	}
@@ -288,14 +287,14 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 
 	rows, err := r.dbProvider.Query(req.Context(), query)
 	if err != nil {
-		log.Printf("unable to execute query: %v", err)
+		slog.Error("unable to execute query", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 	columns, err := rows.Columns()
 	if err != nil {
-		log.Printf("unable to fetch columns: %v", err)
+		slog.Error("unable to fetch columns", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -310,7 +309,7 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if err := rows.Scan(columnPointers...); err != nil {
-			log.Printf("unable to scan row: %v", err)
+			slog.Error("unable to scan row", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -335,7 +334,7 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("error iterating rows: %v", err)
+		slog.Error("error iterating rows", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -347,7 +346,7 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("unable to encode results to JSON: %v", err)
+		slog.Error("unable to encode results to JSON", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -387,7 +386,7 @@ func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {
 		return nil
 	})
 	if err != nil {
-		slog.Error(err.Error())
+		slog.Error("failed to walk ui directory", "err", err)
 		return nil
 	}
 
