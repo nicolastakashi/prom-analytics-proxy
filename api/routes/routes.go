@@ -77,7 +77,7 @@ func WithUIFS(uiFS fs.FS) Option {
 		mux.Handle("/api/", http.HandlerFunc(r.passthrough))
 		mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
 		mux.Handle("/api/v1/query_range", http.HandlerFunc(r.query_range))
-		mux.Handle("/api/v1/analytics", http.HandlerFunc(r.analytics))
+		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		r.mux = mux
 	}
 }
@@ -285,67 +285,15 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rows, err := r.dbProvider.Query(req.Context(), query)
+	data, err := r.dbProvider.Query(req.Context(), query)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-	columns, err := rows.Columns()
-	if err != nil {
-		slog.Error("unable to fetch columns", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var data []map[string]interface{}
-
-	for rows.Next() {
-		columnPointers := make([]interface{}, len(columns))
-		columnValues := make([]interface{}, len(columns))
-		for i := range columnValues {
-			columnPointers[i] = &columnValues[i]
-		}
-
-		if err := rows.Scan(columnPointers...); err != nil {
-			slog.Error("unable to scan row", "err", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		rowMap := make(map[string]interface{})
-		for i, colName := range columns {
-			var v interface{}
-			switch columnValues[i].(type) {
-			case []uint8:
-				v = string(columnValues[i].([]uint8))
-			case []string:
-				v = columnValues[i].([]string)
-			case nil:
-				v = nil
-			default:
-				v = columnValues[i]
-			}
-			rowMap[colName] = v
-		}
-
-		data = append(data, rowMap)
-	}
-
-	if err := rows.Err(); err != nil {
-		slog.Error("error iterating rows", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	response := map[string]interface{}{
-		"columns": columns,
-		"data":    data,
-	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("unable to encode results to JSON", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

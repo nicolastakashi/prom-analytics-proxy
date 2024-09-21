@@ -5,7 +5,7 @@ const fetchAnalyticsData = async (query: string) => {
     params.append('query', query);
 
     try {
-        const response = await axios.get('http://localhost:9091/api/v1/analytics', { params });
+        const response = await axios.get('http://localhost:9091/api/v1/queries', { params });
         return response.data;
     } catch (error) {
         throw error;
