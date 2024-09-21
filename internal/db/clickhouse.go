@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -133,8 +134,57 @@ func (c *ClickHouseProvider) Insert(ctx context.Context, query Query) error {
 	return err
 }
 
-func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*sql.Rows, error) {
+func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryResult, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.db.QueryContext(ctx, query)
+
+	rows, err := c.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query clickhouse: %w", err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get columns: %w", err)
+	}
+
+	var data []map[string]interface{}
+	for rows.Next() {
+		columnPointers := make([]interface{}, len(columns))
+		columnValues := make([]interface{}, len(columns))
+		for i := range columnValues {
+			columnPointers[i] = &columnValues[i]
+		}
+
+		if err := rows.Scan(columnPointers...); err != nil {
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+
+		rowMap := make(map[string]interface{})
+		for i, colName := range columns {
+			var v interface{}
+			switch columnValues[i].(type) {
+			case []uint8:
+				v = string(columnValues[i].([]uint8))
+			case []string:
+				v = columnValues[i].([]string)
+			case nil:
+				v = nil
+			default:
+				v = columnValues[i]
+			}
+			rowMap[colName] = v
+		}
+
+		data = append(data, rowMap)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return &QueryResult{
+		Columns: columns,
+		Data:    data,
+	}, nil
 }
