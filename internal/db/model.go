@@ -1,13 +1,20 @@
 package db
 
-import "time"
+import (
+	"time"
+)
 
 type QueryType string
+type DatabaseProvider string
 
 const (
-	QueryTypeRange   QueryType = "range"
-	QueryTypeInstant QueryType = "instant"
+	QueryTypeRange   QueryType        = "range"
+	QueryTypeInstant QueryType        = "instant"
+	ClickHouse       DatabaseProvider = "clickhouse"
+	PostGreSQL       DatabaseProvider = "postgresql"
 )
+
+type LabelMatchers []map[string]string
 
 type Query struct {
 	TS                    time.Time
@@ -16,7 +23,7 @@ type Query struct {
 	Duration              time.Duration
 	StatusCode            int
 	BodySize              int
-	LabelMatchers         []map[string]string
+	LabelMatchers         LabelMatchers
 	Fingerprint           string
 	Type                  QueryType
 	Step                  float64

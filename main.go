@@ -40,6 +40,7 @@ func main() {
 		bufSize               int
 		gracePeriod           time.Duration
 		ingestTimeout         time.Duration
+		dataBaseType          string
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -51,8 +52,10 @@ func main() {
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
+	flagset.StringVar(&dataBaseType, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql")
 
 	db.RegisterClickHouseFlags(flagset)
+	db.RegisterPostGreSQLFlags(flagset)
 
 	err := flagset.Parse(os.Args[1:])
 	if err != nil {
@@ -80,7 +83,7 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := db.NewClickHouseProvider(context.Background())
+	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(dataBaseType))
 	if err != nil {
 		slog.Error("unable to create db provider", "err", err)
 		os.Exit(1)

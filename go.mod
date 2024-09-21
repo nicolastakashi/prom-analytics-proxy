@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.28.3
+	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/prometheus v0.54.1
 )
