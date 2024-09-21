@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS queries (
 ORDER BY TS;
 `
 
-const insertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+const clickhouseInsertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 type ClickHouseProviderConfig struct {
 	Addr        string
@@ -61,7 +61,7 @@ func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&config.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
 }
 
-func NewClickHouseProvider(ctx context.Context) (Provider, error) {
+func newClickHouseProvider(ctx context.Context) (Provider, error) {
 	opts := &clickhouse.Options{
 		Addr:        strings.Split(config.Addr, ","),
 		DialTimeout: config.DiamTimeout,
@@ -113,7 +113,7 @@ func (c *ClickHouseProvider) Insert(ctx context.Context, query Query) error {
 		}
 	}
 
-	_, err := c.db.ExecContext(ctx, insertQueryStmt,
+	_, err := c.db.ExecContext(ctx, clickhouseInsertQueryStmt,
 		query.TS,
 		query.QueryParam,
 		query.TimeParam,
