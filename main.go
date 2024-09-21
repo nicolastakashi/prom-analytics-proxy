@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/oklog/run"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/rs/cors"
 
 	"github.com/MichaHoffmann/prom-analytics-proxy/api/routes"
@@ -81,6 +83,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
+
 	var g run.Group
 
 	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(dataBaseType))
@@ -118,7 +126,7 @@ func main() {
 			routes.WithProxy(upstreamURL),
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
-			routes.WithUIFS(uiFS),
+			routes.WithHandlers(uiFS, reg),
 		)
 
 		if err != nil {

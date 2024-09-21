@@ -15,6 +15,9 @@ import (
 
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
 	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
+	"github.com/metalmatze/signal/server/signalhttp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type routes struct {
@@ -70,13 +73,21 @@ func WithQueryIngester(queryIngester *ingester.QueryIngester) Option {
 	}
 }
 
-func WithUIFS(uiFS fs.FS) Option {
+func WithHandlers(uiFS fs.FS, registry *prometheus.Registry) Option {
 	return func(r *routes) {
+		i := signalhttp.NewHandlerInstrumenter(registry, []string{"handler"})
 		mux := http.NewServeMux()
 		mux.Handle("/", r.ui(uiFS))
+		mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 		mux.Handle("/api/", http.HandlerFunc(r.passthrough))
-		mux.Handle("/api/v1/query", http.HandlerFunc(r.query))
-		mux.Handle("/api/v1/query_range", http.HandlerFunc(r.query_range))
+		mux.Handle("/api/v1/query", i.NewHandler(
+			prometheus.Labels{"handler": "query"},
+			http.HandlerFunc(r.query),
+		))
+		mux.Handle("/api/v1/query_range", i.NewHandler(
+			prometheus.Labels{"handler": "query_range"},
+			http.HandlerFunc(r.query_range),
+		))
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		r.mux = mux
 	}
