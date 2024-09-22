@@ -21,15 +21,52 @@ type QueryIngester struct {
 
 	shutdownGracePeriod time.Duration
 	ingestTimeout       time.Duration
+	batchSize           int
+	batchFlushInterval  time.Duration
 }
 
-func NewQueryIngester(dbProvider db.Provider, bufferSize int, ingestTimeout, gracePeriod time.Duration) *QueryIngester {
-	return &QueryIngester{
-		dbProvider:          dbProvider,
-		queriesC:            make(chan db.Query, bufferSize),
-		ingestTimeout:       ingestTimeout,
-		shutdownGracePeriod: gracePeriod,
+type QueryIngesterOption func(*QueryIngester)
+
+func WithBufferSize(bufferSize int) QueryIngesterOption {
+	return func(qi *QueryIngester) {
+		qi.queriesC = make(chan db.Query, bufferSize)
 	}
+}
+
+func WithIngestTimeout(timeout time.Duration) QueryIngesterOption {
+	return func(qi *QueryIngester) {
+		qi.ingestTimeout = timeout
+	}
+}
+
+func WithShutdownGracePeriod(gracePeriod time.Duration) QueryIngesterOption {
+	return func(qi *QueryIngester) {
+		qi.shutdownGracePeriod = gracePeriod
+	}
+}
+
+func WithBatchSize(batchSize int) QueryIngesterOption {
+	return func(qi *QueryIngester) {
+		qi.batchSize = batchSize
+	}
+}
+
+func WithBatchFlushInterval(interval time.Duration) QueryIngesterOption {
+	return func(qi *QueryIngester) {
+		qi.batchFlushInterval = interval
+	}
+}
+
+func NewQueryIngester(dbProvider db.Provider, opts ...QueryIngesterOption) *QueryIngester {
+	qi := &QueryIngester{
+		dbProvider: dbProvider,
+	}
+
+	for _, opt := range opts {
+		opt(qi)
+	}
+
+	return qi
 }
 
 func (i *QueryIngester) Ingest(query db.Query) {
@@ -50,6 +87,10 @@ func (i *QueryIngester) Ingest(query db.Query) {
 }
 
 func (i *QueryIngester) Run(ctx context.Context) {
+	batch := make([]db.Query, 0, i.batchSize)
+	ticker := time.NewTicker(i.batchFlushInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -58,42 +99,48 @@ func (i *QueryIngester) Run(ctx context.Context) {
 			i.closed = true
 			close(i.queriesC)
 
-			i.drainWithGracePeriod()
+			i.drainWithGracePeriod(batch)
 			return
 		case query := <-i.queriesC:
-			i.ingest(ctx, query)
+			query.Fingerprint = fingerprintFromQuery(query.QueryParam)
+			query.LabelMatchers = labelMatchersFromQuery(query.QueryParam)
+
+			batch = append(batch, query)
+			if len(batch) >= i.batchSize {
+				i.ingest(ctx, batch)
+				batch = batch[:0]
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				i.ingest(ctx, batch)
+				batch = batch[:0]
+			}
 		}
 	}
 }
 
-func (i *QueryIngester) drainWithGracePeriod() {
+func (i *QueryIngester) drainWithGracePeriod(batch []db.Query) {
 	slog.Debug(fmt.Sprintf("draining with grace period: %v", i.shutdownGracePeriod))
 
 	graceCtx, graceCancel := context.WithTimeout(context.Background(), i.shutdownGracePeriod)
 	defer graceCancel()
 	for query := range i.queriesC {
-		select {
-		case <-graceCtx.Done():
-			slog.Debug("grace period expired, discarding remaining queries")
-			return
-		default:
-			i.ingest(graceCtx, query)
+		batch = append(batch, query)
+		if len(batch) >= i.batchSize {
+			i.ingest(graceCtx, batch)
+			batch = batch[:0]
 		}
+	}
+	if len(batch) > 0 {
+		i.ingest(graceCtx, batch)
 	}
 }
 
-// TODO(mhoffm): we should ingest in batches probably
-func (i *QueryIngester) ingest(ctx context.Context, query db.Query) {
+func (i *QueryIngester) ingest(ctx context.Context, queries []db.Query) {
 	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
 	defer ingestCancel()
 
-	fingerprint := fingerprintFromQuery(query.QueryParam)
-	labelMatchers := labelMatchersFromQuery(query.QueryParam)
-
-	query.LabelMatchers = labelMatchers
-	query.Fingerprint = fingerprint
-
-	err := i.dbProvider.Insert(ingestCtx, query)
+	err := i.dbProvider.Insert(ingestCtx, queries)
 	if err != nil {
 		slog.Error("unable to insert query", "err", err)
 		return

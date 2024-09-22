@@ -41,8 +41,6 @@ CREATE TABLE IF NOT EXISTS queries (
 ORDER BY TS;
 `
 
-const clickhouseInsertQueryStmt = `INSERT INTO queries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
-
 type ClickHouseProviderConfig struct {
 	Addr        string
 	DiamTimeout time.Duration
@@ -101,37 +99,48 @@ func (c *ClickHouseProvider) Close() error {
 	return c.db.Close()
 }
 
-func (c *ClickHouseProvider) Insert(ctx context.Context, query Query) error {
+func (c *ClickHouseProvider) Insert(ctx context.Context, queries []Query) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var keys, values []string
-	for _, matcher := range query.LabelMatchers {
-		for key, value := range matcher {
-			keys = append(keys, key)
-			values = append(values, value)
+	args := make([]interface{}, 0, len(queries)*15)
+
+	for _, query := range queries {
+		keys := make([]string, 0, len(query.LabelMatchers))
+		values := make([]string, 0, len(query.LabelMatchers))
+		for _, matcher := range query.LabelMatchers {
+			for key, value := range matcher {
+				keys = append(keys, key)
+				values = append(values, value)
+			}
 		}
+
+		args = append(args,
+			query.TS,
+			query.QueryParam,
+			query.TimeParam,
+			query.Duration.Milliseconds(), // Store Duration as milliseconds
+			query.StatusCode,
+			query.BodySize,
+			query.Fingerprint,
+			keys,
+			values,
+			query.Type,
+			query.Step,
+			query.Start,
+			query.End,
+			query.TotalQueryableSamples,
+			query.PeakSamples,
+		)
 	}
 
-	_, err := c.db.ExecContext(ctx, clickhouseInsertQueryStmt,
-		query.TS,
-		query.QueryParam,
-		query.TimeParam,
-		query.Duration.Milliseconds(), // Store Duration as nanoseconds
-		query.StatusCode,
-		query.BodySize,
-		query.Fingerprint,
-		keys,
-		values,
-		query.Type,
-		query.Step,
-		query.Start,
-		query.End,
-		query.TotalQueryableSamples,
-		query.PeakSamples,
-	)
+	stmt := fmt.Sprintf("INSERT INTO queries VALUES %s", strings.Repeat("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?),", len(queries)-1)+"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	_, err := c.db.ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return fmt.Errorf("unable to execute batch insert: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryResult, error) {

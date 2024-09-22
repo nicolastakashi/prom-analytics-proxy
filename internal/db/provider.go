@@ -8,7 +8,7 @@ import (
 
 type Provider interface {
 	WithDB(func(db *sql.DB))
-	Insert(ctx context.Context, q Query) error
+	Insert(ctx context.Context, queries []Query) error
 	Query(ctx context.Context, query string) (*QueryResult, error)
 	Close() error
 }
