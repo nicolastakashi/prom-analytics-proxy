@@ -43,6 +43,9 @@ jobs:
           version: v1.60.3
           args: --timeout 10m0s --go ${{ env.golang-version }}
 
+      - name: Test Golang Code
+        run: make tests
+
   format:
     runs-on: ubuntu-latest
     name: Documentation Formatting Check

@@ -50,8 +50,6 @@ const (
 			totalQueryableSamples INTEGER,
 			peakSamples INTEGER
 		);`
-
-	postgresInsertQueryStmt = `INSERT INTO queries VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);`
 )
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
@@ -98,30 +96,46 @@ func (p *PostGreSQLProvider) Close() error {
 	return p.db.Close()
 }
 
-func (p *PostGreSQLProvider) Insert(ctx context.Context, query Query) error {
-	labelMatchersJSON, err := json.Marshal(query.LabelMatchers)
-	if err != nil {
-		return err
+func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	values := ""
+	for i, query := range queries {
+		labelMatchersJSON, err := json.Marshal(query.LabelMatchers)
+		if err != nil {
+			return fmt.Errorf("failed to marshal label matchers: %w", err)
+		}
+
+		values += fmt.Sprintf(
+			"('%s', '%s', '%s', %d, %d, %d, '%s', '%s', '%s', %f, '%s', '%s', %d, %d)",
+			query.TS.Format(time.RFC3339),
+			query.QueryParam,
+			query.TimeParam.Format(time.RFC3339),
+			query.Duration,
+			query.StatusCode,
+			query.BodySize,
+			query.Fingerprint,
+			labelMatchersJSON,
+			query.Type,
+			query.Step,
+			query.Start.Format(time.RFC3339),
+			query.End.Format(time.RFC3339),
+			query.TotalQueryableSamples,
+			query.PeakSamples,
+		)
+
+		if i < len(queries)-1 {
+			values += ", "
+		}
 	}
 
-	_, err = p.db.Exec(
-		postgresInsertQueryStmt,
-		query.TS,
-		query.QueryParam,
-		query.TimeParam,
-		query.Duration,
-		query.StatusCode,
-		query.BodySize,
-		query.Fingerprint,
-		labelMatchersJSON,
-		query.Type,
-		query.Step,
-		query.Start,
-		query.End,
-		query.TotalQueryableSamples,
-		query.PeakSamples,
-	)
-	return err
+	_, err := p.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO queries VALUES %s;", values))
+	if err != nil {
+		return fmt.Errorf("failed to execute insert query: %w", err)
+	}
+
+	return nil
 }
 
 func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryResult, error) {

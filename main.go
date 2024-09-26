@@ -43,6 +43,8 @@ func main() {
 		gracePeriod           time.Duration
 		ingestTimeout         time.Duration
 		dataBaseType          string
+		insertBatchSize       int
+		insertFlushInterval   time.Duration
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -52,6 +54,8 @@ func main() {
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.BoolVar(&includeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
 	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
+	flagset.IntVar(&insertBatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
+	flagset.DurationVar(&insertFlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
 	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
 	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
 	flagset.StringVar(&dataBaseType, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql")
@@ -98,7 +102,14 @@ func main() {
 	}
 	defer dbProvider.Close()
 
-	queryIngester := ingester.NewQueryIngester(dbProvider, bufSize, ingestTimeout, gracePeriod)
+	queryIngester := ingester.NewQueryIngester(
+		dbProvider,
+		ingester.WithBufferSize(bufSize),
+		ingester.WithIngestTimeout(ingestTimeout),
+		ingester.WithShutdownGracePeriod(gracePeriod),
+		ingester.WithBatchSize(insertBatchSize),
+		ingester.WithBatchFlushInterval(insertFlushInterval),
+	)
 
 	// Run Ingester loop
 	{
