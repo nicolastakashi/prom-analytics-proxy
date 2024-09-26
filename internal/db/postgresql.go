@@ -100,37 +100,52 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	values := ""
-	for i, query := range queries {
-		labelMatchersJSON, err := json.Marshal(query.LabelMatchers)
+	query := `
+		INSERT INTO queries (
+			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
+		) VALUES `
+
+	values := make([]interface{}, 0, len(queries)*14)
+	placeholders := ""
+
+	for i, q := range queries {
+		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
 			return fmt.Errorf("failed to marshal label matchers: %w", err)
 		}
 
-		values += fmt.Sprintf(
-			"('%s', '%s', '%s', %d, %d, %d, '%s', '%s', '%s', %f, '%s', '%s', %d, %d)",
-			query.TS.Format(time.RFC3339),
-			query.QueryParam,
-			query.TimeParam.Format(time.RFC3339),
-			query.Duration,
-			query.StatusCode,
-			query.BodySize,
-			query.Fingerprint,
-			labelMatchersJSON,
-			query.Type,
-			query.Step,
-			query.Start.Format(time.RFC3339),
-			query.End.Format(time.RFC3339),
-			query.TotalQueryableSamples,
-			query.PeakSamples,
+		// This is required to build a string like
+		// "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14), ($15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)"
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			i*14+1, i*14+2, i*14+3, i*14+4, i*14+5, i*14+6, i*14+7, i*14+8, i*14+9, i*14+10, i*14+11, i*14+12, i*14+13, i*14+14,
 		)
 
 		if i < len(queries)-1 {
-			values += ", "
+			placeholders += ", "
 		}
+
+		values = append(values,
+			q.TS,
+			q.QueryParam,
+			q.TimeParam,
+			q.Duration,
+			q.StatusCode,
+			q.BodySize,
+			q.Fingerprint,
+			labelMatchersJSON,
+			q.Type,
+			q.Step,
+			q.Start,
+			q.End,
+			q.TotalQueryableSamples,
+			q.PeakSamples,
+		)
 	}
 
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO queries VALUES %s;", values))
+	query += placeholders
+
+	_, err := p.db.ExecContext(ctx, query, values...)
 	if err != nil {
 		return fmt.Errorf("failed to execute insert query: %w", err)
 	}
