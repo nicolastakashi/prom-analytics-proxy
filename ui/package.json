@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@codemirror/lang-sql": "^6.7.1",
+    "@codemirror/lang-sql": "^6.8.0",
     "@uiw/codemirror-theme-vscode": "^4.23.3",
     "@uiw/react-codemirror": "^4.23.5",
     "axios": "^1.7.2",
