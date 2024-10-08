@@ -8,6 +8,8 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
