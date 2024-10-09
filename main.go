@@ -39,10 +39,10 @@ func main() {
 		insecureListenAddress string
 		upstream              string
 		includeQueryStats     bool
-		bufSize               int
-		gracePeriod           time.Duration
-		ingestTimeout         time.Duration
-		dataBaseType          string
+		insertBufferSize      int
+		insertGracePeriod     time.Duration
+		insertTimeout         time.Duration
+		dataBaseProvider      string
 		insertBatchSize       int
 		insertFlushInterval   time.Duration
 	)
@@ -53,12 +53,12 @@ func main() {
 	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.BoolVar(&includeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
-	flagset.IntVar(&bufSize, "buf-size", 100, "Buffer size for the insert channel.")
+	flagset.IntVar(&insertBufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
 	flagset.IntVar(&insertBatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
+	flagset.DurationVar(&insertTimeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
 	flagset.DurationVar(&insertFlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
-	flagset.DurationVar(&gracePeriod, "grace-period", 5*time.Second, "Grace period to ingest pending queries after program shutdown.")
-	flagset.DurationVar(&ingestTimeout, "ingest-timeout", 100*time.Millisecond, "Timeout to ingest a query into duckdb.")
-	flagset.StringVar(&dataBaseType, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql")
+	flagset.DurationVar(&insertGracePeriod, "insert-grace-period", 5*time.Second, "Grace period to insert pending queries after program shutdown.")
+	flagset.StringVar(&dataBaseProvider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql")
 
 	db.RegisterClickHouseFlags(flagset)
 	db.RegisterPostGreSQLFlags(flagset)
@@ -95,7 +95,7 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(dataBaseType))
+	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(dataBaseProvider))
 	if err != nil {
 		slog.Error("unable to create db provider", "err", err)
 		os.Exit(1)
@@ -104,9 +104,9 @@ func main() {
 
 	queryIngester := ingester.NewQueryIngester(
 		dbProvider,
-		ingester.WithBufferSize(bufSize),
-		ingester.WithIngestTimeout(ingestTimeout),
-		ingester.WithShutdownGracePeriod(gracePeriod),
+		ingester.WithBufferSize(insertBufferSize),
+		ingester.WithIngestTimeout(insertTimeout),
+		ingester.WithShutdownGracePeriod(insertGracePeriod),
 		ingester.WithBatchSize(insertBatchSize),
 		ingester.WithBatchFlushInterval(insertFlushInterval),
 	)
