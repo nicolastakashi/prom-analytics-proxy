@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/stretchr/testify/mock"
 )
 

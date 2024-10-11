@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 

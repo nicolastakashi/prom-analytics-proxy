@@ -1,6 +1,6 @@
 # prom-analytics-proxy
 
-[![Build](https://github.com/MichaHoffmann/prom-analytics-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/MichaHoffmann/prom-analytics-proxy/actions/workflows/ci.yaml)
+[![Build](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml)
 
 ## Table of Contents
 

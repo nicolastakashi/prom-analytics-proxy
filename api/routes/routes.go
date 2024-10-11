@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
 	"github.com/metalmatze/signal/server/signalhttp"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
