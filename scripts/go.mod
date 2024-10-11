@@ -1,4 +1,4 @@
-module github.com/MichaHoffmann/prom-analytics-proxy/tooling
+module github.com/nicolastakashi/prom-analytics-proxy/tooling
 
 go 1.23.0
 

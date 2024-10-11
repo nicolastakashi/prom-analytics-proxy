@@ -21,10 +21,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/rs/cors"
 
-	"github.com/MichaHoffmann/prom-analytics-proxy/api/routes"
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/db"
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/ingester"
-	"github.com/MichaHoffmann/prom-analytics-proxy/internal/log"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/routes"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/log"
 )
 
 //go:embed ui/dist/*
