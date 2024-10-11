@@ -48,6 +48,9 @@ func main() {
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	flagset.Usage = func() {
+		flagset.PrintDefaults()
+	}
 	log.RegisterFlags(flagset)
 
 	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")

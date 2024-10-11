@@ -28,3 +28,54 @@ The project is organized into the following core components:
 - **`prom-analytics-proxy-ui`**: A React-based user interface located in the `ui` directory. This component provides a visual platform to explore the analytics data collected by the proxy, making it easier to analyze and identify trends in PromQL queries.
 
 Both components are designed to work together, with `prom-analytics-proxy` handling data collection and backend logic, while `prom-analytics-proxy-ui` provides a frontend interface for exploring query insights.
+
+## Flags
+
+```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
+  -clickhouse-addr string
+    	Address of the clickhouse server, comma separated for multiple servers. (default "localhost:9000")
+  -clickhouse-database string
+    	Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var. (default "default")
+  -clickhouse-dial-timeout duration
+    	Timeout to dial clickhouse. (default 5s)
+  -clickhouse-password string
+    	Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.
+  -clickhouse-username string
+    	Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.
+  -database-provider string
+    	The provider of database to use for storing query data. Supported values: clickhouse, postgresql
+  -include-query-stats
+    	Request query stats from the upstream prometheus API.
+  -insecure-listen-address string
+    	The address the prom-analytics-proxy proxy HTTP server should listen on. (default ":9091")
+  -insert-batch-size int
+    	Batch size for inserting queries into the database. (default 10)
+  -insert-buffer-size int
+    	Buffer size for the insert channel. (default 100)
+  -insert-flush-interval duration
+    	Flush interval for inserting queries into the database. (default 5s)
+  -insert-grace-period duration
+    	Grace period to insert pending queries after program shutdown. (default 5s)
+  -insert-timeout duration
+    	Timeout to insert a query into the database. (default 1s)
+  -log-format string
+    	Log format (text, json) (default "text")
+  -log-level string
+    	Log level (default "INFO")
+  -postgresql-addr string
+    	Address of the postgresql server. (default "localhost")
+  -postgresql-database string
+    	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
+  -postgresql-dial-timeout duration
+    	Timeout to dial postgresql. (default 5s)
+  -postgresql-password string
+    	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
+  -postgresql-port int
+    	Port of the postgresql server. (default 5432)
+  -postgresql-sslmode string
+    	SSL mode for the postgresql server. (default "disable")
+  -postgresql-user string
+    	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+  -upstream string
+    	The URL of the upstream prometheus API.
+```

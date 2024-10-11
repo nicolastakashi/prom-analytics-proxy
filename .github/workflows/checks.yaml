@@ -55,6 +55,26 @@ jobs:
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.node-version }}"
+          check-latest: true
+          cache: "npm"
+          cache-dependency-path: "**/package-lock.json"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+
+      - name: Install UI Dependencies
+        run: make uidependencies
+
+      - name: Build UI
+        run: make uibuild
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
