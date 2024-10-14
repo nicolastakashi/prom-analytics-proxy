@@ -12,6 +12,8 @@
 
 `prom-analytics-proxy` is a lightweight proxy application designed to sit between your Prometheus server and its clients. It provides valuable insights by collecting detailed analytics on PromQL queries, helping you understand query performance, resource usage, and overall system behavior. This can significantly improve observability for Prometheus users, providing actionable data to optimize query execution and infrastructure.
 
+![prom-analytics-proxy-ui example](assets/images/01.png)
+
 ## Features
 
 - **Query Analytics**: Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
