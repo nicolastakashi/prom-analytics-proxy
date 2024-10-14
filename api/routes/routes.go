@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
@@ -143,7 +145,7 @@ type recordingResponseWriter struct {
 	body       *bytes.Buffer
 }
 
-// NewCustomResponseWriter creates a new instance of CustomResponseWriter
+// Ne
 func newCustomResponseWriter(w http.ResponseWriter) *recordingResponseWriter {
 	return &recordingResponseWriter{w, http.StatusOK, &bytes.Buffer{}}
 }
@@ -165,8 +167,19 @@ func (r *routes) parseQueryResponse(recw *recordingResponseWriter) *Response {
 		return nil
 	}
 
+	var reader io.Reader = recw.body
+	var err error
+
+	if strings.Contains(recw.Header().Get("Content-Encoding"), "gzip") {
+		reader, err = gzip.NewReader(recw.body)
+		if err != nil {
+			slog.Error("unable to create gzip reader", "err", err)
+			return nil
+		}
+	}
+
 	var response Response
-	if err := json.NewDecoder(recw.body).Decode(&response); err != nil {
+	if err = json.NewDecoder(reader).Decode(&response); err != nil {
 		slog.Error("unable to decode response body", "err", err)
 		return nil
 	}
