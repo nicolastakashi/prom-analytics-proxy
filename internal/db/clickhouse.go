@@ -147,6 +147,10 @@ func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryRes
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if err := ValidateSQLQuery(query); err != nil {
+		return nil, fmt.Errorf("query not allowed: %w", err)
+	}
+
 	rows, err := c.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query clickhouse: %w", err)
