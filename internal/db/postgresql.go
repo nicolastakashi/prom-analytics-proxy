@@ -154,6 +154,10 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 }
 
 func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryResult, error) {
+	if err := ValidateSQLQuery(query); err != nil {
+		return nil, fmt.Errorf("query not allowed: %w", err)
+	}
+
 	rows, err := p.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
