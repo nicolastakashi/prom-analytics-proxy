@@ -6,9 +6,9 @@ function Header() {
             <img
                 src={logo}
                 alt="Logo"
-                className="w-8 h-8 mr-2" // Smaller image size
+                className="w-8 h-8 mr-1" // Smaller image size
             />
-            <h1 className="text-xl">PromQL - Analytics Proxy</h1> {/* Smaller text size */}
+            <h1 className="text-xl font-bold text-white">PromQL - Analytics Proxy</h1>
         </header>
     );
 }
