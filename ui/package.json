@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@codemirror/lang-sql": "^6.8.0",
+    "@tanstack/react-table": "^8.20.5",
+    "@tanstack/react-virtual": "^3.10.8",
     "@uiw/codemirror-theme-vscode": "^4.23.3",
     "@uiw/react-codemirror": "^4.23.5",
     "axios": "^1.7.2",

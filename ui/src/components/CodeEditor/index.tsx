@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import CodeMirror, { keymap } from '@uiw/react-codemirror';
 import { sql, SQLNamespace } from '@codemirror/lang-sql';
-import { vscodeLight } from '@uiw/codemirror-theme-vscode';
 
 interface CodeEditorProps {
     value: string;
@@ -30,28 +29,25 @@ const CodeEditor: React.FC<CodeEditorProps> = (props) => {
     ]);
 
     return (
-        <div className="flex mb-4">
-            <div className="flex-grow border border-gray-300 rounded-md overflow-hidden flex">
+        <div className="flex">
+            <div className="flex-grow border border-[rgb(0,92,120)] rounded-md overflow-hidden flex">
                 <div className="flex-grow overflow-hidden" style={{ borderRight: 'none' }}>
                     <CodeMirror
                         value={value}
                         onChange={(newValue) => handleChange(newValue)}
                         extensions={[sql({ upperCaseKeywords: true, schema: props.schema }), keyMap]}
-                        theme={vscodeLight}
                         height="100%"
-                        className="w-full h-full"
-                        style={{ borderRadius: '0.375rem 0 0 0.375rem' }} // Adjusted border-radius
+                        className="w-full h-full rounded-md"
                     />
                 </div>
                 <button
-                    className={`px-8 py-2 rounded-md self-start ${props.isLoading ? 'bg-blumine-700 cursor-not-allowed' : 'bg-blumine-700 text-white'} flex items-center justify-center`}
+                    className={`px-8 py-2 border h-full border-[rgb(0,92,120)] rounded-md self-start ${props.isLoading ? 'bg-blumine-900 cursor-not-allowed' : 'bg-blumine-900 text-white'} flex items-center justify-center`}
                     onClick={props.onSubmit}
-                    style={{ borderRadius: '0 0.375rem 0.375rem 0', marginLeft: 0 }} // Adjusted border-radius
                     disabled={props.isLoading}
                 >
                     {props.isLoading ? (
                         <svg
-                            className="animate-spin h-5 w-5 text-white"
+                            className="animate-spin h-6 w-7 text-white"
                             xmlns="http://www.w3.org/2000/svg"
                             fill="none"
                             viewBox="0 0 24 24"
