@@ -23,7 +23,7 @@ const schema = {
 function App() {
   const [query, setQuery] = useState('');
   const { data, isLoading, refetch } = useQuery<Result>(
-    ['analyticsData', query],
+    ['analyticsData'],
     () => fetchAnalyticsData(query),
     {
       enabled: false, // Only run the query if the query is not empty,
