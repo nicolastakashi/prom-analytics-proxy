@@ -7,6 +7,7 @@ import {
     flexRender,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import formatDuration from 'format-duration';
 
 export interface Result {
     columns: string[];
@@ -18,8 +19,49 @@ interface TableProps {
     isLoading: boolean;
 }
 
+const dateFormat = (date: string): string => {
+    if (date == "0001-01-01T00:00:00Z") {
+        return "N/A"
+    }
+
+    const dateObj = new Date(date);
+    return format(dateObj, 'yyyy-MM-dd HH:mm:ss');
+}
+
+const durationFormat = (duration: number): string => {
+    return formatDuration(duration, {
+        ms: true
+    })
+}
+const typeFormat = (type: string): string => {
+    return type.replace(/\w+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());;
+}
+// create a map of string:function
+const cellFormatMap: { [key: string]: (value: any) => string } = {
+    'ts': dateFormat,
+    'timeparam': dateFormat,
+    'duration': durationFormat,
+    'start': dateFormat,
+    'end': dateFormat,
+    'type': typeFormat,
+}
+
+
 function Table({ results, isLoading }: TableProps) {
     const parentRef = React.useRef<HTMLDivElement>(null);
+
+    const getColumnWidth = (rows: any[], accessor: string, headerText: string | any[]) => {
+        const maxWidth = 350
+        const magicSpacing = 15
+        const cellLength = Math.max(
+            ...rows.map(row => (`${row[accessor]}` || '').length),
+            headerText.length,
+        )
+        if (headerText === "TS") {
+            console.log(rows.map(row => (`${row[accessor]}` || '').length))
+        }
+        return Math.min(maxWidth, cellLength * magicSpacing)
+    }
 
     // Define columns for the table
     const columns = React.useMemo<ColumnDef<any>[]>(
@@ -27,10 +69,12 @@ function Table({ results, isLoading }: TableProps) {
             results?.columns.map((column) => ({
                 accessorKey: column,
                 header: column.toUpperCase(),
+                width: getColumnWidth(results.data, column, column.toUpperCase()),
+                size: getColumnWidth(results.data, column, column.toUpperCase()),
                 cell: (info) => {
-                    console.log(column)
                     const value = info.getValue();
-                    return column === 'ts' || column === 'timeparam' ? format(new Date(value as string), 'yyyy-MM-dd HH:mm:ss') : value;
+                    const formatFunction = cellFormatMap[column];
+                    return formatFunction ? formatFunction(value) : String(value);
                 },
             })),
         [results]
@@ -41,6 +85,7 @@ function Table({ results, isLoading }: TableProps) {
         data: results?.data || [],
         columns,
         getCoreRowModel: getCoreRowModel(),
+
     });
 
     // Set up the virtualizer
@@ -48,7 +93,7 @@ function Table({ results, isLoading }: TableProps) {
         count: table.getRowModel().rows.length,
         getScrollElement: () => parentRef.current,
         estimateSize: () => 50, // Approximate row height
-        overscan: 10, // Render extra rows outside the visible area for smoother scrolling
+        overscan: 5, // Render extra rows outside the visible area for smoother scrolling
     });
 
     return (
@@ -65,12 +110,15 @@ function Table({ results, isLoading }: TableProps) {
                     {/* Table */}
                     <div className="overflow-x-auto border border-gray-300 rounded-md h-full flex flex-col">
                         <div ref={parentRef} className="overflow-y-auto max-h-[600px]">
-                            <table className="min-w-full bg-white">
+                            <table className="bg-white" style={{ tableLayout: 'fixed', width: '100%' }}>
                                 <thead className="bg-blumine-800 text-white">
                                     {table.getHeaderGroups().map((headerGroup) => (
                                         <tr key={headerGroup.id}>
                                             {headerGroup.headers.map((header) => (
                                                 <th
+                                                    style={{
+                                                        width: header.getSize(),
+                                                    }}
                                                     key={header.id}
                                                     className="text-left py-3 px-4 font-semibold text-sm"
                                                 >
@@ -96,9 +144,12 @@ function Table({ results, isLoading }: TableProps) {
                                             >
                                                 {row.getVisibleCells().map((cell) => (
                                                     <td
+                                                        style={{
+                                                            width: cell.column.getSize()
+                                                        }}
                                                         key={cell.id}
                                                         className="py-3 px-4 text-left">
-                                                        <span>{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
+                                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                                     </td>
                                                 ))}
                                             </tr>
