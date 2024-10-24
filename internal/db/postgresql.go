@@ -129,7 +129,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			q.TS,
 			q.QueryParam,
 			q.TimeParam,
-			q.Duration,
+			q.Duration.Milliseconds(),
 			q.StatusCode,
 			q.BodySize,
 			q.Fingerprint,
