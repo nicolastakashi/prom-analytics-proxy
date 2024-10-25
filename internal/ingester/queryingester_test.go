@@ -32,6 +32,10 @@ func (m *MockDBProvider) Query(ctx context.Context, query string) (*db.QueryResu
 func (p *MockDBProvider) WithDB(f func(db *sql.DB)) {
 }
 
+func (m *MockDBProvider) QueryShortCuts() []db.QueryShortCut {
+	return nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

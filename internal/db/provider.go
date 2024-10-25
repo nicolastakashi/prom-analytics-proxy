@@ -11,12 +11,8 @@ type Provider interface {
 	WithDB(func(db *sql.DB))
 	Insert(ctx context.Context, queries []Query) error
 	Query(ctx context.Context, query string) (*QueryResult, error)
+	QueryShortCuts() []QueryShortCut
 	Close() error
-}
-
-type QueryResult struct {
-	Columns []string                 `json:"columns"`
-	Data    []map[string]interface{} `json:"data"`
 }
 
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
@@ -64,4 +60,22 @@ func ValidateSQLQuery(query string) error {
 
 	// Add more checks if needed (e.g., length, specific sub-queries)
 	return nil
+}
+
+var commonQueryShortCuts = []QueryShortCut{
+	{
+		Title:       "Top 10 Longest Queries by Duration",
+		Description: "Helps to identy the longest-running queries in terms of execution time, helping pinpoint potential performance bottlenecks in the system.",
+		Query:       `SELECT queryParam, duration, ts FROM queries ORDER BY duration DESC LIMIT 10`,
+	},
+	{
+		Title:       "Queries with Highest Peak Samples",
+		Description: `Helps to identify queries that have the highest peak samples, which can be used to identify queries that are causing high memory usage in the system.`,
+		Query:       `SELECT queryParam, peakSamples, ts FROM queries ORDER BY peakSamples DESC LIMIT 10`,
+	},
+	{
+		Title:       "Queries with Highest Total Queryable Samples",
+		Description: `Helps to identify queries that have the highest total queryable samples, which can be used to identify queries that are causing high memory usage in the system.`,
+		Query:       `SELECT queryParam, totalQueryableSamples, ts FROM queries ORDER BY totalQueryableSamples DESC LIMIT 10`,
+	},
 }

@@ -32,3 +32,14 @@ type Query struct {
 	TotalQueryableSamples int
 	PeakSamples           int
 }
+
+type QueryResult struct {
+	Columns []string                 `json:"columns"`
+	Data    []map[string]interface{} `json:"data"`
+}
+
+type QueryShortCut struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Query       string `json:"query"`
+}

@@ -3,7 +3,7 @@ import Header from './components/Header';
 import CodeEditor from './components/CodeEditor';
 import Table, { Result } from './components/Table';
 import { useQuery } from 'react-query';
-import fetchAnalyticsData from './fetch';
+import fetch from './fetch';
 import { toast } from 'react-toastify';
 
 const schema = {
@@ -24,7 +24,7 @@ function App() {
   const [query, setQuery] = useState('');
   const { data, isLoading, refetch } = useQuery<Result>(
     ['analyticsData'],
-    () => fetchAnalyticsData(query),
+    () => fetch.Queries(query),
     {
       enabled: false, // Only run the query if the query is not empty,
       onError: (error) => {

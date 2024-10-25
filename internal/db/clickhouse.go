@@ -201,3 +201,7 @@ func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryRes
 		Data:    data,
 	}, nil
 }
+
+func (p *ClickHouseProvider) QueryShortCuts() []QueryShortCut {
+	return commonQueryShortCuts
+}
