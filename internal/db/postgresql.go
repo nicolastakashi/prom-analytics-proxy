@@ -205,3 +205,7 @@ func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryRes
 		Data:    data,
 	}, nil
 }
+
+func (p *PostGreSQLProvider) QueryShortCuts() []QueryShortCut {
+	return commonQueryShortCuts
+}

@@ -91,6 +91,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry) Option {
 			http.HandlerFunc(r.query_range),
 		))
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
+		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		r.mux = mux
 	}
 }
@@ -316,6 +317,15 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("unable to encode results to JSON", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
+	data := r.dbProvider.QueryShortCuts()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("unable to encode results to JSON", "err", err)

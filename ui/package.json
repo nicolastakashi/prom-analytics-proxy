@@ -21,8 +21,10 @@
     "format-duration": "^3.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-icons": "^5.3.0",
     "react-query": "^3.39.3",
-    "react-toastify": "^10.0.6"
+    "react-toastify": "^10.0.6",
+    "sql-formatter": "^15.4.5"
   },
   "devDependencies": {
     "@types/react": "^18.3.11",
