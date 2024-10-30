@@ -126,7 +126,7 @@ const CodeEditor: React.FC<CodeEditorProps> = (props) => {
             </div>
 
             {/* Modal Component */}
-            <Modal isLoading={isLoading} isOpen={isModalOpen} onClose={closeModal} title="Common Queries">
+            <Modal isLoading={isLoading} isOpen={isModalOpen} onClose={closeModal} title="Query Shortcuts">
                 {data?.map((query) => (
                     <QueryCard
                         key={query.title}
