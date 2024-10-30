@@ -12,6 +12,7 @@ const (
 	QueryTypeInstant QueryType        = "instant"
 	ClickHouse       DatabaseProvider = "clickhouse"
 	PostGreSQL       DatabaseProvider = "postgresql"
+	SQLite           DatabaseProvider = "sqlite"
 )
 
 type LabelMatchers []map[string]string

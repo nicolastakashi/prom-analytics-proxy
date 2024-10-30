@@ -61,10 +61,11 @@ func main() {
 	flagset.DurationVar(&insertTimeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
 	flagset.DurationVar(&insertFlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
 	flagset.DurationVar(&insertGracePeriod, "insert-grace-period", 5*time.Second, "Grace period to insert pending queries after program shutdown.")
-	flagset.StringVar(&dataBaseProvider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql")
+	flagset.StringVar(&dataBaseProvider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.")
 
 	db.RegisterClickHouseFlags(flagset)
 	db.RegisterPostGreSQLFlags(flagset)
+	db.RegisterSqliteFlags(flagset)
 
 	err := flagset.Parse(os.Args[1:])
 	if err != nil {
