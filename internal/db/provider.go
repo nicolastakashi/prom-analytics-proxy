@@ -21,6 +21,8 @@ func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, 
 		return newClickHouseProvider(ctx)
 	case PostGreSQL:
 		return newPostGreSQLProvider(ctx)
+	case SQLite:
+		return newSqliteProvider(ctx)
 	default:
 		return nil, fmt.Errorf("invalid database type %q, only 'clickhouse' and 'postgresql' are supported", dbProvider)
 	}

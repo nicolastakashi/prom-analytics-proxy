@@ -45,7 +45,7 @@ Both components are designed to work together, with `prom-analytics-proxy` handl
   -clickhouse-username string
     	Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.
   -database-provider string
-    	The provider of database to use for storing query data. Supported values: clickhouse, postgresql
+    	The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.
   -include-query-stats
     	Request query stats from the upstream prometheus API.
   -insecure-listen-address string
@@ -78,6 +78,8 @@ Both components are designed to work together, with `prom-analytics-proxy` handl
     	SSL mode for the postgresql server. (default "disable")
   -postgresql-user string
     	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+  -sqlite-database-path string
+    	Path to the sqlite database. (default "prom-analytics-proxy.db")
   -upstream string
     	The URL of the upstream prometheus API.
 ```
