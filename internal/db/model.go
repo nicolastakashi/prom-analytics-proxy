@@ -40,7 +40,6 @@ type QueryResult struct {
 }
 
 type QueryShortCut struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Query       string `json:"query"`
+	Title string `json:"title"`
+	Query string `json:"query"`
 }

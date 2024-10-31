@@ -66,18 +66,23 @@ func ValidateSQLQuery(query string) error {
 
 var commonQueryShortCuts = []QueryShortCut{
 	{
-		Title:       "Top 10 Longest Queries by Duration",
-		Description: "Helps to identy the longest-running queries in terms of execution time, helping pinpoint potential performance bottlenecks in the system.",
-		Query:       `SELECT queryParam, duration, ts FROM queries ORDER BY duration DESC LIMIT 10`,
+		Title: "Top 10 Longest Queries by Duration",
+		Query: `SELECT fingerprint, queryParam, duration, ts FROM queries GROUP BY fingerprint ORDER BY duration DESC LIMIT 10`,
 	},
 	{
-		Title:       "Queries with Highest Peak Samples",
-		Description: `Helps to identify queries that have the highest peak samples, which can be used to identify queries that are causing high memory usage in the system.`,
-		Query:       `SELECT queryParam, peakSamples, ts FROM queries ORDER BY peakSamples DESC LIMIT 10`,
+		Title: "Top 10 Queries with Highest Peak Samples",
+		Query: `SELECT fingerprint, queryParam, peakSamples, ts FROM queries GROUP BY fingerprint ORDER BY peakSamples DESC LIMIT 10`,
 	},
 	{
-		Title:       "Queries with Highest Total Queryable Samples",
-		Description: `Helps to identify queries that have the highest total queryable samples, which can be used to identify queries that are causing high memory usage in the system.`,
-		Query:       `SELECT queryParam, totalQueryableSamples, ts FROM queries ORDER BY totalQueryableSamples DESC LIMIT 10`,
+		Title: "Top 10 Queries with Highest Queryable Samples",
+		Query: `SELECT fingerprint, queryParam, totalQueryableSamples, ts FROM queries GROUP BY fingerprint ORDER BY totalQueryableSamples DESC LIMIT 10`,
+	},
+	{
+		Title: "Top 10 Average and Maximum Duration per Query",
+		Query: `SELECT fingerprint, queryParam, AVG(duration) AS avgDuration, MAX(duration) AS maxDuration FROM queries GROUP BY fingerprint, queryParam ORDER BY avgDuration DESC`,
+	},
+	{
+		Title: "Top 10 Most Frequent Queries",
+		Query: `SELECT fingerprint, queryParam, COUNT(fingerprint) AS count FROM queries GROUP BY fingerprint, queryParam ORDER BY count DESC LIMIT 10`,
 	},
 }
