@@ -14,6 +14,8 @@
 
 ![prom-analytics-proxy-ui example](assets/images/01.png)
 
+![prom-analytics-proxy-ui example](assets/images/02.png)
+
 ## Features
 
 - **Query Analytics**: Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
