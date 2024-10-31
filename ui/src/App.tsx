@@ -1,61 +1,97 @@
-import { useState } from 'react';
-import Header from './components/Header';
-import CodeEditor from './components/CodeEditor';
-import Table, { Result } from './components/Table';
-import { useQuery } from 'react-query';
-import fetch from './fetch';
-import { toast } from 'react-toastify';
+import { useState } from 'react'
+import { Button } from "./components/shadcn/button"
+import { Moon, Sun } from "lucide-react"
+import { useTheme } from './theme-provider'
+import Query from './components/query/query'
+import DataTable from './components/datatable/datatable'
+import { useQuery } from 'react-query'
+import { QueryResult, QueryShortcut } from './fetch'
+import fetch from './fetch'
+import { useToast } from "./hooks/use-toast"
+import { AxiosError } from 'axios'
 
-const schema = {
-  queries: [
-    'TS',
-    'Fingerprint',
-    'QueryParam',
-    'TimeParam',
-    'LabelMatchers.Key',
-    'LabelMatchers.Value',
-    'Duration',
-    'StatusCode',
-    'BodySize'
-  ]
-}
+export default function Component() {
+  const [query, setQuery] = useState('')
+  const { toast } = useToast()
 
-function App() {
-  const [query, setQuery] = useState('');
-  const { data, isLoading, refetch } = useQuery<Result>(
+  const errorHandler = (error: unknown) => {
+    let description = error instanceof Error ? error.message : "An unknown error occurred"
+    if (error instanceof AxiosError) {
+      description = error.response?.data || "An unknown error occurred"
+    }
+
+    toast({
+      variant: "destructive",
+      title: "Uh oh! Something went wrong.",
+      description: description,
+    })
+  }
+
+  const { data, isLoading: isQueryResultLoading, refetch } = useQuery<QueryResult>(
     ['analyticsData'],
     () => fetch.Queries(query),
     {
-      enabled: false, // Only run the query if the query is not empty,
-      onError: (error) => {
-        toast.error(`Error: ${(error as Error).message || 'An unknown error occurred'}`);
-      },
+      enabled: false,
+      onError: errorHandler,
     }
   );
 
-  const handleRunQuery = () => {
-    refetch();
-  };
+  const { data: queryShortcuts } = useQuery<QueryShortcut[]>(
+    ['queryShortcuts'],
+    () => fetch.QueryShortcuts(),
+    {
+      onError: errorHandler,
+    }
+  );
+
+  const { setTheme, theme } = useTheme()
+
+  const toggleDarkMode = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark')
+  }
+
+  const handleExecuteQuery = () => {
+    refetch()
+  }
+
+  const handleShortcutClick = (shortcutQuery: string) => {
+    setQuery(shortcutQuery)
+  }
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value)
+  }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Header />
-      <main className="flex-grow p-4">
-        <div className="flex flex-col h-full">
-          <CodeEditor
-            value={query}
-            onChange={setQuery}
-            onSubmit={handleRunQuery}
-            schema={schema}
-            isLoading={isLoading}
-          />
-          <div className="flex-grow mt-4">
-            <Table results={data || { columns: [], data: [] }} isLoading={isLoading} />
+    <div className={`min-h-screen`}>
+      <div className="bg-background text-foreground">
+        <header className="border-b border-border">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center space-x-3">
+              <span className="text-lg font-semibold">Prom Analytics Proxy</span>
+            </div>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon" onClick={toggleDarkMode}>
+                {theme == 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </Button>
+            </div>
           </div>
+        </header>
+
+        <div className="flex flex-col min-h-[calc(100vh-3.5rem)]">
+          <Query
+            isLoading={isQueryResultLoading}
+            query={query}
+            queryShortcuts={queryShortcuts || []}
+            handleQueryChange={handleQueryChange}
+            handleShortcutClick={handleShortcutClick}
+            handleExecuteQuery={handleExecuteQuery}
+          />
+          <DataTable result={data || { columns: [], data: [] }} />
         </div>
-      </main>
+      </div>
     </div>
-  );
+  )
 }
 
-export default App;
+

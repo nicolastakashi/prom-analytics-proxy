@@ -1,6 +1,10 @@
 import axios from 'axios';
 
 const api = `http://localhost:9091/api/v1`;
+export interface QueryResult {
+    columns: string[];
+    data: Array<any>;
+}
 const Queries = async (query: string) => {
     const params = new URLSearchParams();
     params.append('query', query);
@@ -12,6 +16,11 @@ const Queries = async (query: string) => {
         throw error;
     }
 };
+
+export interface QueryShortcut {
+    title: string;
+    query: string;
+}
 
 const QueryShortcuts = async () => {
     try {
