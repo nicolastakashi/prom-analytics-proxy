@@ -18,10 +18,19 @@
 
 ## Features
 
-- **Query Analytics**: Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
-- **Data Storage**: Supports storing the collected analytics data in either ClickHouse or PostgreSQL, giving flexibility based on your database preferences.
-- **User Interface**: Provides an intuitive web-based UI to explore and visualize the analytics data, helping engineers make data-driven decisions on query optimizations.
-- **Easy Integration**: Seamlessly integrates with existing Prometheus setups with minimal configuration.
+There are several key features that `prom-analytics-proxy` offers to enhance your Prometheus monitoring setup:
+
+### Query Analytics
+
+Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
+
+### Data Storage
+
+Supports storing the collected analytics data in either ClickHouse, PostgreSQL, or SQLite, giving flexibility based on your database preferences.
+
+### User Interface
+
+Offers an intuitive web-based UI for exploring and visualizing analytics data, enabling engineers to make data-driven decisions for query optimization. Includes Query Shortcuts for quick access to frequently used query patterns.
 
 ## Project Structure
 
