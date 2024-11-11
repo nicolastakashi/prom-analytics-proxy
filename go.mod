@@ -6,7 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
-	github.com/prometheus/prometheus v0.55.0
+	github.com/prometheus/prometheus v0.55.1
 	github.com/stretchr/testify v1.9.0
 )
 
