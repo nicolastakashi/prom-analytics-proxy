@@ -22,6 +22,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/routes"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/log"
@@ -36,15 +37,7 @@ func loadEmbedFS(pathPrefix string) (fs.FS, error) {
 
 func main() {
 	var (
-		insecureListenAddress string
-		upstream              string
-		includeQueryStats     bool
-		insertBufferSize      int
-		insertGracePeriod     time.Duration
-		insertTimeout         time.Duration
-		dataBaseProvider      string
-		insertBatchSize       int
-		insertFlushInterval   time.Duration
+		configFile string
 	)
 
 	flagset := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -53,15 +46,16 @@ func main() {
 	}
 	log.RegisterFlags(flagset)
 
-	flagset.StringVar(&insecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
-	flagset.StringVar(&upstream, "upstream", "", "The URL of the upstream prometheus API.")
-	flagset.BoolVar(&includeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
-	flagset.IntVar(&insertBufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
-	flagset.IntVar(&insertBatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
-	flagset.DurationVar(&insertTimeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
-	flagset.DurationVar(&insertFlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
-	flagset.DurationVar(&insertGracePeriod, "insert-grace-period", 5*time.Second, "Grace period to insert pending queries after program shutdown.")
-	flagset.StringVar(&dataBaseProvider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.")
+	flagset.StringVar(&configFile, "config-file", "", "Path to the configuration file, it takes precedence over the command line flags.")
+	flagset.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
+	flagset.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
+	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
+	flagset.IntVar(&config.DefaultConfig.Insert.BufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
+	flagset.IntVar(&config.DefaultConfig.Insert.BatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
+	flagset.DurationVar(&config.DefaultConfig.Insert.Timeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
+	flagset.DurationVar(&config.DefaultConfig.Insert.FlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
+	flagset.DurationVar(&config.DefaultConfig.Insert.GracePeriod, "insert-grace-period", 5*time.Second, "Grace period to insert pending queries after program shutdown.")
+	flagset.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.")
 
 	db.RegisterClickHouseFlags(flagset)
 	db.RegisterPostGreSQLFlags(flagset)
@@ -80,14 +74,22 @@ func main() {
 	}
 	slog.SetDefault(logger)
 
-	upstreamURL, err := url.Parse(upstream)
+	if configFile != "" {
+		err := config.LoadConfig(configFile)
+		if err != nil {
+			slog.Error("unable to load config file", "err", err)
+			os.Exit(1)
+		}
+	}
+
+	upstreamURL, err := url.Parse(config.DefaultConfig.Upstream.URL)
 	if err != nil {
 		slog.Error("unable to parse upstream", "err", err)
 		os.Exit(1)
 	}
 
 	if upstreamURL.Scheme != "http" && upstreamURL.Scheme != "https" {
-		slog.Error(fmt.Sprintf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", upstream))
+		slog.Error(fmt.Sprintf("invalid scheme for upstream URL %q, only 'http' and 'https' are supported", config.DefaultConfig.Upstream.URL))
 		os.Exit(1)
 	}
 
@@ -99,7 +101,7 @@ func main() {
 
 	var g run.Group
 
-	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(dataBaseProvider))
+	dbProvider, err := db.GetDbProvider(context.Background(), db.DatabaseProvider(config.DefaultConfig.Database.Provider))
 	if err != nil {
 		slog.Error("unable to create db provider", "err", err)
 		os.Exit(1)
@@ -108,11 +110,11 @@ func main() {
 
 	queryIngester := ingester.NewQueryIngester(
 		dbProvider,
-		ingester.WithBufferSize(insertBufferSize),
-		ingester.WithIngestTimeout(insertTimeout),
-		ingester.WithShutdownGracePeriod(insertGracePeriod),
-		ingester.WithBatchSize(insertBatchSize),
-		ingester.WithBatchFlushInterval(insertFlushInterval),
+		ingester.WithBufferSize(config.DefaultConfig.Insert.BufferSize),
+		ingester.WithIngestTimeout(config.DefaultConfig.Insert.Timeout),
+		ingester.WithShutdownGracePeriod(config.DefaultConfig.Insert.GracePeriod),
+		ingester.WithBatchSize(config.DefaultConfig.Insert.BatchSize),
+		ingester.WithBatchFlushInterval(config.DefaultConfig.Insert.FlushInterval),
 	)
 
 	// Run Ingester loop
@@ -137,7 +139,7 @@ func main() {
 		}
 
 		routes, err := routes.NewRoutes(
-			routes.WithIncludeQueryStats(includeQueryStats),
+			routes.WithIncludeQueryStats(config.DefaultConfig.Upstream.IncludeQueryStats),
 			routes.WithProxy(upstreamURL),
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
@@ -159,7 +161,7 @@ func main() {
 			AllowCredentials: true,
 		}).Handler(mux)
 
-		l, err := net.Listen("tcp", insecureListenAddress)
+		l, err := net.Listen("tcp", config.DefaultConfig.Server.InsecureListenAddress)
 		if err != nil {
 			slog.Error("failed to listen on address", "err", err)
 			os.Exit(1)

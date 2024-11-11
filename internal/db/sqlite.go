@@ -8,20 +8,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	_ "modernc.org/sqlite"
 )
 
-type SQLiteProviderConfig struct {
-	Path string
-}
 type SQLiteProvider struct {
 	mu sync.RWMutex
 	db *sql.DB
 }
-
-var (
-	sqliteConfig SQLiteProviderConfig = SQLiteProviderConfig{}
-)
 
 const (
 	createSqliteTableStmt = `
@@ -50,11 +44,11 @@ const (
 )
 
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
-	flagSet.StringVar(&sqliteConfig.Path, "sqlite-database-path", "prom-analytics-proxy.db", "Path to the sqlite database.")
+	flagSet.StringVar(&config.DefaultConfig.Database.SQLite.DatabasePath, "sqlite-database-path", "prom-analytics-proxy.db", "Path to the sqlite database.")
 }
 
 func newSqliteProvider(ctx context.Context) (Provider, error) {
-	db, err := sql.Open("sqlite", sqliteConfig.Path)
+	db, err := sql.Open("sqlite", config.DefaultConfig.Database.SQLite.DatabasePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
