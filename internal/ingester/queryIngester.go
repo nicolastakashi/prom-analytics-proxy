@@ -10,6 +10,7 @@ import (
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/prometheus/prometheus/promql/parser"
+	"go.opentelemetry.io/otel"
 )
 
 type QueryIngester struct {
@@ -140,7 +141,10 @@ func (i *QueryIngester) ingest(ctx context.Context, queries []db.Query) {
 	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
 	defer ingestCancel()
 
-	err := i.dbProvider.Insert(ingestCtx, queries)
+	traceContext, span := otel.Tracer("query-ingester").Start(ingestCtx, "ingest")
+	defer span.End()
+
+	err := i.dbProvider.Insert(traceContext, queries)
 	if err != nil {
 		slog.Error("unable to insert query", "err", err)
 		return

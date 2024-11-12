@@ -98,3 +98,34 @@ The `prom-analytics-proxy` application supports several configuration options th
   -upstream string
     	The URL of the upstream prometheus API.
 ```
+
+### Tracing Support
+
+The prom-analytics-proxy application includes built-in support for distributed tracing using OpenTelemetry. To enable tracing, you must provide a configuration file specifying the tracing settings. Below is an example configuration and details for each option:
+
+```yaml
+tracing:
+  client_type: ""
+  service_name: ""
+  resource_attributes: {}
+  reconnection_period: 0s
+  compression: ""
+  insecure: false
+  endpoint: ""
+  url_path: ""
+  timeout: 0s
+  retry_config:
+    retry_enabled: false
+    retry_initial_interval: 0s
+    retry_max_interval: 0s
+    retry_max_elapsed_time: 0s
+  headers: {}
+  tls_config:
+    ca_file: ""
+    cert_file: ""
+    key_file: ""
+    server_name: ""
+    insecure_skip_verify: false
+  sampler_type: ""
+  sampler_param: ""
+```

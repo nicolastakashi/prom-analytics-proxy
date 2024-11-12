@@ -26,6 +26,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/log"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/tracing"
 )
 
 //go:embed ui/dist/*
@@ -80,6 +81,20 @@ func main() {
 			slog.Error("unable to load config file", "err", err)
 			os.Exit(1)
 		}
+	}
+
+	if config.DefaultConfig.IsTracingEnabled() {
+		tp, err := tracing.WithTracing(context.Background(), logger, configFile)
+		if err != nil {
+			slog.Error("unable to create tracer provider", "err", err)
+			os.Exit(1)
+		}
+
+		defer func() {
+			if err := tp.Shutdown(context.Background()); err != nil {
+				slog.Info("Error shutting down tracer provider", "err", err)
+			}
+		}()
 	}
 
 	upstreamURL, err := url.Parse(config.DefaultConfig.Upstream.URL)
@@ -143,7 +158,7 @@ func main() {
 			routes.WithProxy(upstreamURL),
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
-			routes.WithHandlers(uiFS, reg),
+			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
 		)
 
 		if err != nil {
