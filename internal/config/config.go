@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/thanos-io/thanos/pkg/tracing/otlp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,6 +15,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Insert   InsertConfig   `yaml:"insert"`
+	Tracing  *otlp.Config   `yaml:"tracing"`
 }
 
 type DatabaseConfig struct {
@@ -73,4 +75,16 @@ func LoadConfig(path string) error {
 		return fmt.Errorf("failed to unmarshal config file: %w", err)
 	}
 	return nil
+}
+
+func (c *Config) IsTracingEnabled() bool {
+	return c.Tracing != nil
+}
+
+func (c *Config) GetTracingServiceName() string {
+	serviceName := os.Getenv("OTEL_SERVICE_NAME")
+	if serviceName == "" {
+		return c.Tracing.ServiceName
+	}
+	return serviceName
 }
