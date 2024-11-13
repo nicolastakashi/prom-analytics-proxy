@@ -123,7 +123,7 @@ export default function DataTable({ result }: DataTableProps) {
             <div className="max-w-[85rem] mx-auto p-4">
                 {result.data.length > 0 ? (
                     <div className="space-y-4">
-                        <div className="rounded-md border">
+                        <div className="rounded-md border bg-background">
                             <Table style={{ tableLayout: 'fixed', width: '100%' }}>
                                 <TableHeader>
                                     <TableRow>
