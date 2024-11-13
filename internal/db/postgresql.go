@@ -11,26 +11,13 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 )
 
 type PostGreSQLProvider struct {
 	mu sync.RWMutex
 	db *sql.DB
 }
-
-type PostGreSQLProviderConfig struct {
-	Addr        string
-	Port        int
-	DiamTimeout time.Duration
-	User        string
-	Password    string
-	Database    string
-	SSLMode     string
-}
-
-var (
-	postgresConfig PostGreSQLProviderConfig = PostGreSQLProviderConfig{}
-)
 
 const (
 	createPostgresTableStmt = `
@@ -53,16 +40,18 @@ const (
 )
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
-	flagSet.DurationVar(&postgresConfig.DiamTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to dial postgresql.")
-	flagSet.StringVar(&postgresConfig.Addr, "postgresql-addr", "localhost", "Address of the postgresql server.")
-	flagSet.IntVar(&postgresConfig.Port, "postgresql-port", 5432, "Port of the postgresql server.")
-	flagSet.StringVar(&postgresConfig.User, "postgresql-user", os.Getenv("POSTGRESQL_USER"), "Username for the postgresql server, can also be set via POSTGRESQL_USER env var.")
-	flagSet.StringVar(&postgresConfig.Password, "postgresql-password", os.Getenv("POSTGRESQL_PASSWORD"), "Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.")
-	flagSet.StringVar(&postgresConfig.Database, "postgresql-database", os.Getenv("POSTGRESQL_DATABASE"), "Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.")
-	flagSet.StringVar(&postgresConfig.SSLMode, "postgresql-sslmode", "disable", "SSL mode for the postgresql server.")
+	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.DialTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to dial postgresql.")
+	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Addr, "postgresql-addr", "localhost", "Address of the postgresql server.")
+	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.Port, "postgresql-port", 5432, "Port of the postgresql server.")
+	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.User, "postgresql-user", os.Getenv("POSTGRESQL_USER"), "Username for the postgresql server, can also be set via POSTGRESQL_USER env var.")
+	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Password, "postgresql-password", os.Getenv("POSTGRESQL_PASSWORD"), "Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.")
+	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Database, "postgresql-database", os.Getenv("POSTGRESQL_DATABASE"), "Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.")
+	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.SSLMode, "postgresql-sslmode", "disable", "SSL mode for the postgresql server.")
 }
 
 func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
+	postgresConfig := config.DefaultConfig.Database.PostgreSQL
+
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable",
 		postgresConfig.Addr, postgresConfig.Port, postgresConfig.User, postgresConfig.Password, postgresConfig.Database)
 

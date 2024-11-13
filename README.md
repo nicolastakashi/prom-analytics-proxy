@@ -42,7 +42,9 @@ The project is organized into the following core components:
 
 Both components are designed to work together, with `prom-analytics-proxy` handling data collection and backend logic, while `prom-analytics-proxy-ui` provides a frontend interface for exploring query insights.
 
-## Flags
+## Configuration
+
+The `prom-analytics-proxy` application supports several configuration options that can be set via command-line flags or configuration file, using the `-config-file` flag.
 
 ```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
   -clickhouse-addr string
@@ -55,6 +57,8 @@ Both components are designed to work together, with `prom-analytics-proxy` handl
     	Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.
   -clickhouse-username string
     	Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.
+  -config-file string
+    	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
     	The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.
   -include-query-stats

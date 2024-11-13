@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 )
 
 type ClickHouseProvider struct {
@@ -41,28 +42,19 @@ CREATE TABLE IF NOT EXISTS queries (
 ORDER BY TS;
 `
 
-type ClickHouseProviderConfig struct {
-	Addr        string
-	DiamTimeout time.Duration
-	Auth        clickhouse.Auth
-}
-
-var (
-	config ClickHouseProviderConfig = ClickHouseProviderConfig{}
-)
-
 func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
-	flagSet.DurationVar(&config.DiamTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
-	flagSet.StringVar(&config.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
-	flagSet.StringVar(&config.Auth.Database, "clickhouse-database", "default", "Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var.")
-	flagSet.StringVar(&config.Auth.Username, "clickhouse-username", os.Getenv("CLICKHOUSE_USER"), "Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.")
-	flagSet.StringVar(&config.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
+	flagSet.DurationVar(&config.DefaultConfig.Database.ClickHouse.DialTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
+	flagSet.StringVar(&config.DefaultConfig.Database.ClickHouse.Addr, "clickhouse-addr", "localhost:9000", "Address of the clickhouse server, comma separated for multiple servers.")
+	flagSet.StringVar(&config.DefaultConfig.Database.ClickHouse.Auth.Database, "clickhouse-database", "default", "Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var.")
+	flagSet.StringVar(&config.DefaultConfig.Database.ClickHouse.Auth.Username, "clickhouse-username", os.Getenv("CLICKHOUSE_USER"), "Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.")
+	flagSet.StringVar(&config.DefaultConfig.Database.ClickHouse.Auth.Password, "clickhouse-password", os.Getenv("CLICKHOUSE_PASSWORD"), "Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.")
 }
 
 func newClickHouseProvider(ctx context.Context) (Provider, error) {
+	config := config.DefaultConfig.Database.ClickHouse
 	opts := &clickhouse.Options{
 		Addr:        strings.Split(config.Addr, ","),
-		DialTimeout: config.DiamTimeout,
+		DialTimeout: config.DialTimeout,
 	}
 
 	if config.Auth.Username != "" {
