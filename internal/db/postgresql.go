@@ -12,6 +12,8 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 type PostGreSQLProvider struct {
@@ -55,7 +57,7 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable",
 		postgresConfig.Addr, postgresConfig.Port, postgresConfig.User, postgresConfig.Password, postgresConfig.Database)
 
-	db, err := sql.Open("postgres", psqlInfo)
+	db, err := otelsql.Open("postgres", psqlInfo, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open postgresql connection: %w", err)
 	}

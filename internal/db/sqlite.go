@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	_ "modernc.org/sqlite"
 )
 
@@ -48,7 +50,7 @@ func RegisterSqliteFlags(flagSet *flag.FlagSet) {
 }
 
 func newSqliteProvider(ctx context.Context) (Provider, error) {
-	db, err := sql.Open("sqlite", config.DefaultConfig.Database.SQLite.DatabasePath)
+	db, err := otelsql.Open("sqlite", config.DefaultConfig.Database.SQLite.DatabasePath, otelsql.WithAttributes(semconv.DBSystemSqlite))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}

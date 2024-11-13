@@ -20,6 +20,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type routes struct {
@@ -75,7 +76,7 @@ func WithQueryIngester(queryIngester *ingester.QueryIngester) Option {
 	}
 }
 
-func WithHandlers(uiFS fs.FS, registry *prometheus.Registry) Option {
+func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bool) Option {
 	return func(r *routes) {
 		i := signalhttp.NewHandlerInstrumenter(registry, []string{"handler"})
 		mux := http.NewServeMux()
@@ -84,11 +85,11 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry) Option {
 		mux.Handle("/api/", http.HandlerFunc(r.passthrough))
 		mux.Handle("/api/v1/query", i.NewHandler(
 			prometheus.Labels{"handler": "query"},
-			http.HandlerFunc(r.query),
+			otelhttp.NewHandler(http.HandlerFunc(r.query), "/api/v1/query"),
 		))
 		mux.Handle("/api/v1/query_range", i.NewHandler(
 			prometheus.Labels{"handler": "query_range"},
-			http.HandlerFunc(r.query_range),
+			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
