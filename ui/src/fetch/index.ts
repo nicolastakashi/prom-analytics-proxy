@@ -31,7 +31,34 @@ const QueryShortcuts = async () => {
     }
 }
 
+export interface SeriesMetadata {
+    name: string;
+    type: string;
+    help: string;
+}
+
+const GetSeriesMetadata = async (): Promise<SeriesMetadata[]> => {
+    try {
+        const response = await axios.get(`${api}/seriesMetadata`);
+        const result: SeriesMetadata[] = [];
+        for (const [name, metrics] of Object.entries<any>(response.data)) {
+            if (metrics.length > 0) { // Check if the array has at least one item
+                const metric = metrics[0]; // Take only the first item
+                result.push({
+                    name,
+                    type: metric.type,
+                    help: metric.help,
+                });
+            }
+        }
+        return result;
+    } catch (error) {
+        throw error;
+    }
+}
+
 export default {
     Queries,
-    QueryShortcuts
+    QueryShortcuts,
+    GetSeriesMetadata
 };

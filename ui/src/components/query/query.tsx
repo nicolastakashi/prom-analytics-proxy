@@ -53,7 +53,7 @@ export default function Query(props: QueryProps) {
         },
     ]);
     return (
-        <div className="border-b bg-gray-50/50 dark:bg-gray-900/50 backdrop-blur supports-[backdrop-filter]:bg-gray-50/50 supports-[backdrop-filter]:dark:bg-gray-900/50">
+        <div className="border-b bg-gray-200/50 dark:bg-gray-800/50 backdrop-blur supports-[backdrop-filter]:bg-gray-200/50 supports-[backdrop-filter]:dark:bg-gray-800/50">
             <div className="max-w-[85rem] mx-auto p-4">
                 <div className="flex space-x-2">
                     <div className="flex-1 relative">
