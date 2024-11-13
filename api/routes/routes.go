@@ -18,6 +18,8 @@ import (
 	"github.com/metalmatze/signal/server/signalhttp"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
+	"github.com/prometheus/client_golang/api"
+	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -31,6 +33,7 @@ type routes struct {
 	queryIngester     *ingester.QueryIngester
 	dbProvider        db.Provider
 	includeQueryStats bool
+	promAPI           v1.API
 }
 
 type Response struct {
@@ -93,6 +96,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		))
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
+		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		r.mux = mux
 	}
 }
@@ -112,6 +116,13 @@ func WithProxy(upstream *url.URL) Option {
 		}
 		r.upstream = upstream
 		r.handler = proxy
+		c, err := api.NewClient(api.Config{
+			Address: upstream.String(),
+		})
+		if err != nil {
+			slog.Error("unable to create prometheus client", "err", err)
+		}
+		r.promAPI = v1.NewAPI(c)
 	}
 }
 
@@ -329,6 +340,20 @@ func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
 	data := r.dbProvider.QueryShortCuts()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("unable to encode results to JSON", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
+	metadata, err := r.promAPI.Metadata(req.Context(), "", "")
+	if err != nil {
+		slog.Error("unable to retrieve series metadata", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		slog.Error("unable to encode results to JSON", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
