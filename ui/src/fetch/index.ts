@@ -57,8 +57,18 @@ const GetSeriesMetadata = async (): Promise<SeriesMetadata[]> => {
     }
 }
 
+const GetSerieLabels = async (name: string): Promise<string[]> => {
+    try {
+        const response = await axios.get(`${api}/serieLabels/${name}`);
+        return response.data.filter((label: string) => label !== '__name__');
+    } catch (error) {
+        throw error;
+    }
+}
+
 export default {
     Queries,
     QueryShortcuts,
-    GetSeriesMetadata
+    GetSeriesMetadata,
+    GetSerieLabels,
 };

@@ -4,6 +4,7 @@ import { useTheme } from './theme-provider'
 import { Routes, Route, Link } from 'react-router-dom'
 import Explore from "./pages/explore"
 import Metrics from "./pages/metrics"
+import MetricDetails from "./pages/metrics/detail"
 
 export default function App() {
   const { setTheme, theme } = useTheme()
@@ -42,6 +43,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Explore />} />
             <Route path="/metrics" element={<Metrics />} />
+            <Route path="/metrics/:id" element={<MetricDetails />} />
           </Routes>
         </div>
       </div>

@@ -9,6 +9,8 @@ import { useQuery } from 'react-query';
 import fetch, { SeriesMetadata } from '../../fetch';
 import { AxiosError } from 'axios';
 import { toast } from '../../hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
+import Progress from '../../components/progress/progress';
 
 const ITEMS_PER_PAGE = 12;
 const MAX_DESCRIPTION_LENGTH = 100;
@@ -19,10 +21,11 @@ const errorHandler = (error: unknown) => {
 };
 
 const Component = () => {
+    const navigate = useNavigate();
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [searchTerm, setSearchTerm] = useState<string>('');
 
-    const { data } = useQuery<SeriesMetadata[]>(['seriesMetadata'], fetch.GetSeriesMetadata, { onError: errorHandler });
+    const { data, isLoading } = useQuery<SeriesMetadata[]>(['seriesMetadata'], fetch.GetSeriesMetadata, { onError: errorHandler });
 
     const filteredMetrics = useMemo(
         () => data?.filter(metric => metric.name.toLowerCase().includes(searchTerm.toLowerCase()) || metric.help.toLowerCase().includes(searchTerm.toLowerCase())),
@@ -44,18 +47,25 @@ const Component = () => {
 
     const truncateDescription = (description: string) => description.length > MAX_DESCRIPTION_LENGTH ? description.slice(0, MAX_DESCRIPTION_LENGTH) + '...' : description;
 
+    const navigateToMetricDetails = (metric: SeriesMetadata) => {
+        navigate(`/metrics/${metric.name}`, { state: { metric } });
+    }
+
     return (
-        <div className="p-6">
-            <div className="flex flex-col space-y-4">
-                <Header searchTerm={searchTerm} setSearchTerm={setSearchTerm} setCurrentPage={setCurrentPage} />
-                {filteredMetrics?.length ? (
-                    <>
-                        <MetricGrid metrics={paginatedMetrics} truncateDescription={truncateDescription} />
-                        <Pagination currentPage={currentPage} totalPages={totalPages} startIndex={startIndex} endIndex={endIndex} totalItems={filteredMetrics.length} onPageChange={handlePageChange} />
-                    </>
-                ) : <NoMetricsFound />}
+        <>
+            <Progress isAnimating={isLoading} />
+            <div className="p-6">
+                <div className="flex flex-col space-y-4">
+                    <Header searchTerm={searchTerm} setSearchTerm={setSearchTerm} setCurrentPage={setCurrentPage} />
+                    {filteredMetrics?.length ? (
+                        <>
+                            <MetricGrid metrics={paginatedMetrics} truncateDescription={truncateDescription} onClick={navigateToMetricDetails} />
+                            <Pagination currentPage={currentPage} totalPages={totalPages} startIndex={startIndex} endIndex={endIndex} totalItems={filteredMetrics.length} onPageChange={handlePageChange} />
+                        </>
+                    ) : <NoMetricsFound />}
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 
@@ -78,12 +88,13 @@ const Header = ({ searchTerm, setSearchTerm, setCurrentPage }: HeaderProps) => (
 type MetricGridProps = {
     metrics: SeriesMetadata[] | undefined;
     truncateDescription: (description: string) => string;
+    onClick: (metric: SeriesMetadata) => void;
 };
 
-const MetricGrid = ({ metrics, truncateDescription }: MetricGridProps) => (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+const MetricGrid = ({ metrics, truncateDescription, onClick }: MetricGridProps) => (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 cursor-pointer">
         {metrics?.map(metric => (
-            <Card key={metric.name} className="flex flex-col min-h-[140px] transition-shadow hover:shadow-md">
+            <Card key={metric.name} className="flex flex-col min-h-[140px] transition-shadow hover:shadow-md" onClick={() => onClick(metric)}>
                 <CardHeader className="pb-2 pt-4 px-4 space-y-3">
                     <div className="flex justify-between center gap-2 mt-1">
                         <CardTitle className="font-medium text-sm leading-tight break-all">{metric.name}</CardTitle>

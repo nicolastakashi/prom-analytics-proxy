@@ -97,6 +97,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
+		mux.Handle("/api/v1/serieLabels/{name}", http.HandlerFunc(r.serieLabels))
 		r.mux = mux
 	}
 }
@@ -354,6 +355,21 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		slog.Error("unable to encode results to JSON", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (r *routes) serieLabels(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
+	if err != nil {
+		slog.Error("unable to retrieve series metadata", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(labels); err != nil {
 		slog.Error("unable to encode results to JSON", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
