@@ -124,7 +124,7 @@ type PaginationProps = {
     onPageChange: (direction: 'next' | 'prev') => void;
 };
 
-const Pagination = ({ currentPage, totalPages, startIndex, endIndex, totalItems, onPageChange }: PaginationProps) => (
+export const Pagination = ({ currentPage, totalPages, startIndex, endIndex, totalItems, onPageChange }: PaginationProps) => (
     <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Showing {startIndex} to {endIndex} of {totalItems} metrics</p>
         <div className="flex items-center space-x-2">

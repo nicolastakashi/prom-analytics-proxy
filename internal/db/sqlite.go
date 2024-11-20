@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"sync"
+	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/uptrace/opentelemetry-go-extra/otelsql"
@@ -188,4 +190,92 @@ func (p *SQLiteProvider) Query(ctx context.Context, query string) (*QueryResult,
 
 func (p *SQLiteProvider) QueryShortCuts() []QueryShortCut {
 	return commonQueryShortCuts
+}
+
+func (p *SQLiteProvider) GetQueriesBySerieName(
+	ctx context.Context,
+	serieName string,
+	page int,
+	pageSize int) (*PagedResult, error) {
+
+	endTime := time.Now()
+	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
+
+	// Format timestamps for SQLite (YYYY-MM-DD HH:MM:SS)
+	startTimeFormatted := startTime.Format("2006-01-02 15:04:05")
+	endTimeFormatted := endTime.Format("2006-01-02 15:04:05")
+
+	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTimeFormatted, endTimeFormatted)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	data, err := p.getQueriesBySerieNameQueryData(ctx, serieName, startTimeFormatted, endTimeFormatted, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       data,
+	}, nil
+}
+
+func (p *SQLiteProvider) getQueriesBySerieNameTotalCount(ctx context.Context, serieName, startTime, endTime string) (int, error) {
+	countQuery := `
+		SELECT COUNT(DISTINCT queryParam) AS TotalCount
+		FROM queries
+		WHERE
+			json_extract(labelMatchers, '$[0].__name__') = ?
+			AND ts BETWEEN ? AND ?;
+	`
+
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serieName, startTime, endTime).Scan(&totalCount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count rows: %w", err)
+	}
+
+	return totalCount, nil
+}
+
+func (p *SQLiteProvider) getQueriesBySerieNameQueryData(ctx context.Context, serieName, startTime, endTime string, page, pageSize int) ([]QueriesBySerieNameResult, error) {
+	query := `
+		SELECT
+			queryParam AS query,
+			AVG(duration) AS avgDuration,
+			AVG(peakSamples) AS avgPeakySamples,
+			MAX(peakSamples) AS maxPeakSamples
+		FROM
+			queries
+		WHERE
+			json_extract(labelMatchers, '$[0].__name__') = ?
+			AND ts BETWEEN ? AND ?
+		GROUP BY
+			queryParam
+		ORDER BY
+			avgDuration DESC
+		LIMIT ? OFFSET ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serieName, startTime, endTime, pageSize, page*pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var data []QueriesBySerieNameResult
+	for rows.Next() {
+		var r QueriesBySerieNameResult
+		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+		data = append(data, r)
+	}
+
+	return data, nil
 }

@@ -22,6 +22,12 @@ export interface QueryShortcut {
     query: string;
 }
 
+export interface PagedResult<T> {
+    data: T[];
+    total: number;
+    totalPages: number;
+}
+
 const QueryShortcuts = async () => {
     try {
         const response = await axios.get(`${api}/queryShortcuts`);
@@ -57,10 +63,33 @@ const GetSeriesMetadata = async (): Promise<SeriesMetadata[]> => {
     }
 }
 
-const GetSerieLabels = async (name: string): Promise<string[]> => {
+export interface SerieMetadata {
+    labels: string[];
+    seriesCount: number;
+}
+
+const GetSerieMetadata = async (name: string): Promise<SerieMetadata> => {
     try {
-        const response = await axios.get(`${api}/serieLabels/${name}`);
-        return response.data.filter((label: string) => label !== '__name__');
+        const response = await axios.get(`${api}/serieMetadata/${name}`);
+        return response.data;
+    } catch (error) {
+        throw error;
+    }
+}
+
+
+export interface SerieExpression {
+    queryParam: string;
+    avgDuration: number;
+    avgPeakySamples: number;
+    maxPeakSamples: number;
+    ts: string;
+}
+
+const GetSerieExpressions = async (name: string, page: number): Promise<PagedResult<SerieExpression>> => {
+    try {
+        const response = await axios.get(`${api}/serieExpressions/${name}?page=${page - 1}&pageSize=10`);
+        return response.data;
     } catch (error) {
         throw error;
     }
@@ -70,5 +99,6 @@ export default {
     Queries,
     QueryShortcuts,
     GetSeriesMetadata,
-    GetSerieLabels,
+    GetSerieMetadata,
+    GetSerieExpressions,
 };

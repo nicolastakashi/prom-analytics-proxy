@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -153,7 +154,7 @@ func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryRes
 		return nil, fmt.Errorf("unable to get columns: %w", err)
 	}
 
-	var data []map[string]interface{}
+	data := []map[string]interface{}{}
 	for rows.Next() {
 		columnPointers := make([]interface{}, len(columns))
 		columnValues := make([]interface{}, len(columns))
@@ -196,4 +197,87 @@ func (c *ClickHouseProvider) Query(ctx context.Context, query string) (*QueryRes
 
 func (p *ClickHouseProvider) QueryShortCuts() []QueryShortCut {
 	return commonQueryShortCuts
+}
+
+func (p *ClickHouseProvider) GetQueriesBySerieName(
+	ctx context.Context,
+	serieName string,
+	page int,
+	pageSize int) (*PagedResult, error) {
+
+	endTime := time.Now()
+	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
+
+	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	data, err := p.getQueriesBySerieNameQueryData(ctx, serieName, startTime, endTime, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       data,
+	}, nil
+}
+
+func (p *ClickHouseProvider) getQueriesBySerieNameTotalCount(ctx context.Context, serieName string, startTime, endTime time.Time) (int, error) {
+	countQuery := `
+		SELECT COUNT(DISTINCT QueryParam) AS TotalCount
+		FROM queries
+		WHERE 
+			LabelMatchers.value[indexOf(LabelMatchers.key, '__name__')] = ?
+			AND TS BETWEEN ? AND ?;
+	`
+
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serieName, startTime, endTime).Scan(&totalCount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count rows: %w", err)
+	}
+
+	return totalCount, nil
+}
+
+func (p *ClickHouseProvider) getQueriesBySerieNameQueryData(ctx context.Context, serieName string, startTime, endTime time.Time, page, pageSize int) ([]QueriesBySerieNameResult, error) {
+	query := `
+		SELECT
+			QueryParam AS Query,
+			AVG(Duration) AS AvgDuration,
+			AVG(PeakSamples) AS AvgPeakSamples,
+			MAX(PeakSamples) AS MaxPeakSamples
+		FROM queries
+		WHERE 
+			LabelMatchers.value[indexOf(LabelMatchers.key, '__name__')] = ?
+			AND TS BETWEEN ? AND ?
+		GROUP BY
+			QueryParam
+		ORDER BY
+			AvgDuration DESC
+		LIMIT ? OFFSET ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serieName, startTime, endTime, pageSize, page*pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var data []QueriesBySerieNameResult
+	for rows.Next() {
+		var r QueriesBySerieNameResult
+		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+		data = append(data, r)
+	}
+
+	return data, nil
 }

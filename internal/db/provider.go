@@ -12,6 +12,7 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	Query(ctx context.Context, query string) (*QueryResult, error)
 	QueryShortCuts() []QueryShortCut
+	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 	Close() error
 }
 
