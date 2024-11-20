@@ -43,3 +43,17 @@ type QueryShortCut struct {
 	Title string `json:"title"`
 	Query string `json:"query"`
 }
+
+type PagedResult struct {
+	TotalPages int         `json:"totalPages"`
+	Total      int         `json:"total"`
+	Data       interface{} `json:"data"`
+}
+
+type QueriesBySerieNameResult struct {
+	QueryParam      string    `json:"queryParam"`
+	AvgDuration     float64   `json:"avgDuration"`
+	AvgPeakySamples float64   `json:"avgPeakySamples"`
+	MaxPeakSamples  int       `json:"maxPeakSamples"`
+	TS              time.Time `json:"ts"`
+}

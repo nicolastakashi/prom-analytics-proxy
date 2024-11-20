@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -160,7 +161,7 @@ func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryRes
 		return nil, err
 	}
 
-	var data []map[string]interface{}
+	data := []map[string]interface{}{}
 	for rows.Next() {
 		columnPointers := make([]interface{}, len(columns))
 		columnValues := make([]interface{}, len(columns))
@@ -199,4 +200,88 @@ func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryRes
 
 func (p *PostGreSQLProvider) QueryShortCuts() []QueryShortCut {
 	return commonQueryShortCuts
+}
+
+func (p *PostGreSQLProvider) GetQueriesBySerieName(
+	ctx context.Context,
+	serieName string,
+	page int,
+	pageSize int) (*PagedResult, error) {
+
+	endTime := time.Now()
+	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
+
+	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	data, err := p.getQueriesBySerieNameQueryData(ctx, serieName, startTime, endTime, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       data,
+	}, nil
+}
+
+func (p *PostGreSQLProvider) getQueriesBySerieNameTotalCount(ctx context.Context, serieName string, startTime, endTime time.Time) (int, error) {
+	countQuery := `
+		SELECT COUNT(DISTINCT queryParam) AS TotalCount
+		FROM queries
+		WHERE
+			labelMatchers @> $1::jsonb
+			AND ts BETWEEN $2 AND $3;
+	`
+
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, fmt.Sprintf(`[{"__name__": "%s"}]`, serieName), startTime, endTime).Scan(&totalCount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count rows: %w", err)
+	}
+
+	return totalCount, nil
+}
+
+func (p *PostGreSQLProvider) getQueriesBySerieNameQueryData(ctx context.Context, serieName string, startTime, endTime time.Time, page, pageSize int) ([]QueriesBySerieNameResult, error) {
+	query := `
+		SELECT
+			queryParam AS Query,
+			AVG(duration) AS AvgDuration,
+			AVG(peakSamples) AS AvgPeakSamples,
+			MAX(peakSamples) AS MaxPeakSamples
+		FROM
+			queries
+		WHERE
+			labelMatchers @> $1::jsonb
+			AND ts BETWEEN $2 AND $3
+		GROUP BY
+			queryParam
+		ORDER BY
+			AvgDuration DESC
+		LIMIT $4 OFFSET $5;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, fmt.Sprintf(`[{"__name__": "%s"}]`, serieName), startTime, endTime, pageSize, page*pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var data []QueriesBySerieNameResult
+	for rows.Next() {
+		var r QueriesBySerieNameResult
+		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+		data = append(data, r)
+	}
+
+	return data, nil
 }

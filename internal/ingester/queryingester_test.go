@@ -3,6 +3,7 @@ package ingester
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -34,6 +35,14 @@ func (p *MockDBProvider) WithDB(f func(db *sql.DB)) {
 
 func (m *MockDBProvider) QueryShortCuts() []db.QueryShortCut {
 	return nil
+}
+
+func (p *MockDBProvider) GetQueriesBySerieName(
+	ctx context.Context,
+	serieName string,
+	page int,
+	pageSize int) (*db.PagedResult, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func TestQueryIngester_Run(t *testing.T) {

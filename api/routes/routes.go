@@ -97,7 +97,8 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
-		mux.Handle("/api/v1/serieLabels/{name}", http.HandlerFunc(r.serieLabels))
+		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
+		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
 		r.mux = mux
 	}
 }
@@ -360,16 +361,75 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *routes) serieLabels(w http.ResponseWriter, req *http.Request) {
+func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
+	type serieMetadata struct {
+		Labels      []string `json:"labels"`
+		SeriesCount int      `json:"seriesCount"`
+	}
+
 	name := req.PathValue("name")
 	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
 	if err != nil {
 		slog.Error("unable to retrieve series metadata", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "unable to retrieve series metadata", http.StatusInternalServerError)
 		return
 	}
+
+	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(5000))
+	if err != nil {
+		slog.Error("unable to retrieve series count", "err", err)
+		http.Error(w, "unable to retrieve series count", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(labels); err != nil {
+	if err := json.NewEncoder(w).Encode(serieMetadata{
+		Labels:      labels,
+		SeriesCount: len(series),
+	}); err != nil {
+		slog.Error("unable to encode results to JSON", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		slog.Error("unable to parse page parameter", "err", err)
+		http.Error(w, "unable to parse page parameter", http.StatusBadRequest)
+		return
+	}
+
+	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
+	if err != nil {
+		slog.Error("unable to parse pageSize parameter", "err", err)
+		http.Error(w, "unable to parse pageSize parameter", http.StatusBadRequest)
+		return
+	}
+
+	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), name, page, pageSize)
+	if err != nil {
+		slog.Error("unable to retrieve series expressions", "err", err)
+		http.Error(w, "unable to retrieve series expressions", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(w, data)
+}
+
+func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int, error) {
+	value := req.URL.Query().Get(param)
+	if value == "" {
+		return defaultValue, nil
+	}
+	return strconv.Atoi(value)
+}
+
+func writeJSONResponse(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("unable to encode results to JSON", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

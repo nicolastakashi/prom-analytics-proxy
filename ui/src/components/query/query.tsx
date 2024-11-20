@@ -18,7 +18,7 @@ export interface QueryProps {
     isLoading: boolean;
 }
 
-const darkPromqlHighlighter = createTheme({
+export const darkPromqlHighlighter = createTheme({
     theme: 'dark',
     settings: {
         lineHighlight: '#1F2024',
