@@ -37,7 +37,7 @@
     "react-query": "^3.39.3",
     "react-router-dom": "^6.28.0",
     "recharts": "^2.13.3",
-    "sql-formatter": "^15.4.5",
+    "sql-formatter": "^15.4.6",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7"
   },
