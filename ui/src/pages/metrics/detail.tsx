@@ -47,7 +47,7 @@ interface ExpressionTableProps {
 const ExpressionTable: React.FC<ExpressionTableProps> = ({ expressions, currentPage, onPageChange }) => {
     const { theme } = useTheme();
     const startIndex = (currentPage - 1) * 1 + 1;
-    const endIndex = Math.min(startIndex + (expressions?.data.length ?? 0) - 1, expressions?.data.length ?? 0);
+    const endIndex = Math.min(startIndex + (expressions?.data?.length ?? 0) - 1, expressions?.data?.length ?? 0);
 
     return (
         <TabsContent value="expressions" className="p-4">
@@ -61,7 +61,7 @@ const ExpressionTable: React.FC<ExpressionTableProps> = ({ expressions, currentP
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {expressions?.data.map((expr, index) => (
+                    {expressions?.data?.map((expr, index) => (
                         <TableRow key={index}>
                             <TableCell className="font-mono text-sm">
                                 <CodeMirror
@@ -108,7 +108,7 @@ const ExpressionTable: React.FC<ExpressionTableProps> = ({ expressions, currentP
                     totalPages={expressions?.totalPages || 0}
                     startIndex={startIndex}
                     endIndex={endIndex}
-                    totalItems={expressions?.data.length || 0}
+                    totalItems={expressions?.data?.length || 0}
                     onPageChange={onPageChange}
                 />
             </div>
@@ -202,7 +202,7 @@ export default function Component() {
                                     <Clock className="mr-2 h-4 w-4" />
                                     <span className="hidden sm:inline">Expressions</span>
                                     <Badge variant="secondary" className="ml-2">
-                                        {expressions?.data.length}
+                                        {expressions?.data?.length}
                                     </Badge>
                                 </TabsTrigger>
                             </TabsList>
