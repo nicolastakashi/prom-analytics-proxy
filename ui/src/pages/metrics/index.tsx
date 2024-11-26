@@ -48,7 +48,7 @@ const Component = () => {
     const truncateDescription = (description: string) => description.length > MAX_DESCRIPTION_LENGTH ? description.slice(0, MAX_DESCRIPTION_LENGTH) + '...' : description;
 
     const navigateToMetricDetails = (metric: SeriesMetadata) => {
-        navigate(`/metrics/${metric.name}`, { state: { metric } });
+        navigate(`/series/${metric.name}`, { state: { metric } });
     }
 
     return (

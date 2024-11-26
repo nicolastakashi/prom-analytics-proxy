@@ -27,7 +27,7 @@ export default function App() {
                   <Link to="/">Explore</Link>
                 </Button>
                 <Button variant="ghost" asChild className="text-muted-foreground hover:text-foreground">
-                  <Link to="/metrics">Metrics</Link>
+                  <Link to="/series">Metrics</Link>
                 </Button>
               </div>
             </div>
@@ -42,8 +42,8 @@ export default function App() {
         <div className="flex flex-col min-h-[calc(100vh-3.5rem)]">
           <Routes>
             <Route path="/" element={<Explore />} />
-            <Route path="/metrics" element={<Metrics />} />
-            <Route path="/metrics/:id" element={<MetricDetails />} />
+            <Route path="/series" element={<Metrics />} />
+            <Route path="/series/:id" element={<MetricDetails />} />
           </Routes>
         </div>
       </div>
