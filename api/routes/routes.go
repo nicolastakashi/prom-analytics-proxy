@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,10 +11,11 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/prometheus/client_golang/api"
@@ -26,43 +26,13 @@ import (
 )
 
 type routes struct {
-	upstream *url.URL
-	handler  http.Handler
-	mux      *http.ServeMux
+	handler http.Handler
+	mux     *http.ServeMux
 
 	queryIngester     *ingester.QueryIngester
 	dbProvider        db.Provider
 	includeQueryStats bool
 	promAPI           v1.API
-}
-
-type Response struct {
-	Status string `json:"status"`
-	Data   Data   `json:"data"`
-}
-
-type Data struct {
-	ResultType string `json:"resultType"`
-	Stats      Stats  `json:"stats"`
-}
-
-type Stats struct {
-	Timings Timings `json:"timings"`
-	Samples Samples `json:"samples"`
-}
-
-type Timings struct {
-	EvalTotalTime        float64 `json:"evalTotalTime"`
-	ResultSortTime       float64 `json:"resultSortTime"`
-	QueryPreparationTime float64 `json:"queryPreparationTime"`
-	InnerEvalTime        float64 `json:"innerEvalTime"`
-	ExecQueueTime        float64 `json:"execQueueTime"`
-	ExecTotalTime        float64 `json:"execTotalTime"`
-}
-
-type Samples struct {
-	TotalQueryableSamples int `json:"totalQueryableSamples"`
-	PeakSamples           int `json:"peakSamples"`
 }
 
 type Option func(*routes)
@@ -116,8 +86,12 @@ func WithProxy(upstream *url.URL) Option {
 				req.URL.RawQuery = query.Encode()
 			}
 		}
-		r.upstream = upstream
 		r.handler = proxy
+	}
+}
+
+func WithPromAPI(upstream *url.URL) Option {
+	return func(r *routes) {
 		c, err := api.NewClient(api.Config{
 			Address: upstream.String(),
 		})
@@ -150,63 +124,6 @@ func (r *routes) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mux.ServeHTTP(w, req)
 }
 
-func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
-	r.handler.ServeHTTP(w, req)
-}
-
-type recordingResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       *bytes.Buffer
-}
-
-// Ne
-func newCustomResponseWriter(w http.ResponseWriter) *recordingResponseWriter {
-	return &recordingResponseWriter{w, http.StatusOK, &bytes.Buffer{}}
-}
-
-// WriteHeader to capture status code
-func (rw *recordingResponseWriter) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-// Write to capture body
-func (rw *recordingResponseWriter) Write(b []byte) (int, error) {
-	rw.body.Write(b)                  // Write to buffer
-	return rw.ResponseWriter.Write(b) // Write response to client
-}
-
-func (r *routes) parseQueryResponse(recw *recordingResponseWriter) *Response {
-	if !r.includeQueryStats {
-		return nil
-	}
-
-	var reader io.Reader = recw.body
-	var err error
-
-	if strings.Contains(recw.Header().Get("Content-Encoding"), "gzip") {
-		reader, err = gzip.NewReader(recw.body)
-		if err != nil {
-			slog.Error("unable to create gzip reader", "err", err)
-			return nil
-		}
-	}
-
-	var response Response
-	if err = json.NewDecoder(reader).Decode(&response); err != nil {
-		slog.Error("unable to decode response body", "err", err)
-		return nil
-	}
-
-	if response.Status != "success" {
-		slog.Debug("query did not succeed", "status", response.Status)
-		return nil
-	}
-
-	return &response
-}
-
 func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
@@ -224,6 +141,26 @@ func getStepParam(req *http.Request) float64 {
 		return step
 	}
 	return 15
+}
+
+func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int, error) {
+	value := req.URL.Query().Get(param)
+	if value == "" {
+		return defaultValue, nil
+	}
+	return strconv.Atoi(value)
+}
+
+func writeJSONResponse(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("unable to encode results to JSON", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
+	r.handler.ServeHTTP(w, req)
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
@@ -254,17 +191,17 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 		query.TimeParam = getTimeParam(req, "time")
 	}
 
-	recw := newCustomResponseWriter(w)
+	recw := response.NewResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
 
-	if response := r.parseQueryResponse(recw); response != nil {
+	if response := recw.ParseQueryResponse(r.includeQueryStats); response != nil {
 		query.TotalQueryableSamples = response.Data.Stats.Samples.TotalQueryableSamples
 		query.PeakSamples = response.Data.Stats.Samples.PeakSamples
 	}
 
 	query.Duration = time.Since(start)
-	query.StatusCode = recw.statusCode
-	query.BodySize = recw.body.Len()
+	query.StatusCode = recw.GetStatusCode()
+	query.BodySize = recw.GetBodySize()
 
 	r.queryIngester.Ingest(query)
 }
@@ -302,17 +239,17 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 		query.End = getTimeParam(req, "end")
 	}
 
-	recw := newCustomResponseWriter(w)
+	recw := response.NewResponseWriter(w)
 	r.handler.ServeHTTP(recw, req)
 
-	if response := r.parseQueryResponse(recw); response != nil {
+	if response := recw.ParseQueryResponse(r.includeQueryStats); response != nil {
 		query.TotalQueryableSamples = response.Data.Stats.Samples.TotalQueryableSamples
 		query.PeakSamples = response.Data.Stats.Samples.PeakSamples
 	}
 
 	query.Duration = time.Since(start)
-	query.StatusCode = recw.statusCode
-	query.BodySize = recw.body.Len()
+	query.StatusCode = recw.GetStatusCode()
+	query.BodySize = recw.GetBodySize()
 
 	r.queryIngester.Ingest(query)
 }
@@ -327,24 +264,16 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	data, err := r.dbProvider.Query(req.Context(), query)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("unable to execute query: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	writeJSONResponse(w, data)
 }
 
 func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
 	data := r.dbProvider.QueryShortCuts()
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	writeJSONResponse(w, data)
 }
 
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
@@ -354,19 +283,11 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(metadata); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+
+	writeJSONResponse(w, metadata)
 }
 
 func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
-	type serieMetadata struct {
-		Labels      []string `json:"labels"`
-		SeriesCount int      `json:"seriesCount"`
-	}
-
 	name := req.PathValue("name")
 	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
 	if err != nil {
@@ -382,14 +303,10 @@ func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(serieMetadata{
+	writeJSONResponse(w, models.SerieMetadata{
 		Labels:      labels,
 		SeriesCount: len(series),
-	}); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	})
 }
 
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
@@ -417,22 +334,6 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 	}
 
 	writeJSONResponse(w, data)
-}
-
-func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int, error) {
-	value := req.URL.Query().Get(param)
-	if value == "" {
-		return defaultValue, nil
-	}
-	return strconv.Atoi(value)
-}
-
-func writeJSONResponse(w http.ResponseWriter, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
 }
 
 func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {

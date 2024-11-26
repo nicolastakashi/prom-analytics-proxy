@@ -156,6 +156,7 @@ func main() {
 		routes, err := routes.NewRoutes(
 			routes.WithIncludeQueryStats(config.DefaultConfig.Upstream.IncludeQueryStats),
 			routes.WithProxy(upstreamURL),
+			routes.WithPromAPI(upstreamURL),
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
 			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
