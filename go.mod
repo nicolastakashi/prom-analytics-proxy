@@ -92,5 +92,5 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
-	modernc.org/sqlite v1.34.1
+	modernc.org/sqlite v1.34.3
 )
