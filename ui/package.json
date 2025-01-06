@@ -22,7 +22,7 @@
     "@radix-ui/react-toast": "^1.2.2",
     "@radix-ui/react-tooltip": "^1.1.4",
     "@tanem/react-nprogress": "^5.0.52",
-    "@tanstack/react-table": "^8.20.5",
+    "@tanstack/react-table": "^8.20.6",
     "@tanstack/react-virtual": "^3.10.8",
     "@uiw/codemirror-themes": "^4.23.6",
     "@uiw/react-codemirror": "^4.23.6",
