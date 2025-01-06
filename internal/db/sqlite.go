@@ -305,7 +305,7 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	defer func() {
 		// Rollback the transaction if it's not committed
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 

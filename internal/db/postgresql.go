@@ -309,7 +309,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	defer func() {
 		// Rollback the transaction if it's not committed
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 
