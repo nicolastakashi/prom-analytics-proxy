@@ -57,3 +57,20 @@ type QueriesBySerieNameResult struct {
 	MaxPeakSamples  int       `json:"maxPeakSamples"`
 	TS              time.Time `json:"ts"`
 }
+
+type RuleUsageKind string
+
+const (
+	RuleUsageKindAlert  RuleUsageKind = "alert"
+	RuleUsageKindRecord RuleUsageKind = "record"
+)
+
+type RulesUsage struct {
+	Serie      string    `json:"serie"`
+	GroupName  string    `json:"group_name"`
+	Name       string    `json:"name"`
+	Expression string    `json:"expression"`
+	Kind       string    `json:"kind"`
+	Labels     []string  `json:"labels"`
+	CreatedAt  time.Time `json:"created_at"`
+}

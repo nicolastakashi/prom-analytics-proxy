@@ -45,6 +45,16 @@ func (p *MockDBProvider) GetQueriesBySerieName(
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.RulesUsage) error {
+	args := m.Called(ctx, rulesUsage)
+	return args.Error(0)
+}
+
+func (m *MockDBProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*db.PagedResult, error) {
+	args := m.Called(ctx, serie, page, pageSize)
+	return args.Get(0).(*db.PagedResult), args.Error(1)
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

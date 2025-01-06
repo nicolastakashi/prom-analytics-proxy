@@ -18,6 +18,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
+	metricsUsageV1 "github.com/perses/metrics-usage/pkg/api/v1"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
@@ -69,6 +70,10 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
+		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetSerieUsage))
+
+		// endpoint for perses metrics usage push from the client
+		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		r.mux = mux
 	}
 }
@@ -376,4 +381,87 @@ func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {
 	}
 
 	return uiHandler.ServeHTTP
+}
+
+var usage = make(map[string]*metricsUsageV1.MetricUsage)
+
+func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
+	if err := json.NewDecoder(req.Body).Decode(&usage); err != nil {
+		slog.Error("unable to decode request body", "err", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	for name, metricUsage := range usage {
+		rulesUsage := make([]db.RulesUsage, 0, len(metricUsage.AlertRules)+len(metricUsage.RecordingRules))
+		for usage, _ := range metricUsage.AlertRules {
+			rulesUsage = append(rulesUsage, db.RulesUsage{
+				Serie:      name,
+				GroupName:  usage.GroupName,
+				Name:       usage.Name,
+				Expression: usage.Expression,
+				Kind:       string(db.RuleUsageKindAlert),
+				// Labels:    usage.Labels,
+			})
+		}
+
+		for usage, _ := range metricUsage.RecordingRules {
+			rulesUsage = append(rulesUsage, db.RulesUsage{
+				Serie:      name,
+				GroupName:  usage.GroupName,
+				Name:       usage.Name,
+				Expression: usage.Expression,
+				Kind:       string(db.RuleUsageKindRecord),
+				// Labels:    usage.Labels,
+			})
+		}
+
+		if err := r.dbProvider.InsertRulesUsage(req.Context(), rulesUsage); err != nil {
+			slog.Error("unable to insert rules usage", "err", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	if name == "" {
+		http.Error(w, "missing name parameter", http.StatusBadRequest)
+		return
+	}
+
+	kind := req.URL.Query().Get("kind")
+	if kind == "" {
+		http.Error(w, "missing kind parameter", http.StatusBadRequest)
+		return
+	}
+
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		slog.Error("unable to parse page parameter", "err", err)
+		http.Error(w, "unable to parse page parameter", http.StatusBadRequest)
+		return
+	}
+
+	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
+	if err != nil {
+		slog.Error("unable to parse pageSize parameter", "err", err)
+		http.Error(w, "unable to parse pageSize parameter", http.StatusBadRequest)
+		return
+	}
+
+	if kind == "dashboard" {
+		// TODO: implement dashboard usage
+		return
+	}
+
+	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), name, kind, page, pageSize)
+	if err != nil {
+		slog.Error("unable to retrieve series expressions", "err", err)
+		http.Error(w, "unable to retrieve series expressions", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(w, alerts)
 }
