@@ -94,6 +94,23 @@ const GetSerieExpressions = async (name: string, page: number): Promise<PagedRes
         throw error;
     }
 }
+export interface RuleUsage {
+    serie: string;
+    groupName: string;
+    name: string;
+    expression: string;
+    kind: string;
+    labels: string[];
+}
+
+const GetSerieUsage = async <T>(name: string, page: number, kind: string): Promise<PagedResult<T>> => {
+    try {
+        const response = await axios.get(`${api}/serieUsage/${name}?page=${page - 1}&pageSize=10&kind=${kind}`);
+        return response.data;
+    } catch (error) {
+        throw error;
+    }
+}
 
 export default {
     Queries,
@@ -101,4 +118,5 @@ export default {
     GetSeriesMetadata,
     GetSerieMetadata,
     GetSerieExpressions,
+    GetSerieUsage
 };
