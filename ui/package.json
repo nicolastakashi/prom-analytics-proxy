@@ -25,7 +25,7 @@
     "@tanstack/react-table": "^8.20.6",
     "@tanstack/react-virtual": "^3.10.8",
     "@uiw/codemirror-themes": "^4.23.6",
-    "@uiw/react-codemirror": "^4.23.6",
+    "@uiw/react-codemirror": "^4.23.7",
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
