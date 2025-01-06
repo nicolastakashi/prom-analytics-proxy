@@ -1,7 +1,7 @@
-import { Tag, Info, BookOpen, Clock } from 'lucide-react'
+import { Tag, Info, BookOpen, Clock, AlertTriangle, BarChart2 } from 'lucide-react'
 import { Badge } from "../../components/shadcn/badge"
 import { useLocation } from 'react-router-dom'
-import fetch, { PagedResult, SerieExpression, SerieMetadata } from '../../fetch';
+import fetch, { PagedResult, RuleUsage, SerieExpression, SerieMetadata } from '../../fetch';
 import { useQuery } from 'react-query'
 import { AxiosError } from 'axios'
 import { toast } from '../../hooks/use-toast'
@@ -54,10 +54,10 @@ const ExpressionTable: React.FC<ExpressionTableProps> = ({ expressions, currentP
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="w-2/5">Expression</TableHead>
-                        <TableHead>Avg Duration</TableHead>
-                        <TableHead>Avg PeakySamples</TableHead>
-                        <TableHead>Max PeakSamples</TableHead>
+                        <TableHead className="w-2/5 bg-muted" >Expression</TableHead>
+                        <TableHead className="bg-muted">Avg Duration</TableHead>
+                        <TableHead className="bg-muted">Avg PeakySamples</TableHead>
+                        <TableHead className="bg-muted">Max PeakSamples</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -116,11 +116,159 @@ const ExpressionTable: React.FC<ExpressionTableProps> = ({ expressions, currentP
     );
 };
 
+interface RulesTableProps {
+    rules: PagedResult<RuleUsage> | undefined;
+    currentPage: number;
+    onPageChange: (direction: 'next' | 'prev') => void;
+}
+
+const AlertTable: React.FC<RulesTableProps> = ({ rules, currentPage, onPageChange }) => {
+    const { theme } = useTheme();
+    const startIndex = (currentPage - 1) * 1 + 1;
+    const endIndex = Math.min(startIndex + (rules?.data.length ?? 0) - 1, rules?.data.length ?? 0);
+    return (
+        <TabsContent value="alerts" className="p-4">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="bg-muted">Name</TableHead>
+                        <TableHead className="bg-muted">Expression</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {rules?.data.map((rule, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{rule.name}</TableCell>
+                            <TableCell className="font-mono text-sm">
+                                <CodeMirror
+                                    readOnly={true}
+                                    value={rule.expression}
+                                    extensions={[EditorView.lineWrapping, promqlExtension.asExtension()]}
+                                    height="100%"
+                                    inputMode={'none'}
+                                    editable={false}
+                                    theme={theme === 'dark' ? darkPromqlHighlighter : 'light'}
+                                    basicSetup={{
+                                        highlightActiveLine: false,
+                                        highlightActiveLineGutter: false,
+                                        foldGutter: false,
+                                        lineNumbers: false,
+                                        history: true,
+                                        autocompletion: true,
+                                        syntaxHighlighting: true,
+                                        allowMultipleSelections: true,
+                                        highlightSelectionMatches: true,
+                                        highlightSpecialChars: true,
+                                        closeBrackets: true,
+                                        bracketMatching: true,
+                                        indentOnInput: true,
+                                        closeBracketsKeymap: true,
+                                        defaultKeymap: true,
+                                        historyKeymap: true,
+                                        completionKeymap: true,
+                                        lintKeymap: true,
+                                    }}
+                                    className='hover:bg-muted/50'
+                                />
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+            <div className='pt-1'>
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={rules?.totalPages || 0}
+                    startIndex={startIndex}
+                    endIndex={endIndex}
+                    totalItems={rules?.data.length || 0}
+                    onPageChange={onPageChange}
+                />
+            </div>
+        </TabsContent>
+    )
+}
+
+interface RecordingRulesTableProps {
+    rules: PagedResult<RuleUsage> | undefined;
+    currentPage: number;
+    onPageChange: (direction: 'next' | 'prev') => void;
+}
+
+const RecordingRulesTable: React.FC<RecordingRulesTableProps> = ({ rules, currentPage, onPageChange }) => {
+    const { theme } = useTheme();
+    const startIndex = (currentPage - 1) * 1 + 1;
+    const endIndex = Math.min(startIndex + (rules?.data.length ?? 0) - 1, rules?.data.length ?? 0);
+    return (
+        <TabsContent value="recording" className="p-4">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="bg-muted">Name</TableHead>
+                        <TableHead className="bg-muted">Expression</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {rules?.data.map((rule, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{rule.name}</TableCell>
+                            <TableCell className="font-mono text-sm">
+                                <CodeMirror
+                                    readOnly={true}
+                                    value={rule.expression}
+                                    extensions={[EditorView.lineWrapping, promqlExtension.asExtension()]}
+                                    height="100%"
+                                    inputMode={'none'}
+                                    editable={false}
+                                    theme={theme === 'dark' ? darkPromqlHighlighter : 'light'}
+                                    basicSetup={{
+                                        highlightActiveLine: false,
+                                        highlightActiveLineGutter: false,
+                                        foldGutter: false,
+                                        lineNumbers: false,
+                                        history: true,
+                                        autocompletion: true,
+                                        syntaxHighlighting: true,
+                                        allowMultipleSelections: true,
+                                        highlightSelectionMatches: true,
+                                        highlightSpecialChars: true,
+                                        closeBrackets: true,
+                                        bracketMatching: true,
+                                        indentOnInput: true,
+                                        closeBracketsKeymap: true,
+                                        defaultKeymap: true,
+                                        historyKeymap: true,
+                                        completionKeymap: true,
+                                        lintKeymap: true,
+                                    }}
+                                    className='hover:bg-muted/50'
+                                />
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+            <div className='pt-1'>
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={rules?.totalPages || 0}
+                    startIndex={startIndex}
+                    endIndex={endIndex}
+                    totalItems={rules?.data.length || 0}
+                    onPageChange={onPageChange}
+                />
+            </div>
+        </TabsContent>
+    )
+}
+
 export default function Component() {
     const location = useLocation();
 
     const { metric } = location.state
     const [currentExpressionsPage, setCurrentExpressionsPage] = useState<number>(1);
+    const [currentAlertsPage, setCurrentAlertsPage] = useState<number>(1);
+    const [currentRecordingRulesPage, setCurrentRecordingRulesPage] = useState<number>(1);
 
     const { data: serieMetadata, isLoading: isLoadingSerieMetadata } = useQuery<SerieMetadata>(
         ['seriesMetadata', metric.name],
@@ -134,13 +282,33 @@ export default function Component() {
         { onError: errorHandler }
     );
 
+    const { data: alerts, isLoading: isLoadingAlerts } = useQuery<PagedResult<RuleUsage>>(
+        ['serieAlerts', metric.name, currentAlertsPage],
+        () => fetch.GetSerieUsage<RuleUsage>(metric.name, currentExpressionsPage, 'alert'),
+        { onError: errorHandler }
+    );
+
+    const { data: recordingRules, isLoading: isLoadingRecordingRules } = useQuery<PagedResult<RuleUsage>>(
+        ['serieRecordingRules', metric.name, currentRecordingRulesPage],
+        () => fetch.GetSerieUsage<RuleUsage>(metric.name, currentExpressionsPage, 'record'),
+        { onError: errorHandler }
+    );
+
     const handleExpressionsPageChange = (direction: 'next' | 'prev') => {
         setCurrentExpressionsPage(prev => direction === 'next' ? Math.min(prev + 1, expressions?.totalPages || 0) : Math.max(prev - 1, 1));
     };
 
+    const handleAlertsPageChange = (direction: 'next' | 'prev') => {
+        setCurrentAlertsPage(prev => direction === 'next' ? Math.min(prev + 1, alerts?.totalPages || 0) : Math.max(prev - 1, 1));
+    };
+
+    const handleRecordingRulesPageChange = (direction: 'next' | 'prev') => {
+        setCurrentRecordingRulesPage(prev => direction === 'next' ? Math.min(prev + 1, recordingRules?.totalPages || 0) : Math.max(prev - 1, 1));
+    }
+
     return (
         <>
-            <Progress isAnimating={isLoadingSerieMetadata || isLoadingExpressions} />
+            <Progress isAnimating={isLoadingSerieMetadata || isLoadingExpressions || isLoadingAlerts || isLoadingRecordingRules} />
             <div className="flex flex-col min-h-screen bg-background">
                 <main className="grow p-6">
                     <div className="mb-6">
@@ -189,7 +357,7 @@ export default function Component() {
                             </div>
                         </div>
                     </div>
-                    <div className="bg-card rounded-lg shadow">
+                    <div className="bg-card rounded-lg shadow border border-border">
                         <div className="p-4 border-b border-border">
                             <h3 className="text-lg font-semibold text-foreground flex items-center">
                                 <BookOpen className="mr-2 h-5 w-5 text-muted-foreground" />
@@ -197,7 +365,7 @@ export default function Component() {
                             </h3>
                         </div>
                         <Tabs defaultValue="expressions" className="w-full">
-                            <TabsList className="grid w-full grid-cols-1">
+                            <TabsList className="grid w-full grid-cols-3 bg-muted">
                                 <TabsTrigger value="expressions" className="flex items-center justify-center">
                                     <Clock className="mr-2 h-4 w-4" />
                                     <span className="hidden sm:inline">Expressions</span>
@@ -205,8 +373,24 @@ export default function Component() {
                                         {expressions?.data?.length}
                                     </Badge>
                                 </TabsTrigger>
+                                <TabsTrigger value="alerts" className="flex items-center justify-center">
+                                    <AlertTriangle className="mr-2 h-4 w-4" />
+                                    <span className="hidden sm:inline">Alerts</span>
+                                    <Badge variant="secondary" className="ml-2 text-secondary-foreground bg-secondary">
+                                        {alerts?.data.length}
+                                    </Badge>
+                                </TabsTrigger>
+                                <TabsTrigger value="recording" className="flex items-center justify-center">
+                                    <BarChart2 className="mr-2 h-4 w-4" />
+                                    <span className="hidden sm:inline">Recording Rules</span>
+                                    <Badge variant="secondary" className="ml-2 text-secondary-foreground bg-secondary">
+                                        {recordingRules?.data.length}
+                                    </Badge>
+                                </TabsTrigger>
                             </TabsList>
                             <ExpressionTable expressions={expressions} currentPage={currentExpressionsPage} onPageChange={handleExpressionsPageChange} />
+                            <AlertTable rules={alerts} currentPage={currentAlertsPage} onPageChange={handleAlertsPageChange} />
+                            <RecordingRulesTable rules={recordingRules} currentPage={currentRecordingRulesPage} onPageChange={handleRecordingRulesPageChange} />
                         </Tabs>
                     </div >
                 </main >

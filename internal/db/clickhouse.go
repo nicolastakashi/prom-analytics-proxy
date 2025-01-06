@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -20,28 +21,45 @@ type ClickHouseProvider struct {
 	db *sql.DB
 }
 
-const createClickHouseTableStmt = `
-CREATE TABLE IF NOT EXISTS queries (
-    TS DateTime,
-    QueryParam String,
-    TimeParam DateTime,
-    Duration UInt64,
-    StatusCode Int32,
-    BodySize Int32,
-    Fingerprint String,
-    LabelMatchers Nested (
-        key String,
-        value String
-    ),
-	Type String,
-	Step Float64,
-	Start DateTime,
-	End DateTime,
-	TotalQueryableSamples Int32,
-	PeakSamples Int32
-) ENGINE = MergeTree()
-ORDER BY TS;
-`
+const (
+	createClickHouseTableStmt = `
+		CREATE TABLE IF NOT EXISTS queries (
+			TS DateTime,
+			QueryParam String,
+			TimeParam DateTime,
+			Duration UInt64,
+			StatusCode Int32,
+			BodySize Int32,
+			Fingerprint String,
+			LabelMatchers Nested (
+				key String,
+				value String
+			),
+			Type String,
+			Step Float64,
+			Start DateTime,
+			End DateTime,
+			TotalQueryableSamples Int32,
+			PeakSamples Int32
+		) 
+		ENGINE = MergeTree()
+		ORDER BY TS;
+	`
+
+	createClickHouseRulesUsageTableStmt = `
+		CREATE TABLE IF NOT EXISTS RulesUsage (
+			serie String,               -- TEXT equivalent in ClickHouse
+			group_name String,          -- TEXT equivalent
+			name String,                -- TEXT equivalent
+			expression String,          -- TEXT equivalent
+			kind String,                -- TEXT equivalent
+			labels String,              -- Storing as a plain string or JSON (ClickHouse supports JSON functions)
+			created_at DateTime         -- DATETIME equivalent
+		) 
+		ENGINE = MergeTree
+		ORDER BY (serie, group_name, name);
+	`
+)
 
 func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Database.ClickHouse.DialTimeout, "clickhouse-dial-timeout", 5*time.Second, "Timeout to dial clickhouse.")
@@ -72,6 +90,10 @@ func newClickHouseProvider(ctx context.Context) (Provider, error) {
 
 	db := clickhouse.OpenDB(opts)
 	if _, err := db.ExecContext(ctx, createClickHouseTableStmt); err != nil {
+		return nil, err
+	}
+
+	if _, err := db.ExecContext(ctx, createClickHouseRulesUsageTableStmt); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +292,7 @@ func (p *ClickHouseProvider) getQueriesBySerieNameQueryData(ctx context.Context,
 	}
 	defer rows.Close()
 
-	var data []QueriesBySerieNameResult
+	data := []QueriesBySerieNameResult{}
 	for rows.Next() {
 		var r QueriesBySerieNameResult
 		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
@@ -280,4 +302,151 @@ func (p *ClickHouseProvider) getQueriesBySerieNameQueryData(ctx context.Context,
 	}
 
 	return data, nil
+}
+
+func (p *ClickHouseProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
+	// Prepare the SQL statement for batch insertion
+	query := `
+		INSERT INTO RulesUsage (
+			serie, group_name, name, expression, kind, labels, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	// Prepare the slice of rows to insert
+	args := make([]interface{}, 0, len(rulesUsage)*7) // 7 columns per row
+	createdAt := time.Now()
+
+	for _, rule := range rulesUsage {
+		// Convert the Labels field to JSON
+		labelsJSON, err := json.Marshal(rule.Labels)
+		if err != nil {
+			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		}
+
+		// Append the row values
+		args = append(args,
+			rule.Serie,
+			rule.GroupName,
+			rule.Name,
+			rule.Expression,
+			rule.Kind,
+			string(labelsJSON), // Pass the JSON string representation
+			createdAt,
+		)
+	}
+
+	// Execute the batch insert
+	if _, err := p.db.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("failed to execute batch insert: %w", err)
+	}
+
+	return nil
+}
+
+func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error) {
+	// Calculate offset for pagination
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * pageSize
+
+	// Query for total count of distinct rules
+	countQuery := `
+		SELECT COUNT(DISTINCT CONCAT(name, group_name))
+		FROM RulesUsage
+		WHERE serie = ? 
+		AND kind = ?
+		AND created_at >= NOW() - INTERVAL 30 DAY;
+	`
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serie, kind).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	// Query for paginated results
+	query := `
+		WITH latest_rules AS (
+			SELECT 
+				serie,
+				group_name,
+				name,
+				expression,
+				kind,
+				labels,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
+			FROM RulesUsage
+			WHERE serie = ? AND kind = ? AND created_at >= NOW() - INTERVAL 30 DAY
+		)
+		SELECT 
+			serie,
+			group_name,
+			name,
+			expression,
+			kind,
+			labels,
+			created_at
+		FROM latest_rules
+		WHERE rank = 1
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serie, kind, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+	}
+	defer rows.Close()
+
+	results := []RulesUsage{}
+	for rows.Next() {
+		var (
+			serie      string
+			groupName  string
+			name       string
+			expression string
+			kind       string
+			labelsJSON string
+			createdAt  time.Time
+		)
+
+		// Scan each row
+		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Parse JSON labels
+		var labels []string
+		if labelsJSON != "" {
+			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+			}
+		}
+
+		// Append to results
+		results = append(results, RulesUsage{
+			Serie:      serie,
+			GroupName:  groupName,
+			Name:       name,
+			Expression: expression,
+			Kind:       kind,
+			Labels:     labels,
+			CreatedAt:  createdAt,
+		})
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return &PagedResult{
+		Total:      totalCount, // Use totalCount instead of len(results)
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }

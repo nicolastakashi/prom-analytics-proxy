@@ -40,6 +40,17 @@ const (
 			totalQueryableSamples INTEGER,
 			peakSamples INTEGER
 		);`
+
+	createPostgresRulesUsageTableStmt = `
+		CREATE TABLE IF NOT EXISTS RulesUsage (
+			serie TEXT NOT NULL,
+			group_name TEXT NOT NULL,
+			name TEXT NOT NULL,
+			expression TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			labels JSONB, -- JSONB is used for better performance with JSON data
+			created_at TIMESTAMP NOT NULL
+		);`
 )
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
@@ -69,6 +80,10 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 
 	if _, err := db.ExecContext(ctx, createPostgresTableStmt); err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, createPostgresRulesUsageTableStmt); err != nil {
+		return nil, fmt.Errorf("failed to create rules usage table: %w", err)
 	}
 
 	return &PostGreSQLProvider{
@@ -274,7 +289,7 @@ func (p *PostGreSQLProvider) getQueriesBySerieNameQueryData(ctx context.Context,
 	}
 	defer rows.Close()
 
-	var data []QueriesBySerieNameResult
+	data := []QueriesBySerieNameResult{}
 	for rows.Next() {
 		var r QueriesBySerieNameResult
 		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
@@ -284,4 +299,165 @@ func (p *PostGreSQLProvider) getQueriesBySerieNameQueryData(ctx context.Context,
 	}
 
 	return data, nil
+}
+
+func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		// Rollback the transaction if it's not committed
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Prepare the SQL statement for insertion
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO RulesUsage (
+			serie, group_name, name, expression, kind, labels, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	createdAt := time.Now()
+
+	// Iterate over the rulesUsage slice and execute the insert statement
+	for _, rule := range rulesUsage {
+		// Convert the Labels field to JSON
+		labelsJSON, err := json.Marshal(rule.Labels)
+		if err != nil {
+			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		}
+
+		// Execute the insert statement
+		_, err = stmt.ExecContext(ctx,
+			rule.Serie,
+			rule.GroupName,
+			rule.Name,
+			rule.Expression,
+			rule.Kind,
+			string(labelsJSON),
+			createdAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to execute insert statement: %w", err)
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error) {
+	// Calculate offset for pagination
+	offset := page * pageSize
+
+	// Query for total count of distinct rules
+	countQuery := `
+		SELECT COUNT(DISTINCT name || group_name)
+		FROM RulesUsage
+		WHERE serie = $1
+		AND kind = $2
+		AND created_at >= NOW() - INTERVAL '30 days';
+	`
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serie, kind).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	// Query for paginated results
+	query := `
+		WITH latest_rules AS (
+			SELECT 
+				serie,
+				group_name,
+				name,
+				expression,
+				kind,
+				labels,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
+			FROM RulesUsage
+			WHERE serie = $1 AND kind = $2 AND created_at >= NOW() - INTERVAL '30 days'
+		)
+		SELECT 
+			serie,
+			group_name,
+			name,
+			expression,
+			kind,
+			labels,
+			created_at
+		FROM latest_rules
+		WHERE rank = 1
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serie, kind, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+	}
+	defer rows.Close()
+
+	results := []RulesUsage{}
+	for rows.Next() {
+		var (
+			serie      string
+			groupName  string
+			name       string
+			expression string
+			kind       string
+			labelsJSON string
+			createdAt  time.Time
+		)
+
+		// Scan each row
+		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Parse JSON labels
+		var labels []string
+		if labelsJSON != "" {
+			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+			}
+		}
+
+		// Append to results
+		results = append(results, RulesUsage{
+			Serie:      serie,
+			GroupName:  groupName,
+			Name:       name,
+			Expression: expression,
+			Kind:       kind,
+			Labels:     labels,
+			CreatedAt:  createdAt,
+		})
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return &PagedResult{
+		Total:      totalCount, // Use totalCount instead of len(results)
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }

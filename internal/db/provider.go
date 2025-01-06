@@ -13,6 +13,8 @@ type Provider interface {
 	Query(ctx context.Context, query string) (*QueryResult, error)
 	QueryShortCuts() []QueryShortCut
 	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
+	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
+	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
 	Close() error
 }
 
