@@ -103,6 +103,13 @@ export interface RuleUsage {
     labels: string[];
 }
 
+export interface DashboardUsage {
+    id: string;
+    serie: string;
+    name: string;
+    url: string;
+}
+
 const GetSerieUsage = async <T>(name: string, page: number, kind: string): Promise<PagedResult<T>> => {
     try {
         const response = await axios.get(`${api}/serieUsage/${name}?page=${page - 1}&pageSize=10&kind=${kind}`);

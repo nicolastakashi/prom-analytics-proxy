@@ -15,6 +15,8 @@ type Provider interface {
 	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
+	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
+	GetDashboardUsage(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 	Close() error
 }
 

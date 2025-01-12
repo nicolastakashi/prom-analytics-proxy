@@ -55,6 +55,14 @@ func (m *MockDBProvider) GetRulesUsage(ctx context.Context, serie string, kind s
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
+func (p *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []db.DashboardUsage) error {
+	return nil
+}
+
+func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, serieName string, page, pageSize int) (*db.PagedResult, error) {
+	return nil, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

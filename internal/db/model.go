@@ -74,3 +74,11 @@ type RulesUsage struct {
 	Labels     []string  `json:"labels"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+type DashboardUsage struct {
+	Id        string    `json:"id"`
+	Serie     string    `json:"serie"`
+	Name      string    `json:"title"`
+	URL       string    `json:"url"`
+	CreatedAt time.Time `json:"created_at"`
+}

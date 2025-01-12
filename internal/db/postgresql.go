@@ -456,8 +456,16 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, ki
 	}
 
 	return &PagedResult{
-		Total:      totalCount, // Use totalCount instead of len(results)
+		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
+}
+
+func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	return nil
+}
+
+func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serieName string, page, pageSize int) (*PagedResult, error) {
+	return nil, nil
 }

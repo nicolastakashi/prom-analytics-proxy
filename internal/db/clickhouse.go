@@ -450,3 +450,11 @@ func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, ki
 		Data:       results,
 	}, nil
 }
+
+func (p *ClickHouseProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	return nil
+}
+
+func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serieName string, page, pageSize int) (*PagedResult, error) {
+	return nil, nil
+}
