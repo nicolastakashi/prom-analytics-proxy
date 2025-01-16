@@ -1,7 +1,7 @@
-import { Tag, Info, BookOpen, Clock, AlertTriangle, BarChart2 } from 'lucide-react'
+import { Tag, Info, BookOpen, Clock, AlertTriangle, BarChart2, LineChart } from 'lucide-react'
 import { Badge } from "../../components/shadcn/badge"
-import { useLocation } from 'react-router-dom'
-import fetch, { PagedResult, RuleUsage, SerieExpression, SerieMetadata } from '../../fetch';
+import { Link, useLocation } from 'react-router-dom'
+import fetch, { DashboardUsage, PagedResult, RuleUsage, SerieExpression, SerieMetadata } from '../../fetch';
 import { useQuery } from 'react-query'
 import { AxiosError } from 'axios'
 import { toast } from '../../hooks/use-toast'
@@ -262,6 +262,51 @@ const RecordingRulesTable: React.FC<RecordingRulesTableProps> = ({ rules, curren
     )
 }
 
+interface DashboardTableProps {
+    dashboards: PagedResult<DashboardUsage> | undefined;
+    currentPage: number;
+    onPageChange: (direction: 'next' | 'prev') => void;
+}
+
+const DashboardTable: React.FC<DashboardTableProps> = ({ dashboards, currentPage, onPageChange }) => {
+    const startIndex = (currentPage - 1) * 1 + 1;
+    const endIndex = Math.min(startIndex + (dashboards?.data?.length ?? 0) - 1, dashboards?.data?.length ?? 0);
+
+    return (
+        <TabsContent value="dashboards" className="p-4">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="w-2/5 bg-muted" >Name</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {dashboards?.data?.map((dashboard, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{dashboard.id}</TableCell>
+                            <TableCell>
+                                <Link to={dashboard.url} target='_blank' className="text-primary">
+                                    {dashboard.name}
+                                </Link>
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+            <div className='pt-1'>
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={dashboards?.totalPages || 0}
+                    startIndex={startIndex}
+                    endIndex={endIndex}
+                    totalItems={dashboards?.data?.length || 0}
+                    onPageChange={onPageChange}
+                />
+            </div>
+        </TabsContent>
+    );
+};
+
 export default function Component() {
     const location = useLocation();
 
@@ -269,6 +314,7 @@ export default function Component() {
     const [currentExpressionsPage, setCurrentExpressionsPage] = useState<number>(1);
     const [currentAlertsPage, setCurrentAlertsPage] = useState<number>(1);
     const [currentRecordingRulesPage, setCurrentRecordingRulesPage] = useState<number>(1);
+    const [currentDashboardsPage, setCurrentDashboardsPage] = useState<number>(1);
 
     const { data: serieMetadata, isLoading: isLoadingSerieMetadata } = useQuery<SerieMetadata>(
         ['seriesMetadata', metric.name],
@@ -294,6 +340,12 @@ export default function Component() {
         { onError: errorHandler }
     );
 
+    const { data: dashboards, isLoading: isLoadingDashboards } = useQuery<PagedResult<DashboardUsage>>(
+        ['serieDashboards', metric.name, currentRecordingRulesPage],
+        () => fetch.GetSerieUsage<DashboardUsage>(metric.name, currentExpressionsPage, 'dashboard'),
+        { onError: errorHandler }
+    );
+
     const handleExpressionsPageChange = (direction: 'next' | 'prev') => {
         setCurrentExpressionsPage(prev => direction === 'next' ? Math.min(prev + 1, expressions?.totalPages || 0) : Math.max(prev - 1, 1));
     };
@@ -306,9 +358,13 @@ export default function Component() {
         setCurrentRecordingRulesPage(prev => direction === 'next' ? Math.min(prev + 1, recordingRules?.totalPages || 0) : Math.max(prev - 1, 1));
     }
 
+    const handleDashboardsPageChange = (direction: 'next' | 'prev') => {
+        setCurrentDashboardsPage(prev => direction === 'next' ? Math.min(prev + 1, dashboards?.totalPages || 0) : Math.max(prev - 1, 1));
+    }
+
     return (
         <>
-            <Progress isAnimating={isLoadingSerieMetadata || isLoadingExpressions || isLoadingAlerts || isLoadingRecordingRules} />
+            <Progress isAnimating={isLoadingSerieMetadata || isLoadingExpressions || isLoadingAlerts || isLoadingRecordingRules || isLoadingDashboards} />
             <div className="flex flex-col min-h-screen bg-background">
                 <main className="grow p-6">
                     <div className="mb-6">
@@ -365,12 +421,19 @@ export default function Component() {
                             </h3>
                         </div>
                         <Tabs defaultValue="expressions" className="w-full">
-                            <TabsList className="grid w-full grid-cols-3 bg-muted">
+                            <TabsList className="grid w-full grid-cols-4 bg-muted">
                                 <TabsTrigger value="expressions" className="flex items-center justify-center">
                                     <Clock className="mr-2 h-4 w-4" />
                                     <span className="hidden sm:inline">Expressions</span>
                                     <Badge variant="secondary" className="ml-2">
-                                        {expressions?.data?.length}
+                                        {expressions?.data?.length || 0}
+                                    </Badge>
+                                </TabsTrigger>
+                                <TabsTrigger value="dashboards" className="flex items-center justify-center">
+                                    <LineChart className="mr-2 h-4 w-4" />
+                                    <span className="hidden sm:inline">Dashboards</span>
+                                    <Badge variant="secondary" className="ml-2">
+                                        {dashboards?.data?.length || 0}
                                     </Badge>
                                 </TabsTrigger>
                                 <TabsTrigger value="alerts" className="flex items-center justify-center">
@@ -384,11 +447,12 @@ export default function Component() {
                                     <BarChart2 className="mr-2 h-4 w-4" />
                                     <span className="hidden sm:inline">Recording Rules</span>
                                     <Badge variant="secondary" className="ml-2 text-secondary-foreground bg-secondary">
-                                        {recordingRules?.data.length}
+                                        {recordingRules?.data.length || 0}
                                     </Badge>
                                 </TabsTrigger>
                             </TabsList>
                             <ExpressionTable expressions={expressions} currentPage={currentExpressionsPage} onPageChange={handleExpressionsPageChange} />
+                            <DashboardTable dashboards={dashboards} currentPage={currentDashboardsPage} onPageChange={handleDashboardsPageChange} />
                             <AlertTable rules={alerts} currentPage={currentAlertsPage} onPageChange={handleAlertsPageChange} />
                             <RecordingRulesTable rules={recordingRules} currentPage={currentRecordingRulesPage} onPageChange={handleRecordingRulesPageChange} />
                         </Tabs>

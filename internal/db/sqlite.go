@@ -57,6 +57,15 @@ const (
 			created_at DATETIME NOT NULL
 		);
 	`
+	createSqliteDashboardUsageTableStmt = `
+		CREATE TABLE IF NOT EXISTS DashboardUsage (
+			id TEXT NOT NULL,
+			serie TEXT NOT NULL,
+			name TEXT NOT NULL,
+			url TEXT NOT NULL,
+			created_at DATETIME NOT NULL
+		);
+	`
 )
 
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
@@ -83,6 +92,10 @@ func newSqliteProvider(ctx context.Context) (Provider, error) {
 
 	if _, err := db.ExecContext(ctx, createSqliteRulesUsageTableStmt); err != nil {
 		return nil, fmt.Errorf("failed to create rules usage table: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, createSqliteDashboardUsageTableStmt); err != nil {
+		return nil, fmt.Errorf("failed to create dashboard usage table: %w", err)
 	}
 
 	return &SQLiteProvider{
@@ -442,6 +455,141 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, serie string, kind s
 			Kind:       kind,
 			Labels:     labels,
 			CreatedAt:  createdAt,
+		})
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return &PagedResult{
+		Total:      len(results),
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
+}
+
+func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	// Begin a transaction
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		// Rollback the transaction if it's not committed
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	createdAt := time.Now()
+
+	// Prepare the SQL statement for insertion
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO DashboardUsage (
+			id, serie, name, url, created_at
+		) VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Iterate over the rulesUsage slice and execute the insert statement
+	for _, dashboard := range dashboardUsage {
+		// Execute the insert statement
+		_, err = stmt.ExecContext(ctx,
+			dashboard.Id,
+			dashboard.Serie,
+			dashboard.Name,
+			dashboard.URL,
+			createdAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to execute insert statement: %w", err)
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
+	offset := (page - 1) * pageSize
+
+	// Query for total count
+	countQuery := `
+		SELECT COUNT(DISTINCT name)
+		FROM DashboardUsage
+		WHERE serie = ? 
+		AND created_at >= datetime('now', '-30 days');
+	`
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	// Query for paginated results
+	query := `
+		WITH latest_rules AS (
+			SELECT 
+				id,
+				serie,
+				name,
+				url,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
+			FROM DashboardUsage
+			WHERE serie = ? AND created_at >= datetime('now', '-30 days')
+		)
+		SELECT 
+			id,
+			serie,
+			name,
+			url,
+			created_at
+		FROM latest_rules
+		WHERE rank = 1
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
+	}
+	defer rows.Close()
+
+	results := []DashboardUsage{}
+	for rows.Next() {
+		var (
+			id        string
+			serie     string
+			name      string
+			url       string
+			createdAt time.Time
+		)
+
+		// Scan each row
+		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Append to results
+		results = append(results, DashboardUsage{
+			Id:        id,
+			Serie:     serie,
+			Name:      name,
+			URL:       url,
+			CreatedAt: createdAt,
 		})
 	}
 

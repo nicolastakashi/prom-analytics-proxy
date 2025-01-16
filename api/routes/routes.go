@@ -394,30 +394,44 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 
 	for name, metricUsage := range usage {
 		rulesUsage := make([]db.RulesUsage, 0, len(metricUsage.AlertRules)+len(metricUsage.RecordingRules))
-		for usage, _ := range metricUsage.AlertRules {
+		for usage := range metricUsage.AlertRules {
 			rulesUsage = append(rulesUsage, db.RulesUsage{
 				Serie:      name,
 				GroupName:  usage.GroupName,
 				Name:       usage.Name,
 				Expression: usage.Expression,
 				Kind:       string(db.RuleUsageKindAlert),
-				// Labels:    usage.Labels,
 			})
 		}
 
-		for usage, _ := range metricUsage.RecordingRules {
+		for usage := range metricUsage.RecordingRules {
 			rulesUsage = append(rulesUsage, db.RulesUsage{
 				Serie:      name,
 				GroupName:  usage.GroupName,
 				Name:       usage.Name,
 				Expression: usage.Expression,
 				Kind:       string(db.RuleUsageKindRecord),
-				// Labels:    usage.Labels,
 			})
 		}
 
 		if err := r.dbProvider.InsertRulesUsage(req.Context(), rulesUsage); err != nil {
 			slog.Error("unable to insert rules usage", "err", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		dashboardUsage := make([]db.DashboardUsage, 0, len(metricUsage.Dashboards))
+		for usage := range metricUsage.Dashboards {
+			dashboardUsage = append(dashboardUsage, db.DashboardUsage{
+				Serie: name,
+				Id:    usage.ID,
+				Name:  usage.Name,
+				URL:   usage.URL,
+			})
+		}
+
+		if err := r.dbProvider.InsertDashboardUsage(req.Context(), dashboardUsage); err != nil {
+			slog.Error("unable to insert dashboard usage", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -452,7 +466,13 @@ func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if kind == "dashboard" {
-		// TODO: implement dashboard usage
+		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), name, page, pageSize)
+		if err != nil {
+			slog.Error("unable to retrieve series dashboards", "err", err)
+			http.Error(w, "unable to retrieve series dashboards", http.StatusInternalServerError)
+			return
+		}
+		writeJSONResponse(w, dashboards)
 		return
 	}
 

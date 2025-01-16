@@ -51,6 +51,15 @@ const (
 			labels JSONB, -- JSONB is used for better performance with JSON data
 			created_at TIMESTAMP NOT NULL
 		);`
+
+	createPostgresDashboardUsageTableStmt = `
+		CREATE TABLE IF NOT EXISTS DashboardUsage (
+			id TEXT NOT NULL,
+			serie TEXT NOT NULL,
+			name TEXT NOT NULL,
+			url TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		);`
 )
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
@@ -84,6 +93,10 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 
 	if _, err := db.ExecContext(ctx, createPostgresRulesUsageTableStmt); err != nil {
 		return nil, fmt.Errorf("failed to create rules usage table: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, createPostgresDashboardUsageTableStmt); err != nil {
+		return nil, fmt.Errorf("failed to create dashboard usage table: %w", err)
 	}
 
 	return &PostGreSQLProvider{
@@ -456,7 +469,143 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, ki
 	}
 
 	return &PagedResult{
-		Total:      totalCount, // Use totalCount instead of len(results)
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
+}
+
+func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		// Rollback the transaction if it's not committed
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Prepare the SQL statement for insertion
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO DashboardUsage (
+			id, serie, name, url, created_at
+		) VALUES ($1, $2, $3, $4, $5)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	createdAt := time.Now()
+
+	// Iterate over the rulesUsage slice and execute the insert statement
+	for _, dashboard := range dashboardUsage {
+		// Execute the insert statement
+		_, err = stmt.ExecContext(ctx,
+			dashboard.Id,
+			dashboard.Serie,
+			dashboard.Name,
+			dashboard.URL,
+			createdAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to execute insert statement: %w", err)
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
+	// Calculate offset for pagination
+	offset := page * pageSize
+
+	// Query for total count of distinct rules
+	countQuery := `
+		SELECT COUNT(DISTINCT name
+		FROM DashboardUsage
+		WHERE serie = $1
+		AND created_at >= NOW() - INTERVAL '30 days';
+	`
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	// Query for paginated results
+	query := `
+		WITH latest_rules AS (
+			SELECT 
+				id,
+				serie,
+				name,
+				url,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
+			FROM RulesUsage
+			WHERE serie = $1 AND created_at >= NOW() - INTERVAL '30 days'
+		)
+		SELECT 
+			id,
+			serie,
+			name,
+			url,
+			created_at,
+		FROM latest_rules
+		WHERE rank = 1
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+	}
+	defer rows.Close()
+
+	results := []DashboardUsage{}
+	for rows.Next() {
+		var (
+			id        string
+			serie     string
+			name      string
+			url       string
+			createdAt time.Time
+		)
+
+		// Scan each row
+		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Append to results
+		results = append(results, DashboardUsage{
+			Id:        id,
+			Serie:     serie,
+			Name:      name,
+			URL:       url,
+			CreatedAt: createdAt,
+		})
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return &PagedResult{
+		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
