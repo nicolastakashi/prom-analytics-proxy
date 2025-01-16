@@ -59,6 +59,18 @@ const (
 		ENGINE = MergeTree
 		ORDER BY (serie, group_name, name);
 	`
+
+	createClickHouseDashboardUsageTableStmt = `
+		CREATE TABLE IF NOT EXISTS DashboardUsage (
+			id String,                  
+			serie String,               
+			name String,                
+			url String,          
+			created_at DateTime         
+		) 
+		ENGINE = MergeTree
+		ORDER BY (id, serie, name);
+	`
 )
 
 func RegisterClickHouseFlags(flagSet *flag.FlagSet) {
@@ -94,6 +106,10 @@ func newClickHouseProvider(ctx context.Context) (Provider, error) {
 	}
 
 	if _, err := db.ExecContext(ctx, createClickHouseRulesUsageTableStmt); err != nil {
+		return nil, err
+	}
+
+	if _, err := db.ExecContext(ctx, createClickHouseDashboardUsageTableStmt); err != nil {
 		return nil, err
 	}
 
@@ -305,39 +321,61 @@ func (p *ClickHouseProvider) getQueriesBySerieNameQueryData(ctx context.Context,
 }
 
 func (p *ClickHouseProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
-	// Prepare the SQL statement for batch insertion
-	query := `
-		INSERT INTO RulesUsage (
-			serie, group_name, name, expression, kind, labels, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`
+	// If there are no rows, just return
+	if len(rulesUsage) == 0 {
+		return nil
+	}
 
-	// Prepare the slice of rows to insert
-	args := make([]interface{}, 0, len(rulesUsage)*7) // 7 columns per row
+	// Each row has 7 columns: serie, group_name, name, expression, kind, labels, created_at.
+	// We need 7 placeholders per row: (?,?,?, ?,?,?, ?)
+	placeholdersPerRow := "(?, ?, ?, ?, ?, ?, ?)"
+
+	// 1. Build the string of placeholders for all rows: (?,?,?, ?,?,?, ?), (?,?,?, ?,?,?, ?), ...
+	var sb strings.Builder
+	for i := 0; i < len(rulesUsage); i++ {
+		sb.WriteString(placeholdersPerRow)
+		if i < len(rulesUsage)-1 {
+			sb.WriteString(",")
+		}
+	}
+	// Example if len(rulesUsage) == 2:
+	//   sb = "(?, ?, ?, ?, ?, ?, ?),(?, ?, ?, ?, ?, ?, ?)"
+
+	// 2. Construct the full INSERT statement
+	query := fmt.Sprintf(`
+        INSERT INTO RulesUsage (
+            serie, group_name, name, expression, kind, labels, created_at
+        ) VALUES %s
+    `, sb.String())
+
+	// 3. Prepare a slice for all rows' parameters
+	// 7 columns per row -> capacity = 7 * len(rulesUsage)
+	args := make([]interface{}, 0, 7*len(rulesUsage))
+
 	createdAt := time.Now()
 
 	for _, rule := range rulesUsage {
-		// Convert the Labels field to JSON
+		// Convert the labels map to JSON
 		labelsJSON, err := json.Marshal(rule.Labels)
 		if err != nil {
-			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+			return fmt.Errorf("failed to marshal labels: %w", err)
 		}
 
-		// Append the row values
+		// Append each column's value in the same order as the placeholders
 		args = append(args,
 			rule.Serie,
 			rule.GroupName,
 			rule.Name,
 			rule.Expression,
 			rule.Kind,
-			string(labelsJSON), // Pass the JSON string representation
+			string(labelsJSON),
 			createdAt,
 		)
 	}
 
-	// Execute the batch insert
+	// 4. Execute the multi-row insert
 	if _, err := p.db.ExecContext(ctx, query, args...); err != nil {
-		return fmt.Errorf("failed to execute batch insert: %w", err)
+		return fmt.Errorf("unable to execute batch insert into RulesUsage: %w", err)
 	}
 
 	return nil
@@ -452,9 +490,138 @@ func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, ki
 }
 
 func (p *ClickHouseProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	// Each row has 5 columns: (id, serie, name, url, created_at).
+	// So we need 5 placeholders per row.
+
+	// 1) Build the placeholder chunk for each row, i.e. "(?, ?, ?, ?, ?)"
+	placeholdersPerRow := "(?, ?, ?, ?, ?)"
+
+	// 2) Build a string with one "(?, ?, ?, ?, ?)" for each row, separated by commas
+	var placeholdersBuilder strings.Builder
+	for i := 0; i < len(dashboardUsage); i++ {
+		placeholdersBuilder.WriteString(placeholdersPerRow)
+		if i < len(dashboardUsage)-1 {
+			placeholdersBuilder.WriteString(",")
+		}
+	}
+	// e.g., if len(dashboardUsage) = 3,
+	// placeholdersBuilder = "(?, ?, ?, ?, ?),(?, ?, ?, ?, ?),(?, ?, ?, ?, ?)"
+
+	// 3) Build the entire INSERT statement using the placeholders string
+	stmt := fmt.Sprintf(`
+        INSERT INTO DashboardUsage (id, serie, name, url, created_at)
+        VALUES %s
+    `, placeholdersBuilder.String())
+
+	// 4) Build a single slice of arguments for all rows
+	// For each DashboardUsage: 5 columns -> append them in order
+	args := make([]interface{}, 0, len(dashboardUsage)*5)
+
+	createdAt := time.Now()
+	for _, dash := range dashboardUsage {
+		args = append(args,
+			dash.Id,
+			dash.Serie,
+			dash.Name,
+			dash.URL,
+			createdAt, // or dash.CreatedAt if each row has a distinct timestamp
+		)
+	}
+
+	// 5) Execute the statement once, passing in the arguments
+	if _, err := p.db.ExecContext(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("unable to execute batch insert: %w", err)
+	}
+
 	return nil
 }
+func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
+	// Calculate offset for pagination
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * pageSize
 
-func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serieName string, page, pageSize int) (*PagedResult, error) {
-	return nil, nil
+	// Query for total count of distinct rules
+	countQuery := `
+		SELECT COUNT(DISTINCT CONCAT(id))
+		FROM DashboardUsage
+		WHERE serie = ? 
+		AND created_at >= NOW() - INTERVAL 30 DAY;
+	`
+	var totalCount int
+	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	// Calculate total pages
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+
+	// Query for paginated results
+	query := `
+		WITH latest_rules AS (
+			SELECT 
+				id,
+				serie,
+				name,
+				url,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY serie, id ORDER BY created_at DESC) AS rank
+			FROM DashboardUsage
+			WHERE serie = ? AND created_at >= NOW() - INTERVAL 30 DAY
+		)
+		SELECT 
+			id,
+			serie,
+			name,
+			url,
+			created_at
+		FROM latest_rules
+		WHERE rank = 1
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+	}
+	defer rows.Close()
+
+	results := []DashboardUsage{}
+	for rows.Next() {
+		var (
+			id        string
+			serie     string
+			name      string
+			url       string
+			createdAt time.Time
+		)
+
+		// Scan each row
+		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Append to results
+		results = append(results, DashboardUsage{
+			Id:        id,
+			Serie:     serie,
+			Name:      name,
+			URL:       url,
+			CreatedAt: createdAt,
+		})
+	}
+
+	// Check for errors after iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return &PagedResult{
+		Total:      totalCount, // Use totalCount instead of len(results)
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }
