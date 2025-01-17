@@ -106,7 +106,7 @@ export interface RuleUsage {
 export interface DashboardUsage {
     id: string;
     serie: string;
-    name: string;
+    title: string;
     url: string;
 }
 
