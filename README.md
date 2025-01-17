@@ -13,8 +13,8 @@
 `prom-analytics-proxy` is a lightweight proxy application designed to sit between your Prometheus server and its clients. It provides valuable insights by collecting detailed analytics on PromQL queries, helping you understand query performance, resource usage, and overall system behavior. This can significantly improve observability for Prometheus users, providing actionable data to optimize query execution and infrastructure.
 
 ![prom-analytics-proxy-ui example](assets/images/01.png)
-
 ![prom-analytics-proxy-ui example](assets/images/02.png)
+![prom-analytics-proxy-ui example](assets/images/03.png)
 
 ## Features
 
@@ -23,6 +23,10 @@ There are several key features that `prom-analytics-proxy` offers to enhance you
 ### Query Analytics
 
 Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
+
+### Metrics Usage
+
+Offers seamless integration with Perses Metrics Usage to gather and correlate metrics usage data from multiple sources—such as Recording Rules, Alerts, and Dashboards, alongside existing metrics and queries for deeper insights. For more information please check the [Metrics Usage Integration](#metrics-usage-integration) section.
 
 ### Data Storage
 
@@ -132,4 +136,39 @@ tracing:
     insecure_skip_verify: false
   sampler_type: ""
   sampler_param: ""
+```
+
+### Metrics Usage Integration
+
+The `prom-analytics-proxy` application integrates with Perses Metrics Usage to gather and correlate metrics usage data from multiple sources. Essentially, `prom-analytics-proxy` acts as a backend for the Metrics Usage frontend, providing the data needed to populate the UI.
+
+Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
+
+You can find a sample configuration file for the Metrics Usage integration in the `config` directory. The file includes the following options, assuming the `prom-analytics-proxy` is running on `localhost:9091`:
+
+```yaml
+metric_collector:
+  enable: true
+  http_client:
+    url: "https://demo.promlabs.com"
+
+rules_collectors:
+  - enable: true
+    prometheus_client:
+      url: "https://demo.promlabs.com"
+    metric_usage_client:
+      url: "http://localhost:9091"
+
+labels_collectors:
+  - enable: true
+    prometheus_client:
+      url: "https://demo.promlabs.com"
+    metric_usage_client:
+      url: "http://localhost:9091"
+perses_collector:
+  enable: true
+  perses_client:
+    url: "https://demo.perses.dev"
+  metric_usage_client:
+    url: "http://localhost:9091"
 ```
