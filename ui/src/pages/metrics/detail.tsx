@@ -277,16 +277,15 @@ const DashboardTable: React.FC<DashboardTableProps> = ({ dashboards, currentPage
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="w-2/5 bg-muted" >Name</TableHead>
+                        <TableHead className="bg-muted">Name</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {dashboards?.data?.map((dashboard, index) => (
                         <TableRow key={index}>
-                            <TableCell>{dashboard.id}</TableCell>
                             <TableCell>
-                                <Link to={dashboard.url} target='_blank' className="text-primary">
-                                    {dashboard.name}
+                                <Link to={dashboard.url} target='_blank' className="text-blue-500 underline">
+                                    {dashboard.title}
                                 </Link>
                             </TableCell>
                         </TableRow>

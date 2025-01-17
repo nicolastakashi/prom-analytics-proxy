@@ -34,6 +34,8 @@ type routes struct {
 	dbProvider        db.Provider
 	includeQueryStats bool
 	promAPI           v1.API
+	metadataLimit     string
+	seriesLimit       *uint64
 }
 
 type Option func(*routes)
@@ -110,6 +112,20 @@ func WithPromAPI(upstream *url.URL) Option {
 func WithIncludeQueryStats(includeQueryStats bool) Option {
 	return func(r *routes) {
 		r.includeQueryStats = includeQueryStats
+	}
+}
+
+func WithMetadataLimit(limit uint64) Option {
+	return func(r *routes) {
+		if limit > 0 {
+			r.metadataLimit = strconv.FormatUint(limit, 10)
+		}
+	}
+}
+
+func WithSeriesLimit(limit uint64) Option {
+	return func(r *routes) {
+		r.seriesLimit = &limit
 	}
 }
 
@@ -282,7 +298,7 @@ func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
-	metadata, err := r.promAPI.Metadata(req.Context(), "", "")
+	metadata, err := r.promAPI.Metadata(req.Context(), "", r.metadataLimit)
 	if err != nil {
 		slog.Error("unable to retrieve series metadata", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -301,7 +317,7 @@ func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(5000))
+	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(*r.seriesLimit))
 	if err != nil {
 		slog.Error("unable to retrieve series count", "err", err)
 		http.Error(w, "unable to retrieve series count", http.StatusInternalServerError)

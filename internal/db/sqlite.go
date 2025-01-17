@@ -180,7 +180,7 @@ func (p *SQLiteProvider) Query(ctx context.Context, query string) (*QueryResult,
 		return nil, err
 	}
 
-	var data []map[string]interface{}
+	data := []map[string]interface{}{}
 	for rows.Next() {
 		columnPointers := make([]interface{}, len(columns))
 		columnValues := make([]interface{}, len(columns))
