@@ -11,11 +11,13 @@ import (
 )
 
 type Config struct {
-	Upstream UpstreamConfig `yaml:"upstream"`
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Insert   InsertConfig   `yaml:"insert"`
-	Tracing  *otlp.Config   `yaml:"tracing"`
+	Upstream      UpstreamConfig `yaml:"upstream"`
+	Server        ServerConfig   `yaml:"server"`
+	Database      DatabaseConfig `yaml:"database"`
+	Insert        InsertConfig   `yaml:"insert"`
+	Tracing       *otlp.Config   `yaml:"tracing"`
+	MetadataLimit uint64         `yaml:"metadata_limit"`
+	SeriesLimit   uint64         `yaml:"series_limit"`
 }
 
 type DatabaseConfig struct {

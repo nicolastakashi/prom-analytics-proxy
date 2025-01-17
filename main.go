@@ -48,6 +48,8 @@ func main() {
 	log.RegisterFlags(flagset)
 
 	flagset.StringVar(&configFile, "config-file", "", "Path to the configuration file, it takes precedence over the command line flags.")
+	flagset.Uint64("metadata-limit", 0, "The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)")
+	flagset.Uint64("series-limit", 0, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	flagset.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
@@ -160,6 +162,8 @@ func main() {
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
 			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
+			routes.WithSeriesLimit(config.DefaultConfig.SeriesLimit),
+			routes.WithMetadataLimit(config.DefaultConfig.MetadataLimit),
 		)
 
 		if err != nil {

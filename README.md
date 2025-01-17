@@ -79,6 +79,8 @@ The `prom-analytics-proxy` application supports several configuration options th
     	Log format (text, json) (default "text")
   -log-level string
     	Log level (default "INFO")
+  -metadata-limit uint
+    	The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)
   -postgresql-addr string
     	Address of the postgresql server. (default "localhost")
   -postgresql-database string
@@ -93,6 +95,8 @@ The `prom-analytics-proxy` application supports several configuration options th
     	SSL mode for the postgresql server. (default "disable")
   -postgresql-user string
     	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+  -series-limit uint
+    	The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)
   -sqlite-database-path string
     	Path to the sqlite database. (default "prom-analytics-proxy.db")
   -upstream string
