@@ -5,7 +5,7 @@ go 1.23.1
 toolchain go1.23.3
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.30.1
+	github.com/ClickHouse/clickhouse-go/v2 v2.30.2
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/prometheus v0.301.0
@@ -17,7 +17,7 @@ require (
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.63.1 // indirect
+	github.com/ClickHouse/ch-go v0.64.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/caio/go-tdigest v3.1.0+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -83,7 +83,7 @@ require (
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/perses/metrics-usage v0.5.1-0.20250112104505-57db9bc08e3a
-	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.61.0 // indirect
