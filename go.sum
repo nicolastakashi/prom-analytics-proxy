@@ -13,10 +13,10 @@ github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 h1:ywEEhmNahHBihViHepv3xP
 github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0/go.mod h1:iZDifYGJTIgIIkYRNWPENUnqx6bJ2xnSDFI2tjwZNuY=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2 h1:XHOnouVk1mxXfQidrMEnLlPk9UMeRtyBTnEFtxkV0kU=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2/go.mod h1:wP83P5OoQ5p6ip3ScPr0BAq0BvuPAvacpEuSzyouqAI=
-github.com/ClickHouse/ch-go v0.64.0 h1:+MByORSlUvgPwmitmQi7OH/zuC/9Pk87Mulbq1eKa2s=
-github.com/ClickHouse/ch-go v0.64.0/go.mod h1:RBUynvczWwVzhS6Up9lPKlH1mrk4UAmle6uzCiW4Pkc=
-github.com/ClickHouse/clickhouse-go/v2 v2.30.2 h1:WsG2k1uiDh+0z/YNubK6aAc27sHzmVISlVpK2uGTrBw=
-github.com/ClickHouse/clickhouse-go/v2 v2.30.2/go.mod h1:F7dAGn2PQzY7FkzZrY+04rSBodstSjaNg/DIuQHa3uA=
+github.com/ClickHouse/ch-go v0.64.1 h1:FWpP+QU4KchgzpEekuv8YoI/fUc4H2r6Bwc5WwrzvcI=
+github.com/ClickHouse/ch-go v0.64.1/go.mod h1:RBUynvczWwVzhS6Up9lPKlH1mrk4UAmle6uzCiW4Pkc=
+github.com/ClickHouse/clickhouse-go/v2 v2.30.3 h1:m0VZqUNCJ7lOmZfmOE3HZUMixZHftKmZLqcrz2+UVHk=
+github.com/ClickHouse/clickhouse-go/v2 v2.30.3/go.mod h1:V1aZaG0ctMbd8KVi+D4loXi97duWYtHiQHMCgipKJcI=
 github.com/DATA-DOG/go-sqlmock v1.4.1/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
