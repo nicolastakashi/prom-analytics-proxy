@@ -425,7 +425,12 @@ func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, statu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(response)
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		slog.Error("failed to encode JSON response", "err", err)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
