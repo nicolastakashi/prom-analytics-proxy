@@ -180,11 +180,12 @@ func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int,
 	return strconv.Atoi(value)
 }
 
-func writeJSONResponse(req *http.Request, w http.ResponseWriter, data interface{}) {
+func writeJSONResponse(req *http.Request, w http.ResponseWriter, response interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		writeErrorResponse(req, w, fmt.Errorf("unable to encode results to JSON: %w", err), http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Error("failed to encode JSON response", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("failed to encode response: %w", err), http.StatusInternalServerError)
+		return
 	}
 }
 
