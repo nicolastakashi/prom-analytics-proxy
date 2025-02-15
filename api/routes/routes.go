@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,7 +25,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 )
+
+type LimitsConfig struct {
+	MetadataLimit uint64
+	SeriesLimit   uint64
+}
 
 type routes struct {
 	handler http.Handler
@@ -36,6 +43,7 @@ type routes struct {
 	promAPI           v1.API
 	metadataLimit     string
 	seriesLimit       *uint64
+	limits            LimitsConfig
 }
 
 type Option func(*routes)
@@ -115,23 +123,23 @@ func WithIncludeQueryStats(includeQueryStats bool) Option {
 	}
 }
 
-func WithMetadataLimit(limit uint64) Option {
+func WithLimits(limits LimitsConfig) Option {
 	return func(r *routes) {
-		if limit > 0 {
-			r.metadataLimit = strconv.FormatUint(limit, 10)
+		r.limits = limits
+		if limits.MetadataLimit > 0 {
+			r.metadataLimit = strconv.FormatUint(limits.MetadataLimit, 10)
 		}
-	}
-}
-
-func WithSeriesLimit(limit uint64) Option {
-	return func(r *routes) {
-		r.seriesLimit = &limit
+		r.seriesLimit = &limits.SeriesLimit
 	}
 }
 
 func NewRoutes(opts ...Option) (*routes, error) {
 	r := &routes{
 		mux: http.NewServeMux(), // Initialize mux to avoid nil pointer dereference
+		limits: LimitsConfig{ // Add default limits
+			MetadataLimit: 1000, // Default metadata limit
+			SeriesLimit:   1000, // Default series limit
+		},
 	}
 
 	for _, opt := range opts {
@@ -172,11 +180,12 @@ func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int,
 	return strconv.Atoi(value)
 }
 
-func writeJSONResponse(w http.ResponseWriter, data interface{}) {
+func writeJSONResponse(req *http.Request, w http.ResponseWriter, response interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		slog.Error("unable to encode results to JSON", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Error("failed to encode JSON response", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("failed to encode response: %w", err), http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -278,53 +287,60 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	query := req.FormValue("query")
 	if query == "" {
-		http.Error(w, "missing query parameter", http.StatusBadRequest)
+		slog.Error("missing query parameter")
+		writeErrorResponse(req, w, fmt.Errorf("missing query parameter"), http.StatusBadRequest)
 		return
 	}
 
 	data, err := r.dbProvider.Query(req.Context(), query)
 	if err != nil {
-		slog.Error("unable to execute query", "err", err)
-		http.Error(w, fmt.Sprintf("unable to execute query: %s", err.Error()), http.StatusInternalServerError)
+		slog.Error("unable to execute query", "err", err, "query", query)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(w, data)
+	writeJSONResponse(req, w, data)
 }
 
 func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
 	data := r.dbProvider.QueryShortCuts()
-	writeJSONResponse(w, data)
+	writeJSONResponse(req, w, data)
 }
 
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	metadata, err := r.promAPI.Metadata(req.Context(), "", r.metadataLimit)
 	if err != nil {
 		slog.Error("unable to retrieve series metadata", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeErrorResponse(req, w, err, http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(w, metadata)
+	writeJSONResponse(req, w, metadata)
 }
 
 func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
+	if name == "" {
+		slog.Error("missing name parameter")
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+
 	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
 	if err != nil {
-		slog.Error("unable to retrieve series metadata", "err", err)
-		http.Error(w, "unable to retrieve series metadata", http.StatusInternalServerError)
+		slog.Error("unable to retrieve label names", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
 		return
 	}
 
 	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(*r.seriesLimit))
 	if err != nil {
-		slog.Error("unable to retrieve series count", "err", err)
-		http.Error(w, "unable to retrieve series count", http.StatusInternalServerError)
+		slog.Error("unable to retrieve series data", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series data: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(w, models.SerieMetadata{
+	writeJSONResponse(req, w, models.SerieMetadata{
 		Labels:      labels,
 		SeriesCount: len(series),
 	})
@@ -335,26 +351,24 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 
 	page, err := getQueryParamAsInt(req, "page", 1)
 	if err != nil {
-		slog.Error("unable to parse page parameter", "err", err)
-		http.Error(w, "unable to parse page parameter", http.StatusBadRequest)
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
 	if err != nil {
-		slog.Error("unable to parse pageSize parameter", "err", err)
-		http.Error(w, "unable to parse pageSize parameter", http.StatusBadRequest)
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), name, page, pageSize)
 	if err != nil {
-		slog.Error("unable to retrieve series expressions", "err", err)
-		http.Error(w, "unable to retrieve series expressions", http.StatusInternalServerError)
+		slog.Error("failed to retrieve series expressions", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("failed to retrieve series expressions: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(w, data)
+	writeJSONResponse(req, w, data)
 }
 
 func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {
@@ -399,12 +413,34 @@ func (r *routes) ui(uiFS fs.FS) http.HandlerFunc {
 	return uiHandler.ServeHTTP
 }
 
-var usage = make(map[string]*metricsUsageV1.MetricUsage)
+func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, status int) {
+	response := struct {
+		Error   string `json:"error"`
+		Code    int    `json:"code"`
+		TraceID string `json:"traceId,omitempty"`
+	}{
+		Error:   err.Error(),
+		Code:    status,
+		TraceID: trace.SpanFromContext(r.Context()).SpanContext().TraceID().String(),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		slog.Error("failed to encode JSON response", "err", err)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
 
 func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
+	usage := make(map[string]*metricsUsageV1.MetricUsage)
+
+	ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
+	defer cancel()
+
 	if err := json.NewDecoder(req.Body).Decode(&usage); err != nil {
-		slog.Error("unable to decode request body", "err", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeErrorResponse(req, w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -430,9 +466,9 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 			})
 		}
 
-		if err := r.dbProvider.InsertRulesUsage(req.Context(), rulesUsage); err != nil {
+		if err := r.dbProvider.InsertRulesUsage(ctx, rulesUsage); err != nil {
 			slog.Error("unable to insert rules usage", "err", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeErrorResponse(req, w, fmt.Errorf("unable to insert rules usage: %w", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -446,9 +482,9 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 			})
 		}
 
-		if err := r.dbProvider.InsertDashboardUsage(req.Context(), dashboardUsage); err != nil {
+		if err := r.dbProvider.InsertDashboardUsage(ctx, dashboardUsage); err != nil {
 			slog.Error("unable to insert dashboard usage", "err", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeErrorResponse(req, w, fmt.Errorf("unable to insert dashboard usage: %w", err), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -457,47 +493,49 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
-		http.Error(w, "missing name parameter", http.StatusBadRequest)
+		slog.Error("missing name parameter")
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
 		return
 	}
 
 	kind := req.URL.Query().Get("kind")
 	if kind == "" {
-		http.Error(w, "missing kind parameter", http.StatusBadRequest)
+		slog.Error("missing kind parameter", "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("missing kind parameter"), http.StatusBadRequest)
 		return
 	}
 
 	page, err := getQueryParamAsInt(req, "page", 1)
 	if err != nil {
-		slog.Error("unable to parse page parameter", "err", err)
-		http.Error(w, "unable to parse page parameter", http.StatusBadRequest)
+		slog.Error("invalid page parameter", "err", err, "name", name, "kind", kind)
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
 	if err != nil {
-		slog.Error("unable to parse pageSize parameter", "err", err)
-		http.Error(w, "unable to parse pageSize parameter", http.StatusBadRequest)
+		slog.Error("invalid pageSize parameter", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter"), http.StatusBadRequest)
 		return
 	}
 
 	if kind == "dashboard" {
 		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), name, page, pageSize)
 		if err != nil {
-			slog.Error("unable to retrieve series dashboards", "err", err)
-			http.Error(w, "unable to retrieve series dashboards", http.StatusInternalServerError)
+			slog.Error("unable to retrieve dashboard usage", "err", err)
+			writeErrorResponse(req, w, fmt.Errorf("unable to retrieve dashboard usage"), http.StatusInternalServerError)
 			return
 		}
-		writeJSONResponse(w, dashboards)
+		writeJSONResponse(req, w, dashboards)
 		return
 	}
 
 	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), name, kind, page, pageSize)
 	if err != nil {
-		slog.Error("unable to retrieve series expressions", "err", err)
-		http.Error(w, "unable to retrieve series expressions", http.StatusInternalServerError)
+		slog.Error("unable to retrieve rules usage", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve rules usage"), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(w, alerts)
+	writeJSONResponse(req, w, alerts)
 }

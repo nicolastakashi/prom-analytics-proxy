@@ -162,8 +162,10 @@ func main() {
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
 			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
-			routes.WithSeriesLimit(config.DefaultConfig.SeriesLimit),
-			routes.WithMetadataLimit(config.DefaultConfig.MetadataLimit),
+			routes.WithLimits(routes.LimitsConfig{
+				SeriesLimit:   config.DefaultConfig.SeriesLimit,
+				MetadataLimit: config.DefaultConfig.MetadataLimit,
+			}),
 		)
 
 		if err != nil {
