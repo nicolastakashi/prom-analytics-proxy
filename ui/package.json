@@ -20,7 +20,7 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.3",
     "@radix-ui/react-toast": "^1.2.5",
-    "@radix-ui/react-tooltip": "^1.1.6",
+    "@radix-ui/react-tooltip": "^1.1.8",
     "@tanem/react-nprogress": "^5.0.52",
     "@tanstack/react-table": "^8.20.6",
     "@tanstack/react-virtual": "^3.12.0",
