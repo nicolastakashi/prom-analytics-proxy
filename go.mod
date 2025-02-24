@@ -5,7 +5,7 @@ go 1.23.1
 toolchain go1.23.3
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.30.3
+	github.com/ClickHouse/clickhouse-go/v2 v2.32.2
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/prometheus v0.301.0
@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.64.1 // indirect
+	github.com/ClickHouse/ch-go v0.65.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/caio/go-tdigest v3.1.0+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -61,8 +61,8 @@ require (
 	go.opentelemetry.io/otel/metric v1.34.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/net v0.34.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241216192217-9240e9c98484 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/grpc v1.69.0 // indirect
@@ -92,7 +92,7 @@ require (
 	github.com/thanos-io/thanos v0.37.2
 	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.0 // indirect
 	modernc.org/sqlite v1.34.5
 )
