@@ -23,7 +23,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@tanem/react-nprogress": "^5.0.52",
     "@tanstack/react-table": "^8.20.6",
-    "@tanstack/react-virtual": "^3.12.0",
+    "@tanstack/react-virtual": "^3.13.2",
     "@uiw/codemirror-themes": "^4.23.6",
     "@uiw/react-codemirror": "^4.23.7",
     "axios": "^1.7.7",
