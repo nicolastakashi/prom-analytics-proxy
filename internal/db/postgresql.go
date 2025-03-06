@@ -529,7 +529,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string
 
 	// Query for total count of distinct rules
 	countQuery := `
-		SELECT COUNT(DISTINCT name
+		SELECT COUNT(DISTINCT name)
 		FROM DashboardUsage
 		WHERE serie = $1
 		AND created_at >= NOW() - INTERVAL '30 days';
