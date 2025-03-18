@@ -38,7 +38,7 @@ jobs:
         run: make tidy && git diff --exit-code
 
       - name: Run GolangCI Lint
-        uses: golangci/golangci-lint-action@v6.4.0
+        uses: golangci/golangci-lint-action@v6.5.2
         with:
           version: v1.60.3
           args: --timeout 10m0s --go ${{ env.golang-version }}
