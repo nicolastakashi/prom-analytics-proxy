@@ -8,19 +8,31 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const from = dateRange?.from?.toISOString();
   const to = dateRange?.to?.toISOString();
 
-  const { data: queryTypes, isLoading: isLoadingQueryTypes } = useQuery<QueryTypesResponse>({
+  const { 
+    data: queryTypes, 
+    isLoading: isLoadingQueryTypes,
+    error: queryTypesError 
+  } = useQuery<QueryTypesResponse>({
     queryKey: ['queryTypes', from, to],
     queryFn: () => getQueryTypes(from, to),
     enabled: queryEnabled,
   });
 
-  const { data: averageDuration, isLoading: isLoadingAverageDuration } = useQuery<AverageDurationResponse>({
+  const { 
+    data: averageDuration, 
+    isLoading: isLoadingAverageDuration,
+    error: averageDurationError 
+  } = useQuery<AverageDurationResponse>({
     queryKey: ['averageDuration', from, to],
     queryFn: () => getAverageDuration(from, to),
     enabled: queryEnabled,
   });
 
-  const { data: queryRate, isLoading: isLoadingQueryRate } = useQuery<QueryRateResponse>({
+  const { 
+    data: queryRate, 
+    isLoading: isLoadingQueryRate,
+    error: queryRateError 
+  } = useQuery<QueryRateResponse>({
     queryKey: ['queryRate', from, to],
     queryFn: () => getQueryRate(from, to),
     enabled: queryEnabled,
@@ -33,5 +45,6 @@ export function useOverviewData(dateRange: DateRange | undefined) {
       queryRate,
     },
     isLoading: isLoadingQueryTypes || isLoadingAverageDuration || isLoadingQueryRate,
+    error: queryTypesError || averageDurationError || queryRateError,
   };
 } 

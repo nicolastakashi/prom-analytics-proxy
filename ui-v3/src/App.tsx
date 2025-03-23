@@ -4,6 +4,8 @@ import { Overview } from "@/app/overview/index";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { DateRangeProvider } from "@/contexts/date-range-context";
+import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundaryWithToast } from "@/components/error-boundary";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,23 +35,26 @@ export type RoutePath = typeof routes[number]["path"];
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <DateRangeProvider>
-        <Layout>
-          <Switch>
-            {routes.map(({ path, component: Component }) => (
-              <Route key={path} path={path} component={Component} />
-            ))}
-            
-            {/* Redirect any unknown routes to Overview */}
-            <Route>
-              <Redirect to="/" />
-            </Route>
-          </Switch>
-        </Layout>
-        <ReactQueryDevtools initialIsOpen={false} />
-      </DateRangeProvider>
-    </QueryClientProvider>
+    <ErrorBoundaryWithToast>
+      <QueryClientProvider client={queryClient}>
+        <DateRangeProvider>
+          <Layout>
+            <Switch>
+              {routes.map(({ path, component: Component }) => (
+                <Route key={path} path={path} component={Component} />
+              ))}
+              
+              {/* Redirect any unknown routes to Overview */}
+              <Route>
+                <Redirect to="/" />
+              </Route>
+            </Switch>
+          </Layout>
+          <ReactQueryDevtools initialIsOpen={false} />
+          <Toaster />
+        </DateRangeProvider>
+      </QueryClientProvider>
+    </ErrorBoundaryWithToast>
   );
 }
 

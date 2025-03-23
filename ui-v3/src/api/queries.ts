@@ -23,7 +23,7 @@ type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationRespo
 async function fetchApiData<T extends ApiResponse>(endpoint: string, from?: string, to?: string): Promise<T> {
   const fromUTC = getUTCDate(from)
   const toUTC = getUTCDate(to)
-  
+
   try {
     const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}?from=${fromUTC}&to=${toUTC}`)
     const json = await response.json()
