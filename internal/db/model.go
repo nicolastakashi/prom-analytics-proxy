@@ -50,6 +50,13 @@ type AverageDurationResult struct {
 	DeltaPercent *float64 `json:"delta_percent"`
 }
 
+type QueryRateResult struct {
+	SuccessTotal       *int     `json:"success_total"`
+	SuccessRatePercent *float64 `json:"success_rate_percent"`
+	ErrorTotal         *int     `json:"error_total"`
+	ErrorRatePercent   *float64 `json:"error_rate_percent"`
+}
+
 type QueryShortCut struct {
 	Title string `json:"title"`
 	Query string `json:"query"`

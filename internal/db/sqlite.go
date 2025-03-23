@@ -693,3 +693,48 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to
 
 	return result, nil
 }
+
+func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*QueryRateResult, error) {
+	query := `
+		SELECT
+			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
+			ROUND(
+				SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+				2
+			) AS success_rate_percent,
+			SUM(CASE WHEN statusCode >= 400 THEN 1 ELSE 0 END) AS failed_queries,
+			ROUND(
+				SUM(CASE WHEN statusCode >= 400 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+				2
+			) AS error_rate_percent
+		FROM queries
+		WHERE ts BETWEEN ? AND ?;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, from.UTC().Format(time.RFC3339Nano), to.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query query rate: %w", err)
+	}
+	defer rows.Close()
+
+	result := &QueryRateResult{}
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no results found")
+	}
+
+	if err := rows.Scan(
+		&result.SuccessTotal,
+		&result.SuccessRatePercent,
+		&result.ErrorTotal,
+		&result.ErrorRatePercent,
+	); err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}

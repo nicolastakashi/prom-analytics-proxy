@@ -78,6 +78,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
 		mux.Handle("/api/v1/query/average_duration", http.HandlerFunc(r.averageDuration))
+		mux.Handle("/api/v1/query/rate", http.HandlerFunc(r.queryRate))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
@@ -331,6 +332,20 @@ func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 	to := getTimeParam(req, "to")
 
 	data, err := r.dbProvider.AverageDuration(req.Context(), from, to)
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.QueryRate(req.Context(), from, to)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)

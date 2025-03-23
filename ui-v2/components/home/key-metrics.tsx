@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AverageDurationResponse, QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryRateResponse, QueryTypesResponse } from "@/lib/types"
 import { Activity, AlertTriangle, Clock, Filter, PieChart as PieChartIcon } from "lucide-react"
 import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 
@@ -10,6 +10,7 @@ const COLORS = ["hsl(var(--primary))", "hsl(var(--primary) / 0.3)"]
 interface KeyMetricsProps {
     queryTypes: QueryTypesResponse
     averageDuration: AverageDurationResponse
+    queryRate: QueryRateResponse
 }
 
 function formatDuration(ms: number): string {
@@ -29,7 +30,7 @@ function formatDuration(ms: number): string {
 }
 
 export function KeyMetrics(props: KeyMetricsProps) {
-    const { queryTypes, averageDuration } = props
+    const { queryTypes, averageDuration, queryRate } = props
 
     let queryTypeData: { name: string, value: number }[] = []
 
@@ -42,7 +43,7 @@ export function KeyMetrics(props: KeyMetricsProps) {
 
     return (    
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            <Card className="lg:col-span-2">
+            <Card className="lg:col-span-2 gap-2">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Query Types</CardTitle>
                     <Filter className="h-4 w-4 text-muted-foreground" />
@@ -98,7 +99,7 @@ export function KeyMetrics(props: KeyMetricsProps) {
                             <div className="mt-3 flex items-center gap-2 text-xs">
                                 <div className="flex items-center gap-1">
                                     <div className="h-2 w-2 rounded-full bg-primary" />
-                                    Instant ({queryTypeData[0].value}%)
+                                    Instant ({queryTypeData[0].value.toFixed(2)}%)
                                 </div>
                                 <div className="flex items-center gap-1">
                                     <div className="h-2 w-2 rounded-full bg-primary/30" />
@@ -110,7 +111,7 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="gap-2">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
                     <Clock className="h-4 w-4 text-muted-foreground" />
@@ -125,33 +126,33 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="gap-2">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
                     <Activity className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-1">
-                        <p className="text-2xl font-bold">99.8%</p>
+                        <p className="text-2xl font-bold">{queryRate.success_rate_percent}%</p>
                         <div className="flex items-center gap-1 text-xs">
                             <div className="h-2 w-2 rounded-full bg-green-500" />
-                            <span className="text-muted-foreground">12,397 successful</span>
+                            <span className="text-muted-foreground">{queryRate.success_total} successful</span>
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="gap-2">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Error Rate</CardTitle>
                     <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-1">
-                        <p className="text-2xl font-bold">0.2%</p>
+                        <p className="text-2xl font-bold">{queryRate.error_rate_percent}%</p>
                         <div className="flex items-center gap-1 text-xs">
                             <div className="h-2 w-2 rounded-full bg-red-500" />
-                            <span className="text-muted-foreground">24 failed</span>
+                            <span className="text-muted-foreground">{queryRate.error_total} failed</span>
                         </div>
                     </div>
                 </CardContent>
