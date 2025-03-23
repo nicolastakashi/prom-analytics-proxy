@@ -1,60 +1,40 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Filter, CalendarIcon } from "lucide-react"
 import type { DateRange } from "react-day-picker"
-import { format, subDays, parse } from "date-fns"
+import { format, subDays } from "date-fns"
 import { useLocation, useSearchParams } from "wouter"
+import { useDateRange } from "@/contexts/date-range-context"
 
 export function FilterPanel() {
     const [pathname, setPathname] = useLocation()
     const [searchParams, setSearchParams] = useSearchParams()
+    const { dateRange, setDateRange } = useDateRange()
 
-    // Initialize date state
-    const [date, setDate] = useState<DateRange | undefined>(undefined)
-
-    // Load dates from URL or set default on component mount
+    // Set default date range if none exists
     useEffect(() => {
         const fromParam = searchParams.get("from")
         const toParam = searchParams.get("to")
 
-        if (fromParam && toParam) {
-            try {
-                // Try to parse dates from URL parameters (format: YYYY-MM-DD)
-                const fromDate = parse(fromParam, "yyyy-MM-dd", new Date())
-                const toDate = parse(toParam, "yyyy-MM-dd", new Date())
-
-                // Validate dates are valid
-                if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
-                    setDate({ from: fromDate, to: toDate })
-                    return
-                }
-            } catch (error) {
-                console.error("Error parsing dates from URL", error)
-            }
-        }
-
-        // Default to last 7 days if no valid URL parameters
-        const today = new Date()
-        const sevenDaysAgo = subDays(today, 7)
-        setDate({ from: sevenDaysAgo, to: today })
-
-        // Add default dates to URL if they're not present
         if (!fromParam || !toParam) {
+            const today = new Date()
+            const sevenDaysAgo = subDays(today, 7)
+            
             const params = new URLSearchParams(searchParams.toString())
             params.set("from", format(sevenDaysAgo, "yyyy-MM-dd"))
             params.set("to", format(today, "yyyy-MM-dd"))
             setSearchParams(params.toString())
         }
-    }, [searchParams, pathname, setSearchParams])
+    }, [searchParams, setSearchParams])
 
     // Update URL when date changes
     const handleDateChange = (newDate: DateRange | undefined) => {
-        setDate(newDate)
+        setDateRange(newDate)
 
         // Create new URLSearchParams object based on current params
         const params = new URLSearchParams(searchParams.toString())
@@ -84,13 +64,13 @@ export function FilterPanel() {
                 <PopoverTrigger asChild>
                     <Button variant="outline" className="min-w-[240px] justify-start">
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {date?.from ? (
-                            date.to ? (
+                        {dateRange?.from ? (
+                            dateRange.to ? (
                                 <>
-                                    {format(date.from, "LLL dd, y")} - {format(date.to, "LLL dd, y")}
+                                    {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
                                 </>
                             ) : (
-                                format(date.from, "LLL dd, y")
+                                format(dateRange.from, "LLL dd, y")
                             )
                         ) : (
                             "Select date range"
@@ -101,8 +81,8 @@ export function FilterPanel() {
                     <Calendar
                         initialFocus
                         mode="range"
-                        defaultMonth={date?.from}
-                        selected={date}
+                        defaultMonth={dateRange?.from}
+                        selected={dateRange}
                         onSelect={handleDateChange}
                         numberOfMonths={1}
                     />

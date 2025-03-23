@@ -8,9 +8,9 @@ import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 const COLORS = ["hsl(var(--primary))", "hsl(var(--primary) / 0.3)"]
 
 interface KeyMetricsProps {
-    queryTypes: QueryTypesResponse
-    averageDuration: AverageDurationResponse
-    queryRate: QueryRateResponse
+    queryTypes?: QueryTypesResponse
+    averageDuration?: AverageDurationResponse
+    queryRate?: QueryRateResponse
 }
 
 function formatDuration(ms: number): string {
@@ -31,15 +31,15 @@ function formatDuration(ms: number): string {
 
 export function KeyMetrics(props: KeyMetricsProps) {
     const { queryTypes, averageDuration, queryRate } = props
-  
+
     let queryTypeData: { name: string, value: number }[] = []
-  
     if (queryTypes) {
         queryTypeData = [
             { name: "Instant", value: queryTypes.instant_percent },
             { name: "Range", value: queryTypes.range_percent },
         ]
     }
+
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="lg:col-span-2 gap-2">
@@ -67,7 +67,7 @@ export function KeyMetrics(props: KeyMetricsProps) {
                                   <span className="text-[0.70rem] uppercase text-muted-foreground">
                                     {payload[0].name}
                                   </span>
-                                  <span className="font-bold">{payload[0].value}%</span>
+                                  <span className="font-bold">{parseFloat(payload[0].value as string).toFixed(2)}%</span>
                                 </div>
                               </div>
                             </div>
@@ -85,11 +85,11 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 <div className="mt-2 flex items-center gap-2 text-xs">
                   <div className="flex items-center gap-1">
                     <div className="h-2 w-2 rounded-full bg-primary" />
-                    Instant ({queryTypeData[0].value.toFixed(2)}%)
+                    Instant ({queryTypeData[0]?.value ? parseFloat(queryTypeData[0].value.toString()).toFixed(2) : 0}%)
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="h-2 w-2 rounded-full bg-primary/30" />
-                    Range ({queryTypeData[1].value.toFixed(2)}%)
+                    Range ({queryTypeData[1]?.value ? parseFloat(queryTypeData[1].value.toString()).toFixed(2) : 0}%)
                   </div>
                 </div>
               </div>
@@ -104,8 +104,8 @@ export function KeyMetrics(props: KeyMetricsProps) {
           </CardHeader>
           <CardContent className="pb-3">
             <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{formatDuration(averageDuration.avg_duration)}</p>
-              <p className="text-xs text-muted-foreground">{averageDuration.delta_percent.toFixed(2)}% from previous period</p>
+              <p className="text-2xl font-bold">{formatDuration(averageDuration?.avg_duration || 0)}</p>
+              <p className="text-xs text-muted-foreground">{averageDuration?.delta_percent.toFixed(2) || 0}% from previous period</p>
             </div>
           </CardContent>
         </Card>
@@ -117,10 +117,10 @@ export function KeyMetrics(props: KeyMetricsProps) {
           </CardHeader>
           <CardContent className="pb-3">
             <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{queryRate.success_rate_percent.toFixed(2)}%</p>
+              <p className="text-2xl font-bold">{queryRate?.success_rate_percent.toFixed(2) || 0}%</p>
               <div className="flex items-center gap-1 text-xs">
                 <div className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-muted-foreground">{queryRate.success_total} successful</span>
+                <span className="text-muted-foreground">{queryRate?.success_total || 0} successful</span>
               </div>
             </div>
           </CardContent>
@@ -133,10 +133,10 @@ export function KeyMetrics(props: KeyMetricsProps) {
           </CardHeader>
           <CardContent className="pb-3">
             <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{queryRate.error_rate_percent.toFixed(2)}%</p>
+              <p className="text-2xl font-bold">{queryRate?.error_rate_percent.toFixed(2) || 0}%</p>
               <div className="flex items-center gap-1 text-xs">
                 <div className="h-2 w-2 rounded-full bg-red-500" />
-                <span className="text-muted-foreground">{queryRate.error_total} failed</span>
+                <span className="text-muted-foreground">{queryRate?.error_total || 0} failed</span>
               </div>
             </div>
           </CardContent>

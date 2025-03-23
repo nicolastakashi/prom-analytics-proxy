@@ -15,3 +15,8 @@ export interface QueryRateResponse {
 	success_rate_percent: number
 	error_rate_percent: number
 }
+
+export interface DateRange {
+	from?: Date;
+	to?: Date;
+}
