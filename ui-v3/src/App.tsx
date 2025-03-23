@@ -1,29 +1,40 @@
-import { Route, Switch, Link, Redirect } from "wouter";
-import { Overview } from "@/pages/overview";
-import { Performance } from "@/pages/performance";
-import { MetricsExplorer } from "@/pages/metrics_explorer";
+import { Route, Switch, Redirect } from "wouter";
+import Layout from "./components/layout";
+import { Overview } from "@/app/overview";
+import { Performance } from "@/app/performance";
+import { MetricsExplorer } from "@/app/metrics_explorer";
+
+const routes = [
+  {
+    path: "/",
+    component: Overview,
+  },
+  {
+    path: "/performance",
+    component: Performance,
+  },
+  {
+    path: "/metrics",
+    component: MetricsExplorer,
+  },
+] as const;
+
+export type RoutePath = typeof routes[number]["path"];
 
 function App() {
   return (
-    <div>
-      <nav>
-        <Link href="/">Overview</Link>
-        <Link href="/performance">Performance</Link>
-        <Link href="/metrics">Metrics Explorer</Link>
-      </nav>
-
-      {/* Routes */}
+    <Layout>
       <Switch>
-        <Route path="/" component={Overview} />
-        <Route path="/performance" component={Performance} />
-        <Route path="/metrics" component={MetricsExplorer} />
-
-        {/* Optional: Redirect any unknown routes to Overview */}
+        {routes.map(({ path, component: Component }) => (
+          <Route key={path} path={path} component={Component} />
+        ))}
+        
+        {/* Redirect any unknown routes to Overview */}
         <Route>
           <Redirect to="/" />
         </Route>
       </Switch>
-    </div>
+    </Layout>
   );
 }
 
