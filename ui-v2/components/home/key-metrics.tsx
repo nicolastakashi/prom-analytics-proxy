@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryTypesResponse } from "@/lib/types"
 import { Activity, AlertTriangle, Clock, Filter, PieChart as PieChartIcon } from "lucide-react"
 import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 
@@ -9,10 +9,27 @@ const COLORS = ["hsl(var(--primary))", "hsl(var(--primary) / 0.3)"]
 
 interface KeyMetricsProps {
     queryTypes: QueryTypesResponse
+    averageDuration: AverageDurationResponse
+}
+
+function formatDuration(ms: number): string {
+    if (ms < 1) {
+        return `${Math.round(ms * 1000)}µs`
+    }
+    if (ms < 1000) {
+        return `${Math.round(ms)}ms`
+    }
+    if (ms < 60000) {
+        return `${Math.round(ms / 1000)}s`
+    }
+    if (ms < 3600000) {
+        return `${Math.round(ms / 60000)}m`
+    }
+    return `${Math.round(ms / 3600000)}h`
 }
 
 export function KeyMetrics(props: KeyMetricsProps) {
-    const { queryTypes } = props
+    const { queryTypes, averageDuration } = props
 
     let queryTypeData: { name: string, value: number }[] = []
 
@@ -33,12 +50,10 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 <CardContent>
                     <div className="flex items-center gap-4">
                         <div className="h-[80px] w-[80px]">
-                            {queryTypeData.length === 0 ? (
+                            {queryTypeData.length === 0 || queryTypeData[0].value <= 0 || queryTypeData[1].value <= 0 ? (
                                 
                                 <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
                                     <PieChartIcon className="h-8 w-8 mb-2 opacity-50" />
-                                    <p className="text-sm">No query data available</p>
-                                    <p className="text-xs">Try adjusting your date range</p>
                                 </div>
                             ) : (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -102,8 +117,10 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-1">
-                        <p className="text-2xl font-bold">245ms</p>
-                        <p className="text-xs text-muted-foreground">-12% from previous period</p>
+                        <p className="text-2xl font-bold">
+                            {formatDuration(averageDuration.avg_duration)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{averageDuration.delta_percent}% from previous period</p>
                     </div>
                 </CardContent>
             </Card>

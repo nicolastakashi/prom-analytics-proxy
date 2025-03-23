@@ -642,3 +642,51 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, from time.Time, to 
 
 	return result, nil
 }
+
+func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error) {
+	query := `
+		WITH current AS (
+			SELECT AVG(EXTRACT(EPOCH FROM duration) * 1000) AS avg_current
+			FROM queries
+			WHERE ts BETWEEN $1 AND $2
+		),
+		previous AS (
+			SELECT AVG(EXTRACT(EPOCH FROM duration) * 1000) AS avg_previous 
+			FROM queries
+			WHERE ts BETWEEN $3 AND $4
+		)
+		SELECT
+			ROUND(COALESCE(avg_current, 0)::numeric, 2),
+			CASE 
+				WHEN avg_previous IS NULL OR avg_previous = 0 THEN 0
+				ELSE ROUND(((avg_current - avg_previous) * 100.0 / avg_previous)::numeric, 2)
+			END AS delta_percent
+		FROM current, previous;
+	`
+
+	duration := to.Sub(from)
+	previousFrom := from.Add(-duration)
+	previousTo := to.Add(-duration)
+
+	rows, err := p.db.QueryContext(ctx, query, from, to, previousFrom, previousTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query average duration: %w", err)
+	}
+	defer rows.Close()
+
+	result := &AverageDurationResult{}
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no results found")
+	}
+
+	if err := rows.Scan(&result.AvgDuration, &result.DeltaPercent); err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}

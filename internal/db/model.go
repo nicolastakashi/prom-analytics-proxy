@@ -45,6 +45,11 @@ type QueryTypesResult struct {
 	RangePercent   *float64 `json:"range_percent"`
 }
 
+type AverageDurationResult struct {
+	AvgDuration  *float64 `json:"avg_duration"`
+	DeltaPercent *float64 `json:"delta_percent"`
+}
+
 type QueryShortCut struct {
 	Title string `json:"title"`
 	Query string `json:"query"`

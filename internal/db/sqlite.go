@@ -616,7 +616,11 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, from time.Time, to time
 	WHERE ts BETWEEN ? AND ?;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, from, to)
+	// Format timestamps in ISO 8601 format with UTC timezone
+	fromFormatted := from.UTC().Format(time.RFC3339Nano)
+	toFormatted := to.UTC().Format(time.RFC3339Nano)
+
+	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query types: %w", err)
 	}
@@ -629,6 +633,57 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, from time.Time, to time
 	}
 
 	if err := rows.Scan(&result.TotalQueries, &result.InstantPercent, &result.RangePercent); err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}
+
+func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error) {
+	query := `
+		WITH current AS (
+			SELECT AVG(duration) AS avg_current
+			FROM queries
+			WHERE ts BETWEEN ? AND ?
+		),
+		previous AS (
+			SELECT AVG(duration) AS avg_previous
+			FROM queries
+			WHERE ts BETWEEN ? AND ?
+		)
+		SELECT
+			ROUND(avg_current, 2),
+			CASE 
+				WHEN avg_previous IS NULL OR avg_previous = 0 THEN 0
+				ELSE ROUND(((avg_current - avg_previous) * 100.0) / avg_previous, 2)
+			END AS delta_percent
+		FROM current, previous;
+	`
+
+	duration := to.Sub(from)
+	previousFromFormatted := from.Add(-duration).UTC().Format(time.RFC3339Nano)
+	previousToFormatted := to.Add(-duration).UTC().Format(time.RFC3339Nano)
+
+	fromFormatted := from.UTC().Format(time.RFC3339Nano)
+	toFormatted := to.UTC().Format(time.RFC3339Nano)
+
+	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted, previousFromFormatted, previousToFormatted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query average duration: %w", err)
+	}
+	defer rows.Close()
+
+	result := &AverageDurationResult{}
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no results found")
+	}
+
+	if err := rows.Scan(&result.AvgDuration, &result.DeltaPercent); err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 

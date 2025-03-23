@@ -1,6 +1,6 @@
 'use server'
 
-import { QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryTypesResponse } from "@/lib/types"
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9091'
 
@@ -29,6 +29,25 @@ export async function getQueryTypes(from?: string, to?: string): Promise<QueryTy
       total_queries: 0,
       instant_percent: 0,
       range_percent: 0,
+    }
+  }
+}
+
+export async function getAverageDuration(from?: string, to?: string): Promise<AverageDurationResponse> {
+  const fromUTC = getUTCDate(from)
+  const toUTC = getUTCDate(to)
+  try {
+    const response = await fetch(`${apiUrl}/api/v1/query/average_duration?from=${fromUTC}&to=${toUTC}`)
+    const json = await response.json()
+    console.log(json)
+    return json as AverageDurationResponse
+  } catch (error) {
+    const msg = `Failed to fetch average duration: ${error}`
+    console.error(msg)
+
+    return {
+      avg_duration: 0,
+      delta_percent: 0,
     }
   }
 }

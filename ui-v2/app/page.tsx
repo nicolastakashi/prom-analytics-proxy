@@ -1,7 +1,7 @@
 import { FilterPanel } from "@/components/filter-panel"
 import { KeyMetrics } from "@/components/home/key-metrics"
 import Layout from "@/components/layout"
-import { getQueryTypes } from "./actions"
+import { getAverageDuration, getQueryTypes } from "./actions"
 
 interface PageProps {
   searchParams?: Promise<{
@@ -13,8 +13,9 @@ interface PageProps {
 export default async function Page(props: PageProps) {
   const searchParams = await props.searchParams
   const queryTypes = await getQueryTypes(searchParams?.from, searchParams?.to)
+  const averageDuration = await getAverageDuration(searchParams?.from, searchParams?.to)
 
-  console.log(queryTypes)
+  console.log(averageDuration)
 
   return (
     <Layout>
@@ -24,7 +25,7 @@ export default async function Page(props: PageProps) {
           <FilterPanel />
         </div>
         <div className="grid gap-6">
-          <KeyMetrics queryTypes={queryTypes} />
+          <KeyMetrics queryTypes={queryTypes} averageDuration={averageDuration} />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="grid gap-6">
               {/* <StatusBreakdown /> */}
