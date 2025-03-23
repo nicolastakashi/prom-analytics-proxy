@@ -2,13 +2,15 @@ import { FilterPanel } from "@/components/filter-panel";
 import { KeyMetrics } from "@/components/key-metrics";
 import { useDateRange } from "@/contexts/date-range-context";
 import { useOverviewData } from "./use-overview-data";
+import { LoadingState } from "./loading";
+
 
 export function Overview() {
   const { dateRange } = useDateRange();
   const { data, isLoading } = useOverviewData(dateRange);
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <LoadingState />;
   }
   
   return (
