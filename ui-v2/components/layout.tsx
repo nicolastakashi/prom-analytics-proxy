@@ -45,7 +45,8 @@ export default function Layout({ children }: AnalyticsProps) {
                         </Breadcrumb>
                     </div>
                 </header>
-                <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+                {/* <div className="flex flex-1 flex-col gap-4 p-4 pt-0"> */}
+                <div className="flex-1">
                     {children}
                     {/* <div className="grid auto-rows-min gap-4 md:grid-cols-3">
                         <div className="bg-muted/50 aspect-video rounded-xl" />
