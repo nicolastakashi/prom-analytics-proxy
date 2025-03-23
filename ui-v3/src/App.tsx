@@ -1,8 +1,6 @@
 import { Route, Switch, Redirect } from "wouter";
 import Layout from "./components/layout";
-import { Overview } from "@/app/overview";
-import { Performance } from "@/app/performance";
-import { MetricsExplorer } from "@/app/metrics_explorer";
+import { Overview } from "@/app/overview/index";
 
 const routes = [
   {
@@ -11,11 +9,11 @@ const routes = [
   },
   {
     path: "/performance",
-    component: Performance,
+    component: () => <div>Performance</div>,
   },
   {
     path: "/metrics",
-    component: MetricsExplorer,
+    component: () => <div>Metrics</div>,
   },
 ] as const;
 
