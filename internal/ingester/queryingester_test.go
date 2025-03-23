@@ -63,6 +63,10 @@ func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, serieName string
 	return nil, nil
 }
 
+func (p *MockDBProvider) QueryTypes(ctx context.Context, startAt time.Time, endAt time.Time) (*db.QueryTypesResult, error) {
+	return nil, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

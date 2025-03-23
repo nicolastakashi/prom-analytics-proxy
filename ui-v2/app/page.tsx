@@ -1,8 +1,21 @@
 import { FilterPanel } from "@/components/filter-panel"
 import { KeyMetrics } from "@/components/home/key-metrics"
 import Layout from "@/components/layout"
+import { getQueryTypes } from "./actions"
 
-export default function Page() {
+interface PageProps {
+  searchParams?: Promise<{
+    from: string
+    to: string
+  }>
+}
+
+export default async function Page(props: PageProps) {
+  const searchParams = await props.searchParams
+  const queryTypes = await getQueryTypes(searchParams?.from, searchParams?.to)
+
+  console.log(queryTypes)
+
   return (
     <Layout>
       <div className="mx-auto pl-6 pr-6">
@@ -11,7 +24,7 @@ export default function Page() {
           <FilterPanel />
         </div>
         <div className="grid gap-6">
-          <KeyMetrics />
+          <KeyMetrics queryTypes={queryTypes} />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="grid gap-6">
               {/* <StatusBreakdown /> */}

@@ -39,6 +39,12 @@ type QueryResult struct {
 	Data    []map[string]interface{} `json:"data"`
 }
 
+type QueryTypesResult struct {
+	TotalQueries   *int     `json:"total_queries"`
+	InstantPercent *float64 `json:"instant_percent"`
+	RangePercent   *float64 `json:"range_percent"`
+}
+
 type QueryShortCut struct {
 	Title string `json:"title"`
 	Query string `json:"query"`

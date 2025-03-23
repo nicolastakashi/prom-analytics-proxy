@@ -43,7 +43,15 @@ export function FilterPanel() {
         const today = new Date()
         const sevenDaysAgo = subDays(today, 7)
         setDate({ from: sevenDaysAgo, to: today })
-    }, [searchParams])
+
+        // Add default dates to URL if they're not present
+        if (!fromParam || !toParam) {
+            const params = new URLSearchParams(searchParams.toString())
+            params.set("from", format(sevenDaysAgo, "yyyy-MM-dd"))
+            params.set("to", format(today, "yyyy-MM-dd"))
+            router.push(`${pathname}?${params.toString()}`)
+        }
+    }, [searchParams, pathname, router])
 
     // Update URL when date changes
     const handleDateChange = (newDate: DateRange | undefined) => {

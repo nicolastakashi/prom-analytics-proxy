@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Provider interface {
@@ -12,6 +13,7 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	Query(ctx context.Context, query string) (*QueryResult, error)
 	QueryShortCuts() []QueryShortCut
+	QueryTypes(ctx context.Context, from time.Time, to time.Time) (*QueryTypesResult, error)
 	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)

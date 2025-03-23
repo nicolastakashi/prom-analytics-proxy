@@ -76,6 +76,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
 		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
+		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
@@ -295,6 +296,28 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	data, err := r.dbProvider.Query(req.Context(), query)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err, "query", query)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	if from.IsZero() {
+		from = time.Now().Add(-7 * 24 * time.Hour)
+	}
+
+	if to.IsZero() {
+		to = time.Now()
+	}
+
+	data, err := r.dbProvider.QueryTypes(req.Context(), from, to)
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
 		return
 	}

@@ -610,3 +610,35 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string
 		Data:       results,
 	}, nil
 }
+
+func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, from time.Time, to time.Time) (*QueryTypesResult, error) {
+	query := `
+		SELECT
+			COUNT(*) AS total_queries,
+			SUM(CASE WHEN type = 'instant' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS instant_percent,
+			SUM(CASE WHEN type = 'range' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS range_percent
+		FROM queries
+		WHERE ts BETWEEN $1 AND $2;
+	`
+
+	rows, err := p.db.QueryContext(ctx, query, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query types: %w", err)
+	}
+	defer rows.Close()
+
+	result := &QueryTypesResult{}
+	if !rows.Next() {
+		return nil, fmt.Errorf("no results found")
+	}
+
+	if err := rows.Scan(&result.TotalQueries, &result.InstantPercent, &result.RangePercent); err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}
