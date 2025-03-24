@@ -175,6 +175,8 @@ github.com/paulmach/orb v0.11.1/go.mod h1:5mULz1xQfs3bmQm63QEJA6lNGujuRafwA5S/En
 github.com/paulmach/protoscan v0.2.1/go.mod h1:SpcSwydNLrxUGSDvXvO0P7g7AuhJ7lcKfDlhJCDw2gY=
 github.com/perses/metrics-usage v0.5.1-0.20250307103756-d645dabed339 h1:yLX7oc8eod9BgI3XzT9GsjiT7S5Pb5Gg51nVYpwR5Ec=
 github.com/perses/metrics-usage v0.5.1-0.20250307103756-d645dabed339/go.mod h1:vBYY3j0enaAWyBsSEJq5Ex4Chlid56vTMoj+HcIyNiA=
+github.com/perses/metrics-usage v0.5.1-0.20250322203652-1abe14713315 h1:YP5qIfhMeVRgPzP2wwFk/27SnTbkd4a4RdJErX04RfE=
+github.com/perses/metrics-usage v0.5.1-0.20250322203652-1abe14713315/go.mod h1:oWQdcRQSPYfEmJHiA6QKDpWOn4aIY7Hc4XghdoSXED8=
 github.com/perses/perses v0.50.1 h1:ySqFYu+/WXVWpDfSBZISN49m5docbrnNvjom7Ym9iNg=
 github.com/perses/perses v0.50.1/go.mod h1:L6bykOUCMAI6CzGSMpK5EWT9ghBUHKxRP91LDCPpXW4=
 github.com/pierrec/lz4/v4 v4.1.22 h1:cKFw6uJDK+/gfw5BcDL0JL5aBsAFdsIT18eRtLj7VIU=
@@ -193,6 +195,8 @@ github.com/prometheus/client_golang v1.0.0/go.mod h1:db9x61etRT2tGnBNRi70OPL5Fsn
 github.com/prometheus/client_golang v1.5.1/go.mod h1:e9GMxYsXl05ICDXkRhurwBS4Q3OK1iX/F2sw+iXX5zU=
 github.com/prometheus/client_golang v1.21.0 h1:DIsaGmiaBkSangBgMtWdNfxbMNdku5IK6iNhrEqWvdA=
 github.com/prometheus/client_golang v1.21.0/go.mod h1:U9NM32ykUErtVBxdvD3zfi+EuFkkaBvMb09mIfe0Zgg=
+github.com/prometheus/client_golang v1.21.1 h1:DOvXXTqVzvkIewV/CDPFdejpMCGeMcbGCQ8YOmu+Ibk=
+github.com/prometheus/client_golang v1.21.1/go.mod h1:U9NM32ykUErtVBxdvD3zfi+EuFkkaBvMb09mIfe0Zgg=
 github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910/go.mod h1:MbSGuTsp3dbXC40dX6PRTWyKYBIrTGTE9sqQNg2J8bo=
 github.com/prometheus/client_model v0.0.0-20190129233127-fd36f4220a90/go.mod h1:xMI15A0UPsDsEKsMN9yxemIoYk6Tm2C1GtYGdfGttqA=
 github.com/prometheus/client_model v0.2.0/go.mod h1:xMI15A0UPsDsEKsMN9yxemIoYk6Tm2C1GtYGdfGttqA=

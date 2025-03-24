@@ -82,9 +82,9 @@ require (
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
-	github.com/perses/metrics-usage v0.5.1-0.20250307103756-d645dabed339
+	github.com/perses/metrics-usage v0.5.1-0.20250322203652-1abe14713315
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
-	github.com/prometheus/client_golang v1.21.0
+	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
