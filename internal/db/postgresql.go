@@ -735,3 +735,11 @@ func (p *PostGreSQLProvider) QueryRate(ctx context.Context, from time.Time, to t
 
 	return result, nil
 }
+
+func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
+	return nil, nil
+}
+
+func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+	return nil, nil
+}

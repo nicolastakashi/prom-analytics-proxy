@@ -1,11 +1,13 @@
-import { AverageDurationResponse, QueryRateResponse, QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryTypesResponse } from "@/lib/types"
 
 const API_CONFIG = {
   baseUrl: 'http://localhost:9091',
   endpoints: {
     queryTypes: '/api/v1/query/types',
     queryRate: '/api/v1/query/rate',
-    averageDuration: '/api/v1/query/average_duration'
+    averageDuration: '/api/v1/query/average_duration',
+    queryStatusDistribution: '/api/v1/query/status_distribution',
+    queryLatencyTrends: '/api/v1/query/latency_trends'
   }
 } as const
 
@@ -18,7 +20,7 @@ function getUTCDate(date?: string): string {
   return dateObj.toISOString()
 }
 
-type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse
+type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[]
 
 async function fetchApiData<T extends ApiResponse>(endpoint: string, from?: string, to?: string): Promise<T> {
   const fromUTC = getUTCDate(from)
@@ -67,5 +69,21 @@ export async function getAverageDuration(from?: string, to?: string): Promise<Av
       avg_duration: 0,
       delta_percent: 0,
     }
+  }
+}
+
+export async function getQueryStatusDistribution(from?: string, to?: string): Promise<QueryStatusDistributionResult[]> {
+  try {
+    return await fetchApiData<QueryStatusDistributionResult[]>(API_CONFIG.endpoints.queryStatusDistribution, from, to)
+  } catch {
+    return []
+  }
+}
+
+export async function getQueryLatencyTrends(from?: string, to?: string): Promise<QueryLatencyTrendsResult[]> {
+  try {
+    return await fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, from, to)
+  } catch {
+    return []
   }
 }

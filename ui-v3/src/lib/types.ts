@@ -20,3 +20,17 @@ export interface DateRange {
 	from?: Date;
 	to?: Date;
 }
+
+export interface QueryStatusDistributionResult {
+	hour: string;
+	status2xx: number;
+	status4xx: number;
+	status5xx: number;
+}
+
+export interface QueryLatencyTrendsResult {
+	time: string;
+	value: number;
+	p95: number;
+}
+

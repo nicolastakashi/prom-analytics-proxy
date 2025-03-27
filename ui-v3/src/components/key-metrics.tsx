@@ -84,11 +84,11 @@ export function KeyMetrics(props: KeyMetricsProps) {
                 <p className="text-xs text-muted-foreground">Total queries in selected period</p>
                 <div className="mt-2 flex items-center gap-2 text-xs">
                   <div className="flex items-center gap-1">
-                    <div className="h-2 w-2 rounded-full bg-primary" />
+                    <div className="h-2 w-2 rounded-full bg-chart-1" />
                     Instant ({queryTypeData[0]?.value ? parseFloat(queryTypeData[0].value.toString()).toFixed(2) : 0}%)
                   </div>
                   <div className="flex items-center gap-1">
-                    <div className="h-2 w-2 rounded-full bg-primary/30" />
+                    <div className="h-2 w-2 rounded-full bg-chart-2" />
                     Range ({queryTypeData[1]?.value ? parseFloat(queryTypeData[1].value.toString()).toFixed(2) : 0}%)
                   </div>
                 </div>
@@ -105,7 +105,12 @@ export function KeyMetrics(props: KeyMetricsProps) {
           <CardContent className="pb-3">
             <div className="space-y-0.5">
               <p className="text-2xl font-bold">{formatDuration(averageDuration?.avg_duration || 0)}</p>
-              <p className="text-xs text-muted-foreground">{averageDuration?.delta_percent.toFixed(2) || 0}% from previous period</p>
+              <p className="text-xs text-muted-foreground">
+                {averageDuration?.delta_percent != null 
+                  ? `${averageDuration.delta_percent.toFixed(2)}% from previous period`
+                  : 'No previous data'
+                }
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -117,7 +122,12 @@ export function KeyMetrics(props: KeyMetricsProps) {
           </CardHeader>
           <CardContent className="pb-3">
             <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{queryRate?.success_rate_percent.toFixed(2) || 0}%</p>
+              <p className="text-2xl font-bold">
+                {queryRate?.success_rate_percent != null 
+                  ? `${queryRate.success_rate_percent.toFixed(2)}%` 
+                  : '0%'
+                }
+              </p>
               <div className="flex items-center gap-1 text-xs">
                 <div className="h-2 w-2 rounded-full bg-green-500" />
                 <span className="text-muted-foreground">{queryRate?.success_total || 0} successful</span>
@@ -133,7 +143,12 @@ export function KeyMetrics(props: KeyMetricsProps) {
           </CardHeader>
           <CardContent className="pb-3">
             <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{queryRate?.error_rate_percent.toFixed(2) || 0}%</p>
+              <p className="text-2xl font-bold">
+                {queryRate?.error_rate_percent != null 
+                  ? `${queryRate.error_rate_percent.toFixed(2)}%` 
+                  : '0%'
+                }
+              </p>
               <div className="flex items-center gap-1 text-xs">
                 <div className="h-2 w-2 rounded-full bg-red-500" />
                 <span className="text-muted-foreground">{queryRate?.error_total || 0} failed</span>

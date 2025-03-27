@@ -4,18 +4,24 @@ import { useDateRange } from "@/contexts/date-range-context";
 import { useOverviewData } from "./use-overview-data";
 import { LoadingState } from "./loading";
 import { toast } from "sonner";
+import { StatusBreakdown } from "@/components/status-breakdown";
+import { useQueryOverviewData } from "./use-query-overview-data";
+import { QueryLatencyTrends } from "@/components/query-latency-trends";
 
 export function Overview() {
   const { dateRange } = useDateRange();
-  const { data, isLoading, error } = useOverviewData(dateRange);
+  const { data: overviewData, isLoading: isLoadingOverviewData, error: errorOverviewData } = useOverviewData(dateRange);
+  const { data: queryOverviewData, isLoading: isLoadingQueryOverviewData, error: errorQueryOverviewData } = useQueryOverviewData(dateRange);
 
-  if (isLoading) {
+  if (isLoadingOverviewData || isLoadingQueryOverviewData) {
     return <LoadingState />;
   }
 
-  if (error) {
+  console.log(queryOverviewData);
+
+  if (errorOverviewData || errorQueryOverviewData) {
     toast.error("Failed to fetch data", {
-      description: error instanceof Error ? error.message : "An unexpected error occurred",
+      description: errorOverviewData instanceof Error ? errorOverviewData.message : "An unexpected error occurred",
     });
     
     return (
@@ -23,7 +29,7 @@ export function Overview() {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-red-600">Failed to load data</h2>
           <p className="mt-2 text-gray-600">
-            {error instanceof Error ? error.message : "An unexpected error occurred"}
+            {errorOverviewData instanceof Error ? errorOverviewData.message : "An unexpected error occurred"}
           </p>
         </div>
       </div>
@@ -31,21 +37,21 @@ export function Overview() {
   }
   
   return (
-    <div className="mx-auto pl-6 pr-6">
+    <div className="mx-auto p-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Query Analytics</h1>
         <FilterPanel />
       </div>
       <div className="grid gap-6">
-        <KeyMetrics {...data} />
+        <KeyMetrics {...overviewData} />
         <div className="grid gap-6 lg:grid-cols-2">
+          <>
+            <StatusBreakdown statusData={queryOverviewData?.queryStatusDistribution || []} />
+            <QueryLatencyTrends latencyTrendsData={queryOverviewData?.queryLatencyTrends || []} />
+          </>
           <div className="grid gap-6">
-            {/* <StatusBreakdown /> */}
-            {/* <QueryPerformanceAnalysis /> */}
-          </div>
-          <div className="grid gap-6">
-            {/* <QueryPerformanceAnalysis /> */}
-            {/* <QueryPerformanceAnalysis /> */}
+            {/* <QueryPerformanceAnalysis />
+            <QueryErrorAnalysis /> */}
           </div>
         </div>
         {/* <QueryTable /> */}

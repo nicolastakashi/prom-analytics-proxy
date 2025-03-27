@@ -750,3 +750,11 @@ func (p *ClickHouseProvider) QueryRate(ctx context.Context, from time.Time, to t
 
 	return result, nil
 }
+
+func (p *ClickHouseProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
+	return nil, nil
+}
+
+func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+	return nil, nil
+}

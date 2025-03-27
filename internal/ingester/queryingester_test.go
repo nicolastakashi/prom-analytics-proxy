@@ -71,6 +71,18 @@ func (p *MockDBProvider) AverageDuration(ctx context.Context, from time.Time, to
 	return nil, nil
 }
 
+func (p *MockDBProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*db.QueryRateResult, error) {
+	return nil, nil
+}
+
+func (p *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]db.QueryStatusDistributionResult, error) {
+	return nil, nil
+}
+
+func (p *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]db.QueryLatencyTrendsResult, error) {
+	return nil, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

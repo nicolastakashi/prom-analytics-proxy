@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -613,7 +614,7 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, from time.Time, to time
 		SUM(CASE WHEN type = 'instant' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS instant_percent,
 		SUM(CASE WHEN type = 'range' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS range_percent
 	FROM queries
-	WHERE ts BETWEEN ? AND ?;
+	WHERE ts BETWEEN datetime(?) AND datetime(?);
 	`
 
 	// Format timestamps in ISO 8601 format with UTC timezone
@@ -648,12 +649,12 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current
 			FROM queries
-			WHERE ts BETWEEN ? AND ?
+			WHERE ts BETWEEN datetime(?) AND datetime(?)
 		),
 		previous AS (
 			SELECT AVG(duration) AS avg_previous
 			FROM queries
-			WHERE ts BETWEEN ? AND ?
+			WHERE ts BETWEEN datetime(?) AND datetime(?)
 		)
 		SELECT
 			ROUND(avg_current, 2),
@@ -708,7 +709,7 @@ func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.
 				2
 			) AS error_rate_percent
 		FROM queries
-		WHERE ts BETWEEN ? AND ?;
+		WHERE ts BETWEEN datetime(?) AND datetime(?);
 	`
 
 	rows, err := p.db.QueryContext(ctx, query, from.UTC().Format(time.RFC3339Nano), to.UTC().Format(time.RFC3339Nano))
@@ -737,4 +738,170 @@ func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.
 	}
 
 	return result, nil
+}
+
+func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
+	// Get raw data from database
+	query := `
+		SELECT 
+			ts,
+			statusCode
+		FROM queries
+		WHERE ts BETWEEN datetime(?) AND datetime(?)
+		ORDER BY ts;
+	`
+
+	fromFormatted := from.UTC().Format(time.RFC3339Nano)
+	toFormatted := to.UTC().Format(time.RFC3339Nano)
+
+	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query query status distribution: %w", err)
+	}
+	defer rows.Close()
+
+	// Create a map to store hourly buckets
+	buckets := make(map[string]*struct {
+		status2xx int
+		status4xx int
+		status5xx int
+	})
+
+	// Process each row and aggregate into hourly buckets
+	for rows.Next() {
+		var ts time.Time
+		var statusCode int
+		if err := rows.Scan(&ts, &statusCode); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Format bucket key as "YYYY-MM-DD HH:00"
+		bucketKey := ts.UTC().Format("2006-01-02 15:00")
+
+		// Initialize bucket if it doesn't exist
+		if _, exists := buckets[bucketKey]; !exists {
+			buckets[bucketKey] = &struct {
+				status2xx int
+				status4xx int
+				status5xx int
+			}{}
+		}
+
+		// Increment appropriate counter
+		switch {
+		case statusCode >= 200 && statusCode < 300:
+			buckets[bucketKey].status2xx++
+		case statusCode >= 400 && statusCode < 500:
+			buckets[bucketKey].status4xx++
+		case statusCode >= 500 && statusCode < 600:
+			buckets[bucketKey].status5xx++
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	// Create a slice of results sorted by timestamp
+	result := make([]QueryStatusDistributionResult, 0, len(buckets))
+
+	// Generate all hourly buckets between from and to
+	for t := from.UTC(); t.Before(to.UTC()); t = t.Add(time.Hour) {
+		bucketKey := t.Format("2006-01-02 15:00")
+		bucket := buckets[bucketKey]
+
+		// If no data for this hour, use zero values
+		if bucket == nil {
+			bucket = &struct {
+				status2xx int
+				status4xx int
+				status5xx int
+			}{}
+		}
+
+		result = append(result, QueryStatusDistributionResult{
+			Hour:      bucketKey,
+			Status2xx: bucket.status2xx,
+			Status4xx: bucket.status4xx,
+			Status5xx: bucket.status5xx,
+		})
+	}
+
+	return result, nil
+}
+
+func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+	query := `
+		SELECT ts, duration
+		FROM queries
+		WHERE ts BETWEEN datetime(?) AND datetime(?)
+	`
+	bucketDuration := time.Hour
+	fromFormatted := from.UTC().Format(time.RFC3339Nano)
+	toFormatted := to.UTC().Format(time.RFC3339Nano)
+
+	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query query latency trends: %w", err)
+	}
+	defer rows.Close()
+
+	// Group durations by bucket
+	type Bucket struct {
+		Durations []int
+	}
+	buckets := make(map[time.Time]*Bucket)
+
+	for rows.Next() {
+		var tsStr string
+		var duration int
+		if err := rows.Scan(&tsStr, &duration); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		ts, err := time.Parse(time.RFC3339, tsStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse timestamp: %w", err)
+		}
+		bucketKey := ts.Truncate(bucketDuration)
+		if _, ok := buckets[bucketKey]; !ok {
+			buckets[bucketKey] = &Bucket{}
+		}
+		buckets[bucketKey].Durations = append(buckets[bucketKey].Durations, duration)
+	}
+
+	// Format output
+	var results []QueryLatencyTrendsResult
+
+	// Fill in all time buckets in range
+	for t := from.Truncate(bucketDuration); !t.After(to); t = t.Add(bucketDuration) {
+		bucket := buckets[t]
+		result := QueryLatencyTrendsResult{
+			Time:  t.Format("2006-01-02 15:04"), // YYYY-MM-DD HH:MM
+			Value: 0,
+			P95:   0,
+		}
+
+		if bucket != nil && len(bucket.Durations) > 0 {
+			durs := bucket.Durations
+			sort.Ints(durs)
+
+			// Average
+			sum := 0
+			for _, d := range durs {
+				sum += d
+			}
+			result.Value = float64(sum) / float64(len(durs))
+
+			// P95
+			p95Index := int(0.95 * float64(len(durs)))
+			if p95Index >= len(durs) {
+				p95Index = len(durs) - 1
+			}
+			result.P95 = durs[p95Index]
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
 }

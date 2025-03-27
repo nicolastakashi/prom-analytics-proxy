@@ -17,6 +17,8 @@ type Provider interface {
 	AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error)
 	QueryRate(ctx context.Context, from time.Time, to time.Time) (*QueryRateResult, error)
 	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
+	GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error)
+	GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error)
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error

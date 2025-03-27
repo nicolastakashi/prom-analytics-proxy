@@ -76,6 +76,19 @@ type QueriesBySerieNameResult struct {
 	TS              time.Time `json:"ts"`
 }
 
+type QueryStatusDistributionResult struct {
+	Hour      string `json:"hour"`
+	Status2xx int    `json:"2xx"`
+	Status4xx int    `json:"4xx"`
+	Status5xx int    `json:"5xx"`
+}
+
+type QueryLatencyTrendsResult struct {
+	Value float64 `json:"value"`
+	P95   int     `json:"p95"`
+	Time  string  `json:"time"`
+}
+
 type RuleUsageKind string
 
 const (
