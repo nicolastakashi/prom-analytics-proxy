@@ -626,7 +626,7 @@ func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string
 	}, nil
 }
 
-func (p *ClickHouseProvider) QueryTypes(ctx context.Context, from time.Time, to time.Time) (*QueryTypesResult, error) {
+func (p *ClickHouseProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
 	query := `
 		SELECT
 			COUNT(*) AS total_queries,
@@ -636,6 +636,7 @@ func (p *ClickHouseProvider) QueryTypes(ctx context.Context, from time.Time, to 
 		WHERE ts BETWEEN ? AND ?;
 	`
 
+	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query types: %w", err)
@@ -658,7 +659,7 @@ func (p *ClickHouseProvider) QueryTypes(ctx context.Context, from time.Time, to 
 	return result, nil
 }
 
-func (p *ClickHouseProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error) {
+func (p *ClickHouseProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT avg(toFloat64(duration_ms)) AS avg_current
@@ -679,9 +680,8 @@ func (p *ClickHouseProvider) AverageDuration(ctx context.Context, from time.Time
 		FROM current, previous;
 	`
 
-	duration := to.Sub(from)
-	previousFrom := from.Add(-duration)
-	previousTo := to.Add(-duration)
+	from, to := tr.Format(ISOTimeFormat)
+	previousFrom, previousTo := tr.Previous().Format(ISOTimeFormat)
 
 	rows, err := p.db.QueryContext(ctx, query, from, to, previousFrom, previousTo)
 	if err != nil {
@@ -706,7 +706,7 @@ func (p *ClickHouseProvider) AverageDuration(ctx context.Context, from time.Time
 	return result, nil
 }
 
-func (p *ClickHouseProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*QueryRateResult, error) {
+func (p *ClickHouseProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -723,6 +723,7 @@ func (p *ClickHouseProvider) QueryRate(ctx context.Context, from time.Time, to t
 		WHERE ts BETWEEN ? AND ?;
 	`
 
+	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
@@ -751,10 +752,14 @@ func (p *ClickHouseProvider) QueryRate(ctx context.Context, from time.Time, to t
 	return result, nil
 }
 
-func (p *ClickHouseProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
+func (p *ClickHouseProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
 	return nil, nil
 }
 
-func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
+	return nil, nil
+}
+
+func (p *ClickHouseProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
 	return nil, nil
 }

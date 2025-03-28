@@ -21,19 +21,21 @@ import {
   SidebarMenuSubButton,
 } from "@/components/ui/sidebar"
 
-export function Navigation({
-  items,
-}: {
-  items: {
-    name: string
-    url: string
-    icon: LucideIcon
-    subItems?: {
-      name: string
-      url: string
-    }[]
-  }[]
-}) {
+interface NavigationProps {
+  items: NavigationItem[]
+  activeItem?: string
+  onItemClick?: (item: NavigationItem) => void
+  className?: string
+  itemClassName?: (item: NavigationItem) => string
+}
+
+export function Navigation({ 
+  items, 
+  activeItem, 
+  onItemClick, 
+  className,
+  itemClassName 
+}: NavigationProps) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Analytics</SidebarGroupLabel>

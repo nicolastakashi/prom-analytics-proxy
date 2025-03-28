@@ -34,3 +34,16 @@ export interface QueryLatencyTrendsResult {
 	p95: number;
 }
 
+export interface QueryThroughputAnalysisResult {
+	time: string;
+	value: number;
+}
+
+
+export type TimeGranularity = "15m" | "30m" | "1h" | "1d"
+
+export interface TimeRange {
+    from: Date
+    to: Date
+    label: string
+} 

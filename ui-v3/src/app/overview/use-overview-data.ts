@@ -1,10 +1,35 @@
 import { useQuery } from "@tanstack/react-query";
-import { getQueryTypes, getAverageDuration, getQueryRate } from "@/api/queries";
-import { QueryTypesResponse, AverageDurationResponse, QueryRateResponse } from "@/lib/types";
-import { DateRange } from "@/lib/types"; // You'll need to create this type
+import { 
+  getQueryTypes, 
+  getAverageDuration, 
+  getQueryRate,
+  getQueryLatencyTrends,
+  getQueryStatusDistribution,
+  getQueryThroughputAnalysis 
+} from "@/api/queries";
+import { 
+  QueryTypesResponse, 
+  AverageDurationResponse, 
+  QueryRateResponse,
+  DateRange,
+  QueryLatencyTrendsResult,
+  QueryStatusDistributionResult,
+  QueryThroughputAnalysisResult
+} from "@/lib/types";
+
+interface OverviewData {
+  // Key metrics data
+  queryTypes: QueryTypesResponse | undefined;
+  averageDuration: AverageDurationResponse | undefined;
+  queryRate: QueryRateResponse | undefined;
+  // Query analysis data
+  queryStatusDistribution: QueryStatusDistributionResult[] | undefined;
+  queryLatencyTrends: QueryLatencyTrendsResult[] | undefined;
+  queryThroughputAnalysis: QueryThroughputAnalysisResult[] | undefined;
+}
 
 export function useOverviewData(dateRange: DateRange | undefined) {
-  const queryEnabled = !!dateRange?.from && !!dateRange?.to;
+  const queryEnabled = Boolean(dateRange?.from && dateRange?.to);
   const from = dateRange?.from?.toISOString();
   const to = dateRange?.to?.toISOString();
 
@@ -38,13 +63,61 @@ export function useOverviewData(dateRange: DateRange | undefined) {
     enabled: queryEnabled,
   });
 
+  // Query analysis queries
+  const { 
+    data: queryStatusDistribution,
+    isLoading: isLoadingStatus,
+    error: errorStatus
+  } = useQuery<QueryStatusDistributionResult[]>({
+    queryKey: ['queryStatusDistribution', from, to],
+    queryFn: () => getQueryStatusDistribution(from, to),
+    enabled: queryEnabled,
+  });
+
+  const { 
+    data: queryLatencyTrends,
+    isLoading: isLoadingLatency,
+    error: errorLatency
+  } = useQuery<QueryLatencyTrendsResult[]>({
+    queryKey: ['queryLatencyTrends', from, to],
+    queryFn: () => getQueryLatencyTrends(from, to),
+    enabled: queryEnabled,
+  });
+
+  const { 
+    data: queryThroughputAnalysis,
+    isLoading: isLoadingThroughput,
+    error: errorThroughput
+  } = useQuery<QueryThroughputAnalysisResult[]>({
+    queryKey: ['queryThroughputAnalysis', from, to],
+    queryFn: () => getQueryThroughputAnalysis(from, to),
+    enabled: queryEnabled,
+  });
+
   return {
     data: {
+      // Key metrics
       queryTypes,
       averageDuration,
       queryRate,
-    },
-    isLoading: isLoadingQueryTypes || isLoadingAverageDuration || isLoadingQueryRate,
-    error: queryTypesError || averageDurationError || queryRateError,
+      // Query analysis
+      queryStatusDistribution,
+      queryLatencyTrends,
+      queryThroughputAnalysis,
+    } as OverviewData,
+    isLoading: 
+      isLoadingQueryTypes || 
+      isLoadingAverageDuration || 
+      isLoadingQueryRate ||
+      isLoadingStatus ||
+      isLoadingLatency ||
+      isLoadingThroughput,
+    error: 
+      queryTypesError || 
+      averageDurationError || 
+      queryRateError ||
+      errorStatus ||
+      errorLatency ||
+      errorThroughput,
   };
 } 

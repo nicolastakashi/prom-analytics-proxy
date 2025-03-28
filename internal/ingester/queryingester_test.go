@@ -63,23 +63,27 @@ func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, serieName string
 	return nil, nil
 }
 
-func (p *MockDBProvider) QueryTypes(ctx context.Context, startAt time.Time, endAt time.Time) (*db.QueryTypesResult, error) {
+func (p *MockDBProvider) QueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
 	return nil, nil
 }
 
-func (p *MockDBProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*db.AverageDurationResult, error) {
+func (p *MockDBProvider) AverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
 	return nil, nil
 }
 
-func (p *MockDBProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*db.QueryRateResult, error) {
+func (p *MockDBProvider) QueryRate(ctx context.Context, tr db.TimeRange) (*db.QueryRateResult, error) {
 	return nil, nil
 }
 
-func (p *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]db.QueryStatusDistributionResult, error) {
+func (p *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryStatusDistributionResult, error) {
 	return nil, nil
 }
 
-func (p *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]db.QueryLatencyTrendsResult, error) {
+func (p *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange) ([]db.QueryLatencyTrendsResult, error) {
+	return nil, nil
+}
+
+func (p *MockDBProvider) GetQueryThroughputAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryThroughputAnalysisResult, error) {
 	return nil, nil
 }
 

@@ -1,4 +1,4 @@
-import { AverageDurationResponse, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse } from "@/lib/types"
 
 const API_CONFIG = {
   baseUrl: 'http://localhost:9091',
@@ -7,7 +7,8 @@ const API_CONFIG = {
     queryRate: '/api/v1/query/rate',
     averageDuration: '/api/v1/query/average_duration',
     queryStatusDistribution: '/api/v1/query/status_distribution',
-    queryLatencyTrends: '/api/v1/query/latency_trends'
+    queryLatencyTrends: '/api/v1/query/latency',
+    queryThroughputAnalysis: '/api/v1/query/throughput'
   }
 } as const
 
@@ -16,11 +17,11 @@ function getUTCDate(date?: string): string {
     return new Date().toISOString()
   }
   const dateObj = new Date(date)
-  dateObj.setHours(0, 0, 0, 0)
+  
   return dateObj.toISOString()
 }
 
-type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[]
+type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | QueryThroughputAnalysisResult[]  
 
 async function fetchApiData<T extends ApiResponse>(endpoint: string, from?: string, to?: string): Promise<T> {
   const fromUTC = getUTCDate(from)
@@ -83,6 +84,14 @@ export async function getQueryStatusDistribution(from?: string, to?: string): Pr
 export async function getQueryLatencyTrends(from?: string, to?: string): Promise<QueryLatencyTrendsResult[]> {
   try {
     return await fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, from, to)
+  } catch {
+    return []
+  }
+}
+
+export async function getQueryThroughputAnalysis(from?: string, to?: string): Promise<QueryThroughputAnalysisResult[]> {
+  try {
+    return await fetchApiData<QueryThroughputAnalysisResult[]>(API_CONFIG.endpoints.queryThroughputAnalysis, from, to)
   } catch {
     return []
   }

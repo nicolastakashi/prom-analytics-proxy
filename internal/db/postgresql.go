@@ -611,7 +611,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string
 	}, nil
 }
 
-func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, from time.Time, to time.Time) (*QueryTypesResult, error) {
+func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
 	query := `
 		SELECT
 			COUNT(*) AS total_queries,
@@ -621,6 +621,7 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, from time.Time, to 
 		WHERE ts BETWEEN $1 AND $2;
 	`
 
+	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query types: %w", err)
@@ -643,7 +644,7 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, from time.Time, to 
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error) {
+func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT AVG(EXTRACT(EPOCH FROM duration) * 1000) AS avg_current
@@ -664,9 +665,8 @@ func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, from time.Time
 		FROM current, previous;
 	`
 
-	duration := to.Sub(from)
-	previousFrom := from.Add(-duration)
-	previousTo := to.Add(-duration)
+	from, to := tr.Format(ISOTimeFormat)
+	previousFrom, previousTo := tr.Previous().Format(ISOTimeFormat)
 
 	rows, err := p.db.QueryContext(ctx, query, from, to, previousFrom, previousTo)
 	if err != nil {
@@ -691,7 +691,7 @@ func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, from time.Time
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*QueryRateResult, error) {
+func (p *PostGreSQLProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -708,6 +708,7 @@ func (p *PostGreSQLProvider) QueryRate(ctx context.Context, from time.Time, to t
 		WHERE ts BETWEEN $1 AND $2;
 	`
 
+	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
@@ -736,10 +737,14 @@ func (p *PostGreSQLProvider) QueryRate(ctx context.Context, from time.Time, to t
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
+func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
 	return nil, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
+	return nil, nil
+}
+
+func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
 	return nil, nil
 }

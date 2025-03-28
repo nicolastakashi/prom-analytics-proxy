@@ -67,6 +67,10 @@ const (
 			created_at DATETIME NOT NULL
 		);
 	`
+	FifteenMinutes = 15 * time.Minute
+	ThirtyMinutes  = 30 * time.Minute
+	OneHour        = time.Hour
+	OneDay         = 24 * time.Hour
 )
 
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
@@ -222,18 +226,15 @@ func (p *SQLiteProvider) QueryShortCuts() []QueryShortCut {
 	return commonQueryShortCuts
 }
 
-func (p *SQLiteProvider) GetQueriesBySerieName(
-	ctx context.Context,
-	serieName string,
-	page int,
-	pageSize int) (*PagedResult, error) {
-
+func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error) {
 	endTime := time.Now()
 	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
 
-	// Format timestamps for SQLite (YYYY-MM-DD HH:MM:SS)
-	startTimeFormatted := startTime.Format("2006-01-02 15:04:05")
-	endTimeFormatted := endTime.Format("2006-01-02 15:04:05")
+	tr := TimeRange{
+		From: startTime,
+		To:   endTime,
+	}
+	startTimeFormatted, endTimeFormatted := tr.Format(SQLiteTimeFormat)
 
 	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTimeFormatted, endTimeFormatted)
 	if err != nil {
@@ -607,21 +608,19 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, pa
 }
 
 // QueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
-func (p *SQLiteProvider) QueryTypes(ctx context.Context, from time.Time, to time.Time) (*QueryTypesResult, error) {
+func (p *SQLiteProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
 	query := `
 	SELECT
 		COUNT(*) AS total_queries,
 		SUM(CASE WHEN type = 'instant' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS instant_percent,
 		SUM(CASE WHEN type = 'range' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS range_percent
 	FROM queries
-	WHERE ts BETWEEN datetime(?) AND datetime(?);
+	WHERE ts BETWEEN datetime(?) AND datetime(?)
+	ORDER BY ts;
 	`
 
-	// Format timestamps in ISO 8601 format with UTC timezone
-	fromFormatted := from.UTC().Format(time.RFC3339Nano)
-	toFormatted := to.UTC().Format(time.RFC3339Nano)
-
-	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
+	fromStr, toStr := tr.Format(ISOTimeFormatNano)
+	rows, err := p.db.QueryContext(ctx, query, fromStr, toStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query types: %w", err)
 	}
@@ -644,17 +643,19 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, from time.Time, to time
 	return result, nil
 }
 
-func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to time.Time) (*AverageDurationResult, error) {
+func (p *SQLiteProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current
 			FROM queries
 			WHERE ts BETWEEN datetime(?) AND datetime(?)
+			ORDER BY ts
 		),
 		previous AS (
 			SELECT AVG(duration) AS avg_previous
 			FROM queries
 			WHERE ts BETWEEN datetime(?) AND datetime(?)
+			ORDER BY ts
 		)
 		SELECT
 			ROUND(avg_current, 2),
@@ -665,14 +666,11 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to
 		FROM current, previous;
 	`
 
-	duration := to.Sub(from)
-	previousFromFormatted := from.Add(-duration).UTC().Format(time.RFC3339Nano)
-	previousToFormatted := to.Add(-duration).UTC().Format(time.RFC3339Nano)
+	prevRange := tr.Previous()
+	prevFrom, prevTo := prevRange.Format(ISOTimeFormatNano)
+	from, to := tr.Format(ISOTimeFormatNano)
 
-	fromFormatted := from.UTC().Format(time.RFC3339Nano)
-	toFormatted := to.UTC().Format(time.RFC3339Nano)
-
-	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted, previousFromFormatted, previousToFormatted)
+	rows, err := p.db.QueryContext(ctx, query, from, to, prevFrom, prevTo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query average duration: %w", err)
 	}
@@ -681,7 +679,7 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to
 	result := &AverageDurationResult{}
 
 	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+		return nil, ErrNoResults
 	}
 
 	if err := rows.Scan(&result.AvgDuration, &result.DeltaPercent); err != nil {
@@ -695,7 +693,7 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, from time.Time, to
 	return result, nil
 }
 
-func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.Time) (*QueryRateResult, error) {
+func (p *SQLiteProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -712,16 +710,16 @@ func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.
 		WHERE ts BETWEEN datetime(?) AND datetime(?);
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, from.UTC().Format(time.RFC3339Nano), to.UTC().Format(time.RFC3339Nano))
+	from, to := tr.Format(ISOTimeFormatNano)
+	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
 	defer rows.Close()
 
 	result := &QueryRateResult{}
-
 	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+		return nil, ErrNoResults
 	}
 
 	if err := rows.Scan(
@@ -733,15 +731,10 @@ func (p *SQLiteProvider) QueryRate(ctx context.Context, from time.Time, to time.
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return result, nil
 }
 
-func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, from time.Time, to time.Time) ([]QueryStatusDistributionResult, error) {
-	// Get raw data from database
+func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
 	query := `
 		SELECT 
 			ts,
@@ -751,107 +744,96 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, from ti
 		ORDER BY ts;
 	`
 
-	fromFormatted := from.UTC().Format(time.RFC3339Nano)
-	toFormatted := to.UTC().Format(time.RFC3339Nano)
-
-	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query query status distribution: %w", err)
+		return nil, fmt.Errorf("failed to query status distribution: %w", err)
 	}
 	defer rows.Close()
 
-	// Create a map to store hourly buckets
-	buckets := make(map[string]*struct {
-		status2xx int
-		status4xx int
-		status5xx int
-	})
-
-	// Process each row and aggregate into hourly buckets
+	// Collect raw data
+	var rawData []TimeSeriesData
 	for rows.Next() {
-		var ts time.Time
+		var tsStr string
 		var statusCode int
-		if err := rows.Scan(&ts, &statusCode); err != nil {
+		if err := rows.Scan(&tsStr, &statusCode); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-
-		// Format bucket key as "YYYY-MM-DD HH:00"
-		bucketKey := ts.UTC().Format("2006-01-02 15:00")
-
-		// Initialize bucket if it doesn't exist
-		if _, exists := buckets[bucketKey]; !exists {
-			buckets[bucketKey] = &struct {
-				status2xx int
-				status4xx int
-				status5xx int
-			}{}
+		ts, err := time.Parse(time.RFC3339, tsStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse timestamp: %w", err)
 		}
-
-		// Increment appropriate counter
-		switch {
-		case statusCode >= 200 && statusCode < 300:
-			buckets[bucketKey].status2xx++
-		case statusCode >= 400 && statusCode < 500:
-			buckets[bucketKey].status4xx++
-		case statusCode >= 500 && statusCode < 600:
-			buckets[bucketKey].status5xx++
-		}
+		rawData = append(rawData, TimeSeriesData{
+			Time:  ts,
+			Value: statusCode,
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	// Create a slice of results sorted by timestamp
-	result := make([]QueryStatusDistributionResult, 0, len(buckets))
+	// Define aggregator function
+	aggregator := func(data []TimeSeriesData) interface{} {
+		counts := struct {
+			status2xx int
+			status4xx int
+			status5xx int
+		}{}
 
-	// Generate all hourly buckets between from and to
-	for t := from.UTC(); t.Before(to.UTC()); t = t.Add(time.Hour) {
-		bucketKey := t.Format("2006-01-02 15:00")
-		bucket := buckets[bucketKey]
-
-		// If no data for this hour, use zero values
-		if bucket == nil {
-			bucket = &struct {
-				status2xx int
-				status4xx int
-				status5xx int
-			}{}
+		for _, d := range data {
+			statusCode := d.Value.(int)
+			switch {
+			case statusCode >= 200 && statusCode < 300:
+				counts.status2xx++
+			case statusCode >= 400 && statusCode < 500:
+				counts.status4xx++
+			case statusCode >= 500 && statusCode < 600:
+				counts.status5xx++
+			}
 		}
+		return counts
+	}
 
-		result = append(result, QueryStatusDistributionResult{
-			Hour:      bucketKey,
-			Status2xx: bucket.status2xx,
-			Status4xx: bucket.status4xx,
-			Status5xx: bucket.status5xx,
+	// Aggregate data
+	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
+
+	// Format results
+	var results []QueryStatusDistributionResult
+	for _, point := range aggregated {
+		counts := point.Value.(struct {
+			status2xx int
+			status4xx int
+			status5xx int
+		})
+		results = append(results, QueryStatusDistributionResult{
+			Time:      point.Time.Format(DisplayTimeFormat),
+			Status2xx: counts.status2xx,
+			Status4xx: counts.status4xx,
+			Status5xx: counts.status5xx,
 		})
 	}
 
-	return result, nil
+	return results, nil
 }
 
-func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, from time.Time, to time.Time) ([]QueryLatencyTrendsResult, error) {
+func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
 	query := `
 		SELECT ts, duration
 		FROM queries
 		WHERE ts BETWEEN datetime(?) AND datetime(?)
+		ORDER BY ts;
 	`
-	bucketDuration := time.Hour
-	fromFormatted := from.UTC().Format(time.RFC3339Nano)
-	toFormatted := to.UTC().Format(time.RFC3339Nano)
+	from, to := tr.Format(ISOTimeFormat)
 
-	rows, err := p.db.QueryContext(ctx, query, fromFormatted, toFormatted)
+	rows, err := p.db.QueryContext(ctx, query, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query latency trends: %w", err)
 	}
 	defer rows.Close()
 
-	// Group durations by bucket
-	type Bucket struct {
-		Durations []int
-	}
-	buckets := make(map[time.Time]*Bucket)
-
+	// Collect raw data
+	var rawData []TimeSeriesData
 	for rows.Next() {
 		var tsStr string
 		var duration int
@@ -862,45 +844,116 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, from time.Ti
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse timestamp: %w", err)
 		}
-		bucketKey := ts.Truncate(bucketDuration)
-		if _, ok := buckets[bucketKey]; !ok {
-			buckets[bucketKey] = &Bucket{}
-		}
-		buckets[bucketKey].Durations = append(buckets[bucketKey].Durations, duration)
+		rawData = append(rawData, TimeSeriesData{Time: ts, Value: duration})
 	}
 
-	// Format output
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	// Define aggregator function
+	aggregator := func(data []TimeSeriesData) interface{} {
+		if len(data) == 0 {
+			return struct {
+				avg float64
+				p95 int
+			}{0, 0}
+		}
+
+		// Calculate average
+		var sum int
+		durations := make([]int, len(data))
+		for i, d := range data {
+			duration := d.Value.(int)
+			sum += duration
+			durations[i] = duration
+		}
+		avg := float64(sum) / float64(len(data))
+
+		// Calculate P95
+		sort.Ints(durations)
+		p95Index := int(0.95 * float64(len(durations)))
+		if p95Index >= len(durations) {
+			p95Index = len(durations) - 1
+		}
+
+		return struct {
+			avg float64
+			p95 int
+		}{avg, durations[p95Index]}
+	}
+
+	// Aggregate data
+	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
+
+	// Format results
 	var results []QueryLatencyTrendsResult
+	for _, point := range aggregated {
+		stats := point.Value.(struct {
+			avg float64
+			p95 int
+		})
+		results = append(results, QueryLatencyTrendsResult{
+			Time:  point.Time.Format(DisplayTimeFormat),
+			Value: stats.avg,
+			P95:   stats.p95,
+		})
+	}
 
-	// Fill in all time buckets in range
-	for t := from.Truncate(bucketDuration); !t.After(to); t = t.Add(bucketDuration) {
-		bucket := buckets[t]
-		result := QueryLatencyTrendsResult{
-			Time:  t.Format("2006-01-02 15:04"), // YYYY-MM-DD HH:MM
-			Value: 0,
-			P95:   0,
+	return results, nil
+}
+
+func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
+	query := `
+		SELECT ts, COUNT(*) as count
+		FROM queries
+		WHERE ts BETWEEN datetime(?) AND datetime(?)
+		GROUP BY ts
+		ORDER BY ts;
+	`
+	from, to := tr.Format(ISOTimeFormat)
+
+	rows, err := p.db.QueryContext(ctx, query, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query query throughput analysis: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect raw data
+	var rawData []TimeSeriesData
+	for rows.Next() {
+		var tsStr string
+		var count int
+		if err := rows.Scan(&tsStr, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-
-		if bucket != nil && len(bucket.Durations) > 0 {
-			durs := bucket.Durations
-			sort.Ints(durs)
-
-			// Average
-			sum := 0
-			for _, d := range durs {
-				sum += d
-			}
-			result.Value = float64(sum) / float64(len(durs))
-
-			// P95
-			p95Index := int(0.95 * float64(len(durs)))
-			if p95Index >= len(durs) {
-				p95Index = len(durs) - 1
-			}
-			result.P95 = durs[p95Index]
+		ts, err := time.Parse(time.RFC3339, tsStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse timestamp: %w", err)
 		}
+		rawData = append(rawData, TimeSeriesData{Time: ts, Value: count})
+	}
 
-		results = append(results, result)
+	// Define aggregator function
+	minutes := GetBucketDuration(tr.From, tr.To).Minutes()
+	aggregator := func(data []TimeSeriesData) interface{} {
+		var total int
+		for _, d := range data {
+			total += d.Value.(int)
+		}
+		return float64(total) / minutes
+	}
+
+	// Aggregate data
+	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
+
+	// Format results
+	var results []QueryThroughputAnalysisResult
+	for _, point := range aggregated {
+		results = append(results, QueryThroughputAnalysisResult{
+			Time:  point.Time.Format(DisplayTimeFormat),
+			Value: point.Value.(float64),
+		})
 	}
 
 	return results, nil

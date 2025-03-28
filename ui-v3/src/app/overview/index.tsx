@@ -1,27 +1,29 @@
-import { FilterPanel } from "@/components/filter-panel";
 import { KeyMetrics } from "@/components/key-metrics";
 import { useDateRange } from "@/contexts/date-range-context";
 import { useOverviewData } from "./use-overview-data";
 import { LoadingState } from "./loading";
 import { toast } from "sonner";
 import { StatusBreakdown } from "@/components/status-breakdown";
-import { useQueryOverviewData } from "./use-query-overview-data";
 import { QueryLatencyTrends } from "@/components/query-latency-trends";
+import { QueryThroughputAnalysis } from "@/components/query-performance-analysis";
 
 export function Overview() {
   const { dateRange } = useDateRange();
-  const { data: overviewData, isLoading: isLoadingOverviewData, error: errorOverviewData } = useOverviewData(dateRange);
-  const { data: queryOverviewData, isLoading: isLoadingQueryOverviewData, error: errorQueryOverviewData } = useQueryOverviewData(dateRange);
+  const { 
+    data: overviewData, 
+    isLoading, 
+    error 
+  } = useOverviewData(dateRange);
 
-  if (isLoadingOverviewData || isLoadingQueryOverviewData) {
+  if (isLoading) {
     return <LoadingState />;
   }
 
-  console.log(queryOverviewData);
+  console.log(overviewData);
 
-  if (errorOverviewData || errorQueryOverviewData) {
+  if (error) {
     toast.error("Failed to fetch data", {
-      description: errorOverviewData instanceof Error ? errorOverviewData.message : "An unexpected error occurred",
+      description: error instanceof Error ? error.message : "An unexpected error occurred",
     });
     
     return (
@@ -29,7 +31,7 @@ export function Overview() {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-red-600">Failed to load data</h2>
           <p className="mt-2 text-gray-600">
-            {errorOverviewData instanceof Error ? errorOverviewData.message : "An unexpected error occurred"}
+            {error instanceof Error ? error.message : "An unexpected error occurred"}
           </p>
         </div>
       </div>
@@ -38,20 +40,23 @@ export function Overview() {
   
   return (
     <div className="mx-auto p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6">
         <h1 className="text-2xl font-bold">Query Analytics</h1>
-        <FilterPanel />
       </div>
       <div className="grid gap-6">
-        <KeyMetrics {...overviewData} />
+        <KeyMetrics 
+          queryTypes={overviewData.queryTypes}
+          averageDuration={overviewData.averageDuration}
+          queryRate={overviewData.queryRate}
+        />
         <div className="grid gap-6 lg:grid-cols-2">
           <>
-            <StatusBreakdown statusData={queryOverviewData?.queryStatusDistribution || []} />
-            <QueryLatencyTrends latencyTrendsData={queryOverviewData?.queryLatencyTrends || []} />
+            <StatusBreakdown statusData={overviewData.queryStatusDistribution || []} />
+            <QueryLatencyTrends latencyTrendsData={overviewData.queryLatencyTrends || []} />
           </>
           <div className="grid gap-6">
-            {/* <QueryPerformanceAnalysis />
-            <QueryErrorAnalysis /> */}
+            <QueryThroughputAnalysis throughputData={overviewData.queryThroughputAnalysis || []} />
+            {/* <QueryErrorAnalysis /> */}
           </div>
         </div>
         {/* <QueryTable /> */}

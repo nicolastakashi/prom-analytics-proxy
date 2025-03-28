@@ -77,7 +77,7 @@ type QueriesBySerieNameResult struct {
 }
 
 type QueryStatusDistributionResult struct {
-	Hour      string `json:"hour"`
+	Time      string `json:"time"`
 	Status2xx int    `json:"2xx"`
 	Status4xx int    `json:"4xx"`
 	Status5xx int    `json:"5xx"`
@@ -86,6 +86,11 @@ type QueryStatusDistributionResult struct {
 type QueryLatencyTrendsResult struct {
 	Value float64 `json:"value"`
 	P95   int     `json:"p95"`
+	Time  string  `json:"time"`
+}
+
+type QueryThroughputAnalysisResult struct {
+	Value float64 `json:"value"`
 	Time  string  `json:"time"`
 }
 

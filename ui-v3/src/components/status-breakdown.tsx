@@ -2,14 +2,15 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts"
-import { QueryStatusDistributionResult } from "@/lib/types";
-
+import { QueryStatusDistributionResult, TimeGranularity } from "@/lib/types"
+import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 
 interface StatusBreakdownProps {
   statusData: QueryStatusDistributionResult[]
+  granularity: TimeGranularity
 }
 
-export function StatusBreakdown({ statusData }: StatusBreakdownProps) {
+export function StatusBreakdown({ statusData, granularity }: StatusBreakdownProps) {
   return (
     <Card>
       <CardHeader>
@@ -18,26 +19,18 @@ export function StatusBreakdown({ statusData }: StatusBreakdownProps) {
       <CardContent>
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={statusData} margin={{ top: 0, right: 16, left: 0 }} barGap={2}>
+            <BarChart data={statusData} margin={{ top: 16, right: 0, left: 0 }} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke="#888888" opacity={0.2} />
               <XAxis
-                dataKey="hour"
+                dataKey="time"
                 stroke="#888888"
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => {
-                  // Format to show just the hour like "03:00"
-                  const date = new Date(value);
-                  return date.toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  });
-                }}
-                angle={-45} // Rotate labels 45 degrees
-                textAnchor="end" // Align the rotated text
-                height={60} // Provide space for rotated labels
+                tickFormatter={(value) => formatTimestampByGranularity(value, granularity)}
+                angle={-45}
+                textAnchor="end"
+                height={60}
               />
               <YAxis
                 stroke="#888888"
@@ -49,15 +42,7 @@ export function StatusBreakdown({ statusData }: StatusBreakdownProps) {
               <Tooltip
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
-                    const time = new Date(payload[0].payload.hour).toLocaleString('en-US', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                      hour12: false
-                    });
+                    const time = payload[0].payload.time;
 
                     return (
                       <div className="rounded-lg border bg-background p-2 shadow-sm">
