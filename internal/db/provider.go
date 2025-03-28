@@ -87,7 +87,6 @@ func ValidateSQLQuery(query string) error {
 		return fmt.Errorf("query contains dangerous pattern")
 	}
 
-	// Add more checks if needed (e.g., length, specific sub-queries)
 	return nil
 }
 
@@ -120,7 +119,6 @@ type TimeSeriesData struct {
 	Value interface{}
 }
 
-// BucketAggregator defines how to aggregate data within a bucket
 type BucketAggregator func([]TimeSeriesData) interface{}
 
 // AggregateTimeSeries handles generic time series data aggregation
@@ -157,23 +155,21 @@ func AggregateTimeSeries(
 	return result
 }
 
-// GetBucketDuration returns appropriate bucket duration based on time range
 func GetBucketDuration(from, to time.Time) time.Duration {
 	timeRange := to.Sub(from)
 
 	switch {
 	case timeRange <= 6*time.Hour:
-		return 15 * time.Minute // 15m buckets for ranges up to 6 hours
+		return 15 * time.Minute
 	case timeRange <= 24*time.Hour:
-		return 30 * time.Minute // 30m buckets for ranges up to 24 hours
+		return 30 * time.Minute
 	case timeRange <= 7*24*time.Hour:
-		return time.Hour // 1h buckets for ranges up to 7 days
+		return time.Hour
 	default:
-		return 24 * time.Hour // 1d buckets for ranges over 7 days
+		return 24 * time.Hour
 	}
 }
 
-// TimeRange represents a time period for queries
 type TimeRange struct {
 	From time.Time
 	To   time.Time

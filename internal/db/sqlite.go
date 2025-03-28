@@ -751,7 +751,6 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	}
 	defer rows.Close()
 
-	// Collect raw data
 	var rawData []TimeSeriesData
 	for rows.Next() {
 		var tsStr string
@@ -773,7 +772,6 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	// Define aggregator function
 	aggregator := func(data []TimeSeriesData) interface{} {
 		counts := struct {
 			status2xx int
@@ -795,10 +793,8 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 		return counts
 	}
 
-	// Aggregate data
 	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
 
-	// Format results
 	var results []QueryStatusDistributionResult
 	for _, point := range aggregated {
 		counts := point.Value.(struct {
@@ -832,7 +828,6 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	}
 	defer rows.Close()
 
-	// Collect raw data
 	var rawData []TimeSeriesData
 	for rows.Next() {
 		var tsStr string
@@ -851,7 +846,6 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	// Define aggregator function
 	aggregator := func(data []TimeSeriesData) interface{} {
 		if len(data) == 0 {
 			return struct {
@@ -860,7 +854,6 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 			}{0, 0}
 		}
 
-		// Calculate average
 		var sum int
 		durations := make([]int, len(data))
 		for i, d := range data {
@@ -870,7 +863,6 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 		}
 		avg := float64(sum) / float64(len(data))
 
-		// Calculate P95
 		sort.Ints(durations)
 		p95Index := int(0.95 * float64(len(durations)))
 		if p95Index >= len(durations) {
@@ -883,10 +875,8 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 		}{avg, durations[p95Index]}
 	}
 
-	// Aggregate data
 	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
 
-	// Format results
 	var results []QueryLatencyTrendsResult
 	for _, point := range aggregated {
 		stats := point.Value.(struct {
@@ -919,7 +909,6 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	}
 	defer rows.Close()
 
-	// Collect raw data
 	var rawData []TimeSeriesData
 	for rows.Next() {
 		var tsStr string
@@ -934,7 +923,6 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 		rawData = append(rawData, TimeSeriesData{Time: ts, Value: count})
 	}
 
-	// Define aggregator function
 	minutes := GetBucketDuration(tr.From, tr.To).Minutes()
 	aggregator := func(data []TimeSeriesData) interface{} {
 		var total int
@@ -944,7 +932,6 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 		return float64(total) / minutes
 	}
 
-	// Aggregate data
 	aggregated := AggregateTimeSeries(rawData, tr.From, tr.To, GetBucketDuration(tr.From, tr.To), aggregator)
 
 	// Format results
