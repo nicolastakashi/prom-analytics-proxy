@@ -94,6 +94,11 @@ type QueryThroughputAnalysisResult struct {
 	Time  string  `json:"time"`
 }
 
+type QueryErrorAnalysisResult struct {
+	Time  string  `json:"time"`
+	Value float64 `json:"value"`
+}
+
 type RuleUsageKind string
 
 const (

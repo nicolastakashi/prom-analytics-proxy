@@ -1,15 +1,17 @@
 "use client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { QueryLatencyTrendsResult, TimeGranularity } from "@/lib/types"
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
+import { QueryLatencyTrendsResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 
 export function QueryLatencyTrends({ 
     latencyTrendsData,
-    granularity 
+    from,
+    to,
 }: { 
     latencyTrendsData: QueryLatencyTrendsResult[]
-    granularity: TimeGranularity 
+    from: Date
+    to: Date
 }) {
   return (
     <Card>
@@ -30,7 +32,7 @@ export function QueryLatencyTrends({
                 angle={-45}
                 textAnchor="end"
                 height={60}
-                tickFormatter={(value) => formatTimestampByGranularity(value, granularity)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
               />
               <YAxis
                 stroke="#888888"

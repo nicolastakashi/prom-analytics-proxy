@@ -1,4 +1,4 @@
-import { AverageDurationResponse, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse } from "@/lib/types"
 
 const API_CONFIG = {
   baseUrl: 'http://localhost:9091',
@@ -8,7 +8,8 @@ const API_CONFIG = {
     averageDuration: '/api/v1/query/average_duration',
     queryStatusDistribution: '/api/v1/query/status_distribution',
     queryLatencyTrends: '/api/v1/query/latency',
-    queryThroughputAnalysis: '/api/v1/query/throughput'
+    queryThroughputAnalysis: '/api/v1/query/throughput',
+    queryErrorAnalysis: '/api/v1/query/errors',
   }
 } as const
 
@@ -92,6 +93,14 @@ export async function getQueryLatencyTrends(from?: string, to?: string): Promise
 export async function getQueryThroughputAnalysis(from?: string, to?: string): Promise<QueryThroughputAnalysisResult[]> {
   try {
     return await fetchApiData<QueryThroughputAnalysisResult[]>(API_CONFIG.endpoints.queryThroughputAnalysis, from, to)
+  } catch {
+    return []
+  }
+}
+
+export async function getQueryErrorAnalysis(from?: string, to?: string): Promise<QueryErrorAnalysisResult[]> {
+  try {
+    return await fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, from, to)
   } catch {
     return []
   }

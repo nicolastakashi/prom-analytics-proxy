@@ -82,6 +82,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/status_distribution", http.HandlerFunc(r.queryStatusDistribution))
 		mux.Handle("/api/v1/query/latency", http.HandlerFunc(r.queryLatencyTrends))
 		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
+		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
@@ -393,6 +394,20 @@ func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Reques
 	to := getTimeParam(req, "to")
 
 	data, err := r.dbProvider.GetQueryThroughputAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to})
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)

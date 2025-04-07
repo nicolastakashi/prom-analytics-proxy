@@ -763,3 +763,7 @@ func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 func (p *ClickHouseProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
 	return nil, nil
 }
+
+func (p *ClickHouseProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
+	return nil, nil
+}

@@ -39,6 +39,10 @@ export interface QueryThroughputAnalysisResult {
 	value: number;
 }
 
+export interface QueryErrorAnalysisResult {
+	time: string;
+	value: number;
+}
 
 export type TimeGranularity = "15m" | "30m" | "1h" | "1d"
 

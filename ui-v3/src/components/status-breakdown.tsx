@@ -2,15 +2,16 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts"
-import { QueryStatusDistributionResult, TimeGranularity } from "@/lib/types"
+import { QueryStatusDistributionResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 
 interface StatusBreakdownProps {
   statusData: QueryStatusDistributionResult[]
-  granularity: TimeGranularity
+  from: Date
+  to: Date
 }
 
-export function StatusBreakdown({ statusData, granularity }: StatusBreakdownProps) {
+export function StatusBreakdown({ statusData, from, to }: StatusBreakdownProps) {
   return (
     <Card>
       <CardHeader>
@@ -27,7 +28,7 @@ export function StatusBreakdown({ statusData, granularity }: StatusBreakdownProp
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => formatTimestampByGranularity(value, granularity)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
                 angle={-45}
                 textAnchor="end"
                 height={60}

@@ -35,6 +35,7 @@ type Provider interface {
 	GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error)
 	GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
+	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
@@ -111,63 +112,6 @@ var commonQueryShortCuts = []QueryShortCut{
 		Title: "Top 10 Most Frequent Queries",
 		Query: `SELECT fingerprint, queryParam, COUNT(fingerprint) AS count FROM queries GROUP BY fingerprint, queryParam ORDER BY count DESC LIMIT 10`,
 	},
-}
-
-// TimeSeriesData represents a generic time series data point
-type TimeSeriesData struct {
-	Time  time.Time
-	Value interface{}
-}
-
-type BucketAggregator func([]TimeSeriesData) interface{}
-
-// AggregateTimeSeries handles generic time series data aggregation
-func AggregateTimeSeries(
-	data []TimeSeriesData,
-	from, to time.Time,
-	bucketDuration time.Duration,
-	aggregator BucketAggregator,
-) []TimeSeriesData {
-	// Create a map to store buckets
-	buckets := make(map[time.Time][]TimeSeriesData)
-
-	// Group data points into buckets
-	for _, point := range data {
-		bucketKey := point.Time.Truncate(bucketDuration)
-		buckets[bucketKey] = append(buckets[bucketKey], point)
-	}
-
-	// Create result slice with all buckets in range
-	var result []TimeSeriesData
-	fromAligned := from.Truncate(bucketDuration)
-
-	// Fill in all time buckets in range, including empty ones
-	for t := fromAligned; !t.After(to); t = t.Add(bucketDuration) {
-		bucketData := buckets[t]
-		aggregatedValue := aggregator(bucketData)
-
-		result = append(result, TimeSeriesData{
-			Time:  t,
-			Value: aggregatedValue,
-		})
-	}
-
-	return result
-}
-
-func GetBucketDuration(from, to time.Time) time.Duration {
-	timeRange := to.Sub(from)
-
-	switch {
-	case timeRange <= 6*time.Hour:
-		return 15 * time.Minute
-	case timeRange <= 24*time.Hour:
-		return 30 * time.Minute
-	case timeRange <= 7*24*time.Hour:
-		return time.Hour
-	default:
-		return 24 * time.Hour
-	}
 }
 
 type TimeRange struct {

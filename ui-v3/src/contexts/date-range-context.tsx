@@ -1,6 +1,5 @@
 import { createContext, useContext, ReactNode, useState, useEffect } from 'react';
 import { useSearchParams } from 'wouter';
-import { parse } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
 interface DateRangeContextType {
@@ -11,8 +10,8 @@ interface DateRangeContextType {
 const DateRangeContext = createContext<DateRangeContextType | undefined>(undefined);
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
-  const [searchParams] = useSearchParams();
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [dateRange, setInternalDateRange] = useState<DateRange | undefined>(undefined);
 
   useEffect(() => {
     const from = searchParams.get("from");
@@ -20,17 +19,27 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
 
     if (from && to) {
       try {
-        const fromDate = parse(from, "yyyy-MM-dd", new Date());
-        const toDate = parse(to, "yyyy-MM-dd", new Date());
+        const fromDate = new Date(from);
+        const toDate = new Date(to);
 
         if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
-          setDateRange({ from: fromDate, to: toDate });
+          setInternalDateRange({ from: fromDate, to: toDate });
         }
       } catch (error) {
         console.error("Error parsing dates from URL", error);
       }
     }
   }, [searchParams]);
+
+  const setDateRange = (range: DateRange | undefined) => {
+    setInternalDateRange(range);
+    if (range?.from && range?.to) {
+      setSearchParams({
+        from: range.from.toISOString(),
+        to: range.to.toISOString()
+      });
+    }
+  };
 
   return (
     <DateRangeContext.Provider value={{ dateRange, setDateRange }}>

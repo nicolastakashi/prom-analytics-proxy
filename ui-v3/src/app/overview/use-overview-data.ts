@@ -5,7 +5,8 @@ import {
   getQueryRate,
   getQueryLatencyTrends,
   getQueryStatusDistribution,
-  getQueryThroughputAnalysis 
+  getQueryThroughputAnalysis,
+  getQueryErrorAnalysis
 } from "@/api/queries";
 import { 
   QueryTypesResponse, 
@@ -14,7 +15,8 @@ import {
   DateRange,
   QueryLatencyTrendsResult,
   QueryStatusDistributionResult,
-  QueryThroughputAnalysisResult
+  QueryThroughputAnalysisResult,
+  QueryErrorAnalysisResult
 } from "@/lib/types";
 
 interface OverviewData {
@@ -26,6 +28,7 @@ interface OverviewData {
   queryStatusDistribution: QueryStatusDistributionResult[] | undefined;
   queryLatencyTrends: QueryLatencyTrendsResult[] | undefined;
   queryThroughputAnalysis: QueryThroughputAnalysisResult[] | undefined;
+  queryErrorAnalysis: QueryErrorAnalysisResult[] | undefined;
 }
 
 export function useOverviewData(dateRange: DateRange | undefined) {
@@ -94,6 +97,16 @@ export function useOverviewData(dateRange: DateRange | undefined) {
     enabled: queryEnabled,
   });
 
+  const { 
+    data: queryErrorAnalysis,
+    isLoading: isLoadingErrorAnalysis,
+    error: errorErrorAnalysis
+  } = useQuery<QueryErrorAnalysisResult[]>({
+    queryKey: ['queryErrorAnalysis', from, to],
+    queryFn: () => getQueryErrorAnalysis(from, to),
+    enabled: queryEnabled,
+  });
+
   return {
     data: {
       // Key metrics
@@ -104,6 +117,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
       queryStatusDistribution,
       queryLatencyTrends,
       queryThroughputAnalysis,
+      queryErrorAnalysis,
     } as OverviewData,
     isLoading: 
       isLoadingQueryTypes || 
@@ -111,13 +125,15 @@ export function useOverviewData(dateRange: DateRange | undefined) {
       isLoadingQueryRate ||
       isLoadingStatus ||
       isLoadingLatency ||
-      isLoadingThroughput,
+      isLoadingThroughput ||
+      isLoadingErrorAnalysis,
     error: 
       queryTypesError || 
       averageDurationError || 
       queryRateError ||
       errorStatus ||
       errorLatency ||
-      errorThroughput,
+      errorThroughput ||
+      errorErrorAnalysis,
   };
 } 

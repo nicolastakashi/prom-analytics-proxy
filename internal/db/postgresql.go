@@ -748,3 +748,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
 	return nil, nil
 }
+
+func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
+	return nil, nil
+}

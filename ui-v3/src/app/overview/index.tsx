@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { StatusBreakdown } from "@/components/status-breakdown";
 import { QueryLatencyTrends } from "@/components/query-latency-trends";
 import { QueryThroughputAnalysis } from "@/components/query-performance-analysis";
+import { QueryErrorAnalysis } from "@/components/query-error-analysis";
 
 export function Overview() {
   const { dateRange } = useDateRange();
@@ -18,8 +19,6 @@ export function Overview() {
   if (isLoading) {
     return <LoadingState />;
   }
-
-  console.log(overviewData);
 
   if (error) {
     toast.error("Failed to fetch data", {
@@ -50,14 +49,26 @@ export function Overview() {
           queryRate={overviewData.queryRate}
         />
         <div className="grid gap-6 lg:grid-cols-2">
-          <>
-            <StatusBreakdown statusData={overviewData.queryStatusDistribution || []} />
-            <QueryLatencyTrends latencyTrendsData={overviewData.queryLatencyTrends || []} />
-          </>
-          <div className="grid gap-6">
-            <QueryThroughputAnalysis throughputData={overviewData.queryThroughputAnalysis || []} />
-            {/* <QueryErrorAnalysis /> */}
-          </div>
+          <StatusBreakdown 
+            statusData={overviewData.queryStatusDistribution || []} 
+            from={dateRange?.from || new Date()} 
+            to={dateRange?.to || new Date()} 
+          />
+          <QueryLatencyTrends 
+            latencyTrendsData={overviewData.queryLatencyTrends || []} 
+            from={dateRange?.from || new Date()} 
+            to={dateRange?.to || new Date()} 
+          />
+          <QueryThroughputAnalysis 
+            throughputData={overviewData.queryThroughputAnalysis || []} 
+            from={dateRange?.from || new Date()} 
+            to={dateRange?.to || new Date()} 
+          />
+          <QueryErrorAnalysis 
+            data={overviewData.queryErrorAnalysis || []} 
+            from={dateRange?.from || new Date()} 
+            to={dateRange?.to || new Date()} 
+          />
         </div>
         {/* <QueryTable /> */}
       </div>

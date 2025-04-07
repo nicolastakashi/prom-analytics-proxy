@@ -87,6 +87,10 @@ func (p *MockDBProvider) GetQueryThroughputAnalysis(ctx context.Context, tr db.T
 	return nil, nil
 }
 
+func (p *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryErrorAnalysisResult, error) {
+	return nil, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
