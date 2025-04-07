@@ -44,10 +44,40 @@ export interface QueryErrorAnalysisResult {
 	value: number;
 }
 
+export interface RecentQueriesParams {
+	Page: number
+	PageSize: number
+	SortBy: string
+	SortOrder: string
+	Filter: string
+}
+
+export interface PagedResult<T> {
+	total: number;
+	totalPages: number;
+	data: T[];
+}
+
+export interface RecentQuery {
+	queryParam: string;
+	duration: number;
+	samples: number;
+	status: number;
+	timestamp: string;
+}
+
 export type TimeGranularity = "15m" | "30m" | "1h" | "1d"
 
 export interface TimeRange {
     from: Date
     to: Date
     label: string
+}
+
+export interface TableState {
+  page: number;
+  pageSize: number;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+  filter: string;
 } 

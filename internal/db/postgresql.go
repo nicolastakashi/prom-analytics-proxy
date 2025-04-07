@@ -752,3 +752,7 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
 	return nil, nil
 }
+
+func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
+	return PagedResult{}, nil
+}

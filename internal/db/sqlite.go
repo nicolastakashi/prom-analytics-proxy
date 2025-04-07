@@ -963,3 +963,127 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 
 	return results, nil
 }
+
+func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "timestamp"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+
+	validSortFields := map[string]bool{
+		"queryParam": true,
+		"duration":   true,
+		"samples":    true,
+		"status":     true,
+		"timestamp":  true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "timestamp"
+	}
+
+	from, to := params.TimeRange.Format(SQLiteTimeFormat)
+
+	query := `
+	WITH filtered_queries AS (
+		SELECT 
+			queryParam,
+			MAX(duration) as duration,
+			MAX(peakSamples) as peakSamples,
+			statusCode as statusCode,
+			ts as ts
+		FROM queries
+		WHERE 
+			ts BETWEEN ? AND ?
+			AND CASE 
+				WHEN ? != '' THEN 
+					queryParam LIKE '%' || ? || '%'
+				ELSE 
+					1=1
+				END
+		GROUP BY queryParam
+	),
+	counted_queries AS (
+		SELECT COUNT(*) as total_count 
+		FROM filtered_queries
+	)
+	SELECT 
+		q.*,
+		cq.total_count
+	FROM 
+		filtered_queries q,
+		counted_queries cq
+	ORDER BY
+		CASE WHEN ? = 'asc' THEN
+			CASE ?
+				WHEN 'queryParam' THEN queryParam
+				WHEN 'duration' THEN duration
+				WHEN 'samples' THEN peakSamples
+				WHEN 'status' THEN statusCode
+				WHEN 'timestamp' THEN ts
+			END
+		END ASC,
+		CASE WHEN ? = 'desc' THEN
+			CASE ?
+				WHEN 'queryParam' THEN queryParam
+				WHEN 'duration' THEN duration
+				WHEN 'samples' THEN peakSamples
+				WHEN 'status' THEN statusCode
+				WHEN 'timestamp' THEN ts
+			END
+		END DESC
+	LIMIT ? OFFSET ?;
+	`
+
+	args := []interface{}{
+		from, to,
+		params.Filter, params.Filter,
+		params.SortOrder, params.SortBy,
+		params.SortOrder, params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RecentQueriesResult
+	var totalCount int
+
+	for rows.Next() {
+		var result RecentQueriesResult
+		if err := rows.Scan(
+			&result.QueryParam,
+			&result.Duration,
+			&result.Samples,
+			&result.Status,
+			&result.Timestamp,
+			&totalCount,
+		); err != nil {
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+
+	return PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
+}

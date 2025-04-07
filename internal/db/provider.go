@@ -36,6 +36,7 @@ type Provider interface {
 	GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
+	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
@@ -114,6 +115,15 @@ var commonQueryShortCuts = []QueryShortCut{
 	},
 }
 
+type RecentQueriesParams struct {
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
+	Filter    string
+	TimeRange TimeRange
+}
+
 type TimeRange struct {
 	From time.Time
 	To   time.Time
@@ -131,4 +141,21 @@ func (tr TimeRange) Previous() TimeRange {
 		From: tr.From.Add(-duration),
 		To:   tr.To.Add(-duration),
 	}
+}
+
+type ListQueriesResult struct {
+	Fingerprint string    `json:"fingerprint"`
+	Duration    int64     `json:"duration"`
+	Samples     int64     `json:"samples"`
+	Status      int       `json:"status"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// Add RecentQueriesResult type
+type RecentQueriesResult struct {
+	QueryParam string    `json:"queryParam"`
+	Duration   int64     `json:"duration"`
+	Samples    int64     `json:"samples"`
+	Status     int       `json:"status"`
+	Timestamp  time.Time `json:"timestamp"`
 }

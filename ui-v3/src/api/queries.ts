@@ -1,6 +1,30 @@
-import { AverageDurationResponse, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse } from "@/lib/types"
+import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery } from "@/lib/types"
 
-const API_CONFIG = {
+interface ApiConfig {
+  baseUrl: string;
+  endpoints: {
+    queryTypes: string;
+    queryRate: string;
+    averageDuration: string;
+    queryStatusDistribution: string;
+    queryLatencyTrends: string;
+    queryThroughputAnalysis: string;
+    queryErrorAnalysis: string;
+    recentQueries: string;
+  };
+}
+
+interface FetchOptions {
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: string;
+  filter?: string;
+}
+
+const API_CONFIG: ApiConfig = {
   baseUrl: 'http://localhost:9091',
   endpoints: {
     queryTypes: '/api/v1/query/types',
@@ -10,98 +34,151 @@ const API_CONFIG = {
     queryLatencyTrends: '/api/v1/query/latency',
     queryThroughputAnalysis: '/api/v1/query/throughput',
     queryErrorAnalysis: '/api/v1/query/errors',
+    recentQueries: '/api/v1/query/recent_queries',
   }
-} as const
+};
+
+const DEFAULT_ERROR_VALUES = {
+  queryTypes: {
+    total_queries: 0,
+    instant_percent: 0,
+    range_percent: 0,
+  },
+  queryRate: {
+    success_total: 0,
+    error_total: 0,
+    success_rate_percent: 0,
+    error_rate_percent: 0,
+  },
+  averageDuration: {
+    avg_duration: 0,
+    delta_percent: 0,
+  },
+  recentQueries: {
+    total: 0,
+    totalPages: 0,
+    data: [],
+  },
+};
 
 function getUTCDate(date?: string): string {
   if (!date) {
-    return new Date().toISOString()
+    return new Date().toISOString();
   }
-  const dateObj = new Date(date)
-  
-  return dateObj.toISOString()
+  return new Date(date).toISOString();
 }
 
-type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | QueryThroughputAnalysisResult[]  
+type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | QueryThroughputAnalysisResult[] | PagedResult<RecentQuery>;
 
-async function fetchApiData<T extends ApiResponse>(endpoint: string, from?: string, to?: string): Promise<T> {
-  const fromUTC = getUTCDate(from)
-  const toUTC = getUTCDate(to)
+async function fetchApiData<T extends ApiResponse>(
+  endpoint: string,
+  options: FetchOptions = {}
+): Promise<T> {
+  const { from, to, page, pageSize, sortBy, sortOrder, filter } = options;
+  const fromUTC = getUTCDate(from);
+  const toUTC = getUTCDate(to);
+
+  const queryParams = new URLSearchParams({
+    from: fromUTC,
+    to: toUTC,
+    ...(page !== undefined && { page: page.toString() }),
+    ...(pageSize !== undefined && { pageSize: pageSize.toString() }),
+    ...(sortBy && { sortBy }),
+    ...(sortOrder && { sortOrder }),
+    ...(filter && { filter }),
+  });
 
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}?from=${fromUTC}&to=${toUTC}`)
-    const json = await response.json()
-    return json as T
+    const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}?${queryParams}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json() as T;
   } catch (error) {
-    console.error(`Failed to fetch data from ${endpoint}: ${error}`)
-    throw error
+    console.error(`Failed to fetch data from ${endpoint}:`, error);
+    throw error;
+  }
+}
+
+function withErrorHandling<T extends ApiResponse>(
+  fn: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return fn();
+  } catch {
+    return Promise.resolve(fallback);
   }
 }
 
 export async function getQueryTypes(from?: string, to?: string): Promise<QueryTypesResponse> {
-  try {
-    return await fetchApiData<QueryTypesResponse>(API_CONFIG.endpoints.queryTypes, from, to)
-  } catch {
-    return {
-      total_queries: 0,
-      instant_percent: 0,
-      range_percent: 0,
-    }
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryTypesResponse>(API_CONFIG.endpoints.queryTypes, { from, to }),
+    DEFAULT_ERROR_VALUES.queryTypes
+  );
 }
 
 export async function getQueryRate(from?: string, to?: string): Promise<QueryRateResponse> {
-  try {
-    return await fetchApiData<QueryRateResponse>(API_CONFIG.endpoints.queryRate, from, to)
-  } catch {
-    return {
-      success_total: 0,
-      error_total: 0,
-      success_rate_percent: 0,
-      error_rate_percent: 0,
-    }
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryRateResponse>(API_CONFIG.endpoints.queryRate, { from, to }),
+    DEFAULT_ERROR_VALUES.queryRate
+  );
 }
 
 export async function getAverageDuration(from?: string, to?: string): Promise<AverageDurationResponse> {
-  try {
-    return await fetchApiData<AverageDurationResponse>(API_CONFIG.endpoints.averageDuration, from, to)
-  } catch {
-    return {
-      avg_duration: 0,
-      delta_percent: 0,
-    }
-  }
+  return withErrorHandling(
+    () => fetchApiData<AverageDurationResponse>(API_CONFIG.endpoints.averageDuration, { from, to }),
+    DEFAULT_ERROR_VALUES.averageDuration
+  );
 }
 
 export async function getQueryStatusDistribution(from?: string, to?: string): Promise<QueryStatusDistributionResult[]> {
-  try {
-    return await fetchApiData<QueryStatusDistributionResult[]>(API_CONFIG.endpoints.queryStatusDistribution, from, to)
-  } catch {
-    return []
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryStatusDistributionResult[]>(API_CONFIG.endpoints.queryStatusDistribution, { from, to }),
+    []
+  );
 }
 
 export async function getQueryLatencyTrends(from?: string, to?: string): Promise<QueryLatencyTrendsResult[]> {
-  try {
-    return await fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, from, to)
-  } catch {
-    return []
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, { from, to }),
+    []
+  );
 }
 
 export async function getQueryThroughputAnalysis(from?: string, to?: string): Promise<QueryThroughputAnalysisResult[]> {
-  try {
-    return await fetchApiData<QueryThroughputAnalysisResult[]>(API_CONFIG.endpoints.queryThroughputAnalysis, from, to)
-  } catch {
-    return []
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryThroughputAnalysisResult[]>(API_CONFIG.endpoints.queryThroughputAnalysis, { from, to }),
+    []
+  );
 }
 
 export async function getQueryErrorAnalysis(from?: string, to?: string): Promise<QueryErrorAnalysisResult[]> {
-  try {
-    return await fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, from, to)
-  } catch {
-    return []
-  }
+  return withErrorHandling(
+    () => fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, { from, to }),
+    []
+  );
+}
+
+export async function getRecentQueries(
+  from?: string,
+  to?: string,
+  page?: number,
+  pageSize?: number,
+  sortBy?: string,
+  sortOrder?: string,
+  filter?: string
+): Promise<PagedResult<RecentQuery>> {
+  return withErrorHandling(
+    () => fetchApiData<PagedResult<RecentQuery>>(API_CONFIG.endpoints.recentQueries, {
+      from,
+      to,
+      page,
+      pageSize,
+      sortBy,
+      sortOrder,
+      filter,
+    }),
+    DEFAULT_ERROR_VALUES.recentQueries
+  );
 }

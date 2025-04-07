@@ -767,3 +767,7 @@ func (p *ClickHouseProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 func (p *ClickHouseProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
 	return nil, nil
 }
+
+func (p *ClickHouseProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
+	return PagedResult{}, nil
+}

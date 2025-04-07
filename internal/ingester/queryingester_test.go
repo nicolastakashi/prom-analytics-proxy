@@ -91,6 +91,10 @@ func (p *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRa
 	return nil, nil
 }
 
+func (p *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

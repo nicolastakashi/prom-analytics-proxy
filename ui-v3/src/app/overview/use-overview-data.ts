@@ -6,7 +6,8 @@ import {
   getQueryLatencyTrends,
   getQueryStatusDistribution,
   getQueryThroughputAnalysis,
-  getQueryErrorAnalysis
+  getQueryErrorAnalysis,
+  getRecentQueries
 } from "@/api/queries";
 import { 
   QueryTypesResponse, 
@@ -16,7 +17,10 @@ import {
   QueryLatencyTrendsResult,
   QueryStatusDistributionResult,
   QueryThroughputAnalysisResult,
-  QueryErrorAnalysisResult
+  QueryErrorAnalysisResult,
+  PagedResult,
+  RecentQuery,
+  TableState
 } from "@/lib/types";
 
 interface OverviewData {
@@ -29,37 +33,40 @@ interface OverviewData {
   queryLatencyTrends: QueryLatencyTrendsResult[] | undefined;
   queryThroughputAnalysis: QueryThroughputAnalysisResult[] | undefined;
   queryErrorAnalysis: QueryErrorAnalysisResult[] | undefined;
+  // Recent queries data
+  recentQueries: PagedResult<RecentQuery> | undefined;
 }
 
-export function useOverviewData(dateRange: DateRange | undefined) {
+export function useOverviewData(dateRange: DateRange | undefined, tableState?: TableState) {
   const queryEnabled = Boolean(dateRange?.from && dateRange?.to);
   const from = dateRange?.from?.toISOString();
   const to = dateRange?.to?.toISOString();
 
-  const { 
-    data: queryTypes, 
-    isLoading: isLoadingQueryTypes,
-    error: queryTypesError 
+  // Key metrics queries
+  const {
+    data: queryTypes,
+    isLoading: isLoadingMetrics,
+    error: metricsError
   } = useQuery<QueryTypesResponse>({
     queryKey: ['queryTypes', from, to],
     queryFn: () => getQueryTypes(from, to),
     enabled: queryEnabled,
   });
 
-  const { 
-    data: averageDuration, 
-    isLoading: isLoadingAverageDuration,
-    error: averageDurationError 
+  const {
+    data: averageDuration,
+    isLoading: isLoadingAvgDuration,
+    error: avgDurationError
   } = useQuery<AverageDurationResponse>({
     queryKey: ['averageDuration', from, to],
     queryFn: () => getAverageDuration(from, to),
     enabled: queryEnabled,
   });
 
-  const { 
-    data: queryRate, 
-    isLoading: isLoadingQueryRate,
-    error: queryRateError 
+  const {
+    data: queryRate,
+    isLoading: isLoadingRate,
+    error: rateError
   } = useQuery<QueryRateResponse>({
     queryKey: ['queryRate', from, to],
     queryFn: () => getQueryRate(from, to),
@@ -67,45 +74,84 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   });
 
   // Query analysis queries
-  const { 
+  const {
     data: queryStatusDistribution,
-    isLoading: isLoadingStatus,
-    error: errorStatus
+    isLoading: isLoadingAnalysis,
+    error: analysisError
   } = useQuery<QueryStatusDistributionResult[]>({
     queryKey: ['queryStatusDistribution', from, to],
     queryFn: () => getQueryStatusDistribution(from, to),
     enabled: queryEnabled,
   });
 
-  const { 
+  const {
     data: queryLatencyTrends,
     isLoading: isLoadingLatency,
-    error: errorLatency
+    error: latencyError
   } = useQuery<QueryLatencyTrendsResult[]>({
     queryKey: ['queryLatencyTrends', from, to],
     queryFn: () => getQueryLatencyTrends(from, to),
     enabled: queryEnabled,
   });
 
-  const { 
+  const {
     data: queryThroughputAnalysis,
     isLoading: isLoadingThroughput,
-    error: errorThroughput
+    error: throughputError
   } = useQuery<QueryThroughputAnalysisResult[]>({
     queryKey: ['queryThroughputAnalysis', from, to],
     queryFn: () => getQueryThroughputAnalysis(from, to),
     enabled: queryEnabled,
   });
 
-  const { 
+  const {
     data: queryErrorAnalysis,
-    isLoading: isLoadingErrorAnalysis,
-    error: errorErrorAnalysis
+    isLoading: isLoadingError,
+    error: errorAnalysisError
   } = useQuery<QueryErrorAnalysisResult[]>({
     queryKey: ['queryErrorAnalysis', from, to],
     queryFn: () => getQueryErrorAnalysis(from, to),
     enabled: queryEnabled,
   });
+
+  // Recent queries
+  const {
+    data: recentQueries,
+    isLoading: isLoadingRecent,
+    error: recentError
+  } = useQuery<PagedResult<RecentQuery>>({
+    queryKey: ['recentQueries', from, to, tableState],
+    queryFn: () => getRecentQueries(
+      from, 
+      to, 
+      tableState?.page || 1,
+      tableState?.pageSize || 10,
+      tableState?.sortBy || 'timestamp',
+      tableState?.sortOrder || 'desc',
+      tableState?.filter || ''
+    ),
+    enabled: queryEnabled,
+  });
+
+  const isLoading = 
+    isLoadingMetrics || 
+    isLoadingAvgDuration || 
+    isLoadingRate ||
+    isLoadingAnalysis ||
+    isLoadingLatency ||
+    isLoadingThroughput ||
+    isLoadingError ||
+    isLoadingRecent;
+
+  const error = 
+    metricsError || 
+    avgDurationError || 
+    rateError ||
+    analysisError ||
+    latencyError ||
+    throughputError ||
+    errorAnalysisError ||
+    recentError;
 
   return {
     data: {
@@ -118,22 +164,10 @@ export function useOverviewData(dateRange: DateRange | undefined) {
       queryLatencyTrends,
       queryThroughputAnalysis,
       queryErrorAnalysis,
+      // Recent queries
+      recentQueries,
     } as OverviewData,
-    isLoading: 
-      isLoadingQueryTypes || 
-      isLoadingAverageDuration || 
-      isLoadingQueryRate ||
-      isLoadingStatus ||
-      isLoadingLatency ||
-      isLoadingThroughput ||
-      isLoadingErrorAnalysis,
-    error: 
-      queryTypesError || 
-      averageDurationError || 
-      queryRateError ||
-      errorStatus ||
-      errorLatency ||
-      errorThroughput ||
-      errorErrorAnalysis,
+    isLoading,
+    error,
   };
 } 

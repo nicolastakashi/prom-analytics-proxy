@@ -83,6 +83,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/latency", http.HandlerFunc(r.queryLatencyTrends))
 		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
 		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
+		mux.Handle("/api/v1/query/recent_queries", http.HandlerFunc(r.queryRecentQueries))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
@@ -408,6 +409,51 @@ func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 	to := getTimeParam(req, "to")
 
 	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryRecentQueries(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	pageSize, err := getQueryParamAsInt(req, "pageSize", 10)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	sortBy := req.FormValue("sortBy")
+	if sortBy == "" {
+		sortBy = "timestamp"
+	}
+
+	sortOrder := req.FormValue("sortOrder")
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	params := db.RecentQueriesParams{
+		TimeRange: db.TimeRange{From: from, To: to},
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		Filter:    req.FormValue("filter"),
+	}
+
+	data, err := r.dbProvider.GetRecentQueries(req.Context(), params)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
