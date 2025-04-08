@@ -80,11 +80,11 @@ require (
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/perses/metrics-usage v0.5.1-0.20250307103756-d645dabed339
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
-	github.com/prometheus/client_golang v1.21.0
+	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
@@ -92,7 +92,7 @@ require (
 	github.com/thanos-io/thanos v0.37.2
 	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	google.golang.org/protobuf v1.36.4 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	modernc.org/sqlite v1.34.5
 )
