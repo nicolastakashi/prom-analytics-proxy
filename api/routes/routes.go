@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
@@ -469,6 +471,41 @@ func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
+	params := db.SeriesMetadataParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "name",
+		SortOrder: "asc",
+		Filter:    "",
+		Type:      "",
+	}
+
+	// Parse query parameters
+	if page, err := getQueryParamAsInt(req, "page", 1); err == nil {
+		params.Page = page
+	}
+
+	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
+		params.PageSize = pageSize
+	}
+
+	if sortBy := req.FormValue("sortBy"); sortBy != "" {
+		params.SortBy = sortBy
+	}
+
+	if sortOrder := req.FormValue("sortOrder"); sortOrder != "" {
+		params.SortOrder = sortOrder
+	}
+
+	if filter := req.FormValue("filter"); filter != "" {
+		params.Filter = filter
+	}
+
+	if metricType := req.FormValue("type"); metricType != "" {
+		params.Type = metricType
+	}
+
+	// Get all metadata
 	metadata, err := r.promAPI.Metadata(req.Context(), "", r.metadataLimit)
 	if err != nil {
 		slog.Error("unable to retrieve series metadata", "err", err)
@@ -476,7 +513,64 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	writeJSONResponse(req, w, metadata)
+	// Filter and sort metadata
+	var filteredMetadata []models.MetricMetadata
+	for metric, metas := range metadata {
+		for _, meta := range metas {
+			// Apply filter if exists
+			if params.Filter != "" && !strings.Contains(strings.ToLower(metric), strings.ToLower(params.Filter)) {
+				continue
+			}
+
+			// Apply type filter if exists
+			if params.Type != "" && params.Type != "all" && strings.ToLower(string(meta.Type)) != strings.ToLower(params.Type) {
+				continue
+			}
+
+			filteredMetadata = append(filteredMetadata, models.MetricMetadata{
+				Name: metric,
+				Type: string(meta.Type),
+				Help: meta.Help,
+				Unit: meta.Unit,
+			})
+		}
+	}
+
+	// Sort metadata
+	sort.Slice(filteredMetadata, func(i, j int) bool {
+		var result bool
+		switch params.SortBy {
+		case "name":
+			result = filteredMetadata[i].Name < filteredMetadata[j].Name
+		case "type":
+			result = filteredMetadata[i].Type < filteredMetadata[j].Type
+		default:
+			result = filteredMetadata[i].Name < filteredMetadata[j].Name
+		}
+
+		if params.SortOrder == "desc" {
+			return !result
+		}
+		return result
+	})
+
+	// Calculate pagination
+	totalCount := len(filteredMetadata)
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+	start := (params.Page - 1) * params.PageSize
+	end := start + params.PageSize
+	if end > totalCount {
+		end = totalCount
+	}
+
+	// Return paginated result using db.PagedResult
+	result := db.PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       filteredMetadata[start:end],
+	}
+
+	writeJSONResponse(req, w, result)
 }
 
 func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
@@ -586,8 +680,7 @@ func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, statu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.Error("failed to encode JSON response", "err", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return

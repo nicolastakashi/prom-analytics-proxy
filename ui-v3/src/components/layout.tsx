@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
+import { useLocation } from "wouter"
 import {
     Breadcrumb,
     BreadcrumbItem,
@@ -16,11 +17,23 @@ import {
 import { ErrorBoundaryWithToast } from "./error-boundary"
 import { FilterPanel } from "@/components/filter-panel"
 
-interface LayoutProps {
-    children: React.ReactNode
+interface BreadcrumbData {
+    parent?: {
+        label: string;
+        href: string;
+    };
+    current: string;
 }
 
-export default function Layout({ children }: LayoutProps) {
+interface LayoutProps {
+    children: React.ReactNode;
+    breadcrumb?: BreadcrumbData;
+}
+
+export default function Layout({ children, breadcrumb }: LayoutProps) {
+    const [location] = useLocation()
+    const showFilterPanel = location !== '/metrics'
+
     return (
         <ErrorBoundaryWithToast>
             <SidebarProvider>
@@ -36,20 +49,24 @@ export default function Layout({ children }: LayoutProps) {
                             />
                             <Breadcrumb>
                                 <BreadcrumbList>
-                                    <BreadcrumbItem className="hidden md:block">
-                                        <BreadcrumbLink href="#">
-                                            Building Your Application
-                                        </BreadcrumbLink>
-                                    </BreadcrumbItem>
-                                    <BreadcrumbSeparator className="hidden md:block" />
+                                    {breadcrumb?.parent && (
+                                        <>
+                                            <BreadcrumbItem className="hidden md:block">
+                                                <BreadcrumbLink href={breadcrumb.parent.href}>
+                                                    {breadcrumb.parent.label}
+                                                </BreadcrumbLink>
+                                            </BreadcrumbItem>
+                                            <BreadcrumbSeparator className="hidden md:block" />
+                                        </>
+                                    )}
                                     <BreadcrumbItem>
-                                        <BreadcrumbPage>Data Fetching</BreadcrumbPage>
+                                        <BreadcrumbPage>{breadcrumb?.current || 'Overview'}</BreadcrumbPage>
                                     </BreadcrumbItem>
                                 </BreadcrumbList>
                             </Breadcrumb>
                         </div>
                         <div className="flex items-center gap-4">
-                            <FilterPanel />
+                            {showFilterPanel && <FilterPanel />}
                         </div>
                     </div>
                 </header>

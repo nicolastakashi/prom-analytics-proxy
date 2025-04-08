@@ -241,54 +241,57 @@ export function QueryTable({ data }: QueryTableProps) {
             </Table>
           </div>
           <div className="flex items-center justify-between border-t px-4 py-2">
-            <div className="flex-none flex items-center gap-2 text-sm text-muted-foreground">
-              <span>Rows per page</span>
-              <Select
-                value={`${tableState.pageSize}`}
-                onValueChange={(value) => {
-                  const newSize = Number(value)
-                  setTableState({
-                    ...tableState,
-                    page: 1,
-                    pageSize: newSize
-                  })
-                }}
-              >
-                <SelectTrigger className="h-8 w-[70px]">
-                  <SelectValue placeholder={tableState.pageSize} />
-                </SelectTrigger>
-                <SelectContent side="top">
-                  {[10, 20, 30, 40, 50].map((pageSize) => (
-                    <SelectItem key={pageSize} value={`${pageSize}`}>
-                      {pageSize}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows per page</span>
+                <Select
+                  value={`${tableState.pageSize}`}
+                  onValueChange={(value) => {
+                    const newSize = Number(value)
+                    setTableState({
+                      ...tableState,
+                      page: 1,
+                      pageSize: newSize
+                    })
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[70px]">
+                    <SelectValue placeholder={tableState.pageSize} />
+                  </SelectTrigger>
+                  <SelectContent side="top">
+                    {[10, 20, 30, 40, 50].map((pageSize) => (
+                      <SelectItem key={pageSize} value={`${pageSize}`}>
+                        {pageSize}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {data?.total || 0} queries
+              </span>
             </div>
-            <div className="flex-1 text-sm text-muted-foreground text-center px-4">
-              {((tableState.page - 1) * tableState.pageSize) + 1}-
-              {Math.min(tableState.page * tableState.pageSize, data?.total || 0)} of {data?.total || 0}
-            </div>
-            <div className="flex-none flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
+                size="sm"
                 className="h-8 w-8 p-0"
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
               >
                 <ChevronLeft className="h-4 w-4" />
-                <span className="sr-only">Previous page</span>
               </Button>
-              <span>{tableState.page}</span>
+              <div className="flex min-w-[100px] items-center justify-center text-sm">
+                Page {tableState.page} of {table.getPageCount()}
+              </div>
               <Button
-                variant="ghost"
+                variant="outline"
+                size="sm"
                 className="h-8 w-8 p-0"
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
               >
                 <ChevronRight className="h-4 w-4" />
-                <span className="sr-only">Next page</span>
               </Button>
             </div>
           </div>

@@ -6,6 +6,8 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { DateRangeProvider } from "@/contexts/date-range-context";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundaryWithToast } from "@/components/error-boundary";
+import { useLocation } from "wouter";
+import MetricsExplorer from "./app/metrics";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,25 +22,37 @@ const routes = [
   {
     path: "/",
     component: Overview,
+    breadcrumb: {
+      current: "Overview"
+    }
   },
   {
     path: "/performance",
     component: () => <div>Performance</div>,
+    breadcrumb: {
+      current: "Performance"
+    }
   },
   {
     path: "/metrics",
-    component: () => <div>Metrics</div>,
+    component: () => <MetricsExplorer />,
+    breadcrumb: {
+      current: "Metrics"
+    }
   },
 ] as const;
 
 export type RoutePath = typeof routes[number]["path"];
 
 function App() {
+  const [location] = useLocation();
+  const currentRoute = routes.find(route => route.path === location) || routes[0];
+
   return (
     <ErrorBoundaryWithToast>
       <QueryClientProvider client={queryClient}>
         <DateRangeProvider>
-          <Layout>
+          <Layout breadcrumb={currentRoute.breadcrumb}>
             <Switch>
               {routes.map(({ path, component: Component }) => (
                 <Route key={path} path={path} component={Component} />

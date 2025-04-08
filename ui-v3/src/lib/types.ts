@@ -80,4 +80,12 @@ export interface TableState {
   sortBy: string;
   sortOrder: 'asc' | 'desc';
   filter: string;
-} 
+  type: string;
+}
+
+export interface MetricMetadata {
+	name: string;
+	type: string;
+	help: string;
+	unit: string;
+}

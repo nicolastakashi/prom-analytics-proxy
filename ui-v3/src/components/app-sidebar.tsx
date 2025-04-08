@@ -46,17 +46,17 @@ const data = {
   items: [
     {
       name: "Overview",
-      url: "#",
+      url: "/",
       icon: Frame,
     },
     {
       name: "Performance",
-      url: "#",
+      url: "/performance",
       icon: PieChart,
     },
     {
       name: "Metrics Explorer",
-      url: "#",
+      url: "/metrics",
       icon: Map,
     },
   ],

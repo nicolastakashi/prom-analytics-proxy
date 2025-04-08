@@ -1,7 +1,5 @@
-import {
-  ChevronRight,
-  type LucideIcon,
-} from "lucide-react"
+import { type LucideIcon } from "lucide-react"
+import { Link } from "wouter"
 
 import {
   SidebarGroup,
@@ -10,65 +8,31 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import {
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
-} from "@/components/ui/sidebar"
+
+interface NavigationItem {
+  name: string
+  url: string
+  icon: LucideIcon
+}
 
 interface NavigationProps {
   items: NavigationItem[]
-  activeItem?: string
-  onItemClick?: (item: NavigationItem) => void
-  className?: string
-  itemClassName?: (item: NavigationItem) => string
 }
 
-export function Navigation({ 
-  items, 
-  activeItem, 
-  onItemClick, 
-  className,
-  itemClassName 
-}: NavigationProps) {
+export function Navigation({ items }: NavigationProps) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Analytics</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
-          <Collapsible key={item.name} asChild className="group/collapsible">
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton>
-                  <item.icon className="flex-shrink-0" />
-                  <span className="flex-1">{item.name}</span>
-                  {item.subItems && item.subItems.length > 0 && (
-                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                  )}
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              {item.subItems && item.subItems.length > 0 && (
-                <CollapsibleContent>
-                  <SidebarMenuSub>
-                    {item.subItems.map((subItem) => (
-                      <SidebarMenuSubItem key={subItem.name}>
-                        <SidebarMenuSubButton asChild>
-                          <a href={subItem.url}>
-                            <span>{subItem.name}</span>
-                          </a>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    ))}
-                  </SidebarMenuSub>
-                </CollapsibleContent>
-              )}
-            </SidebarMenuItem>
-          </Collapsible>
+          <SidebarMenuItem key={item.name}>
+            <Link href={item.url}>
+              <SidebarMenuButton>
+                <item.icon className="flex-shrink-0" />
+                <span className="flex-1">{item.name}</span>
+              </SidebarMenuButton>
+            </Link>
+          </SidebarMenuItem>
         ))}
       </SidebarMenu>
     </SidebarGroup>

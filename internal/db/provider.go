@@ -124,6 +124,15 @@ type RecentQueriesParams struct {
 	TimeRange TimeRange
 }
 
+type SeriesMetadataParams struct {
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
+	Filter    string
+	Type      string
+}
+
 type TimeRange struct {
 	From time.Time
 	To   time.Time
