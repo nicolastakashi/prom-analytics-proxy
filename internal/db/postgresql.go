@@ -647,12 +647,12 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*Que
 func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
-			SELECT AVG(EXTRACT(EPOCH FROM duration) * 1000) AS avg_current
+			SELECT AVG(duration) AS avg_current
 			FROM queries
 			WHERE ts BETWEEN $1 AND $2
 		),
 		previous AS (
-			SELECT AVG(EXTRACT(EPOCH FROM duration) * 1000) AS avg_previous 
+			SELECT AVG(duration) AS avg_previous 
 			FROM queries
 			WHERE ts BETWEEN $3 AND $4
 		)
@@ -738,21 +738,333 @@ func (p *PostGreSQLProvider) QueryRate(ctx context.Context, tr TimeRange) (*Quer
 }
 
 func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
-	return nil, nil
+	interval := getIntervalByTimeRange(tr.From, tr.To)
+
+	query := `
+	WITH RECURSIVE time_buckets AS (
+		SELECT 
+			date_trunc('minute', $1::timestamp) as bucket_start,
+			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
+		UNION ALL
+		SELECT 
+			bucket_end,
+			date_trunc('minute', bucket_end + $2::interval)
+		FROM time_buckets 
+		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	)
+	SELECT 
+		bucket_start as time,
+		COALESCE(SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END), 0) as status2xx,
+		COALESCE(SUM(CASE WHEN statusCode >= 400 AND statusCode < 500 THEN 1 ELSE 0 END), 0) as status4xx,
+		COALESCE(SUM(CASE WHEN statusCode >= 500 AND statusCode < 600 THEN 1 ELSE 0 END), 0) as status5xx
+	FROM time_buckets b
+	LEFT JOIN queries q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
+	GROUP BY bucket_start
+	ORDER BY bucket_start;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query status distribution: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueryStatusDistributionResult
+	for rows.Next() {
+		var result QueryStatusDistributionResult
+		if err := rows.Scan(&result.Time, &result.Status2xx, &result.Status4xx, &result.Status5xx); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
-	return nil, nil
+	interval := getIntervalByTimeRange(tr.From, tr.To)
+
+	query := `
+	WITH RECURSIVE time_buckets AS (
+		SELECT 
+			date_trunc('minute', $1::timestamp) as bucket_start,
+			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
+		UNION ALL
+		SELECT 
+			bucket_end,
+			date_trunc('minute', bucket_end + $2::interval)
+		FROM time_buckets 
+		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	)
+	SELECT 
+		b.bucket_start as time,
+		COALESCE(ROUND(AVG(q.duration)::numeric, 2), 0) as value,
+		COALESCE(ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY q.duration)::numeric, 2), 0) as p95
+	FROM time_buckets b
+	LEFT JOIN queries q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
+	GROUP BY b.bucket_start
+	ORDER BY b.bucket_start;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latency trends: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueryLatencyTrendsResult
+	for rows.Next() {
+		var result QueryLatencyTrendsResult
+		var p95 float64
+		if err := rows.Scan(&result.Time, &result.Value, &p95); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		result.P95 = int(p95)
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
-	return nil, nil
+	interval := getIntervalByTimeRange(tr.From, tr.To)
+
+	query := `
+	WITH RECURSIVE time_buckets AS (
+		SELECT 
+			date_trunc('minute', $1::timestamp) as bucket_start,
+			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
+		UNION ALL
+		SELECT 
+			bucket_end,
+			date_trunc('minute', bucket_end + $2::interval)
+		FROM time_buckets 
+		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	)
+	SELECT 
+		b.bucket_start as time,
+		COALESCE(COUNT(q.ts), 0) as value
+	FROM time_buckets b
+	LEFT JOIN queries q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
+	GROUP BY b.bucket_start
+	ORDER BY b.bucket_start;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query throughput analysis: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueryThroughputAnalysisResult
+	for rows.Next() {
+		var result QueryThroughputAnalysisResult
+		if err := rows.Scan(&result.Time, &result.Value); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
-	return nil, nil
+	interval := getIntervalByTimeRange(tr.From, tr.To)
+
+	query := `
+	WITH RECURSIVE time_buckets AS (
+		SELECT 
+			date_trunc('minute', $1::timestamp) as bucket_start,
+			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
+		UNION ALL
+		SELECT 
+			bucket_end,
+			date_trunc('minute', bucket_end + $2::interval)
+		FROM time_buckets 
+		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	)
+	SELECT 
+		b.bucket_start as time,
+		COALESCE(SUM(CASE 
+			WHEN q.statusCode >= 400 THEN 1 
+			ELSE 0 
+		END), 0) as value
+	FROM time_buckets b
+	LEFT JOIN queries q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
+	GROUP BY b.bucket_start
+	ORDER BY b.bucket_start;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query error analysis: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QueryErrorAnalysisResult
+	for rows.Next() {
+		var result QueryErrorAnalysisResult
+		if err := rows.Scan(&result.Time, &result.Value); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
-	return PagedResult{}, nil
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "timestamp"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+
+	validSortFields := map[string]bool{
+		"queryParam": true,
+		"duration":   true,
+		"samples":    true,
+		"status":     true,
+		"timestamp":  true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "timestamp"
+	}
+
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+
+	query := `
+	WITH filtered_queries AS (
+		SELECT 
+			queryParam,
+			statusCode,
+			MAX(duration) as duration,
+			MAX(peakSamples) as peakSamples,
+			MAX(ts) as ts
+		FROM queries
+		WHERE 
+			ts BETWEEN $1::timestamp AND $2::timestamp
+			AND CASE 
+				WHEN $3 != '' THEN 
+					queryParam ILIKE '%' || $3 || '%'
+				ELSE 
+					TRUE
+				END
+		GROUP BY queryParam, statusCode
+	),
+	counted_queries AS (
+		SELECT COUNT(*) as total_count 
+		FROM filtered_queries
+	)
+	SELECT 
+		q.queryParam,
+		q.statusCode,
+		q.duration,
+		q.peakSamples,
+		q.ts,
+		cq.total_count
+	FROM 
+		filtered_queries q,
+		counted_queries cq
+	ORDER BY
+		CASE WHEN $4 = 'asc' THEN
+			CASE $5
+				WHEN 'queryParam' THEN q.queryParam::text
+				WHEN 'duration' THEN q.duration::text
+				WHEN 'samples' THEN q.peakSamples::text
+				WHEN 'status' THEN q.statusCode::text
+				WHEN 'timestamp' THEN q.ts::text
+			END
+		END ASC,
+		CASE WHEN $4 = 'desc' THEN
+			CASE $5
+				WHEN 'queryParam' THEN q.queryParam::text
+				WHEN 'duration' THEN q.duration::text
+				WHEN 'samples' THEN q.peakSamples::text
+				WHEN 'status' THEN q.statusCode::text
+				WHEN 'timestamp' THEN q.ts::text
+			END
+		END DESC
+	LIMIT $6 OFFSET $7;
+	`
+
+	args := []interface{}{
+		from, to,
+		params.Filter,
+		params.SortOrder,
+		params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RecentQueriesResult
+	var totalCount int
+
+	for rows.Next() {
+		var result RecentQueriesResult
+		if err := rows.Scan(
+			&result.QueryParam,
+			&result.Status,
+			&result.Duration,
+			&result.Samples,
+			&result.Timestamp,
+			&totalCount,
+		); err != nil {
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+
+	return PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }
