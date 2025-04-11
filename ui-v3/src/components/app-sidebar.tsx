@@ -56,7 +56,7 @@ const data = {
     },
     {
       name: "Metrics Explorer",
-      url: "/metrics",
+      url: "/metric-explorer",
       icon: Map,
     },
   ],

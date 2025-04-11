@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundaryWithToast } from "@/components/error-boundary";
 import { useLocation } from "wouter";
 import MetricsExplorer from "./app/metrics";
+import MetricsDetails from "./app/metrics/details";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,12 +35,19 @@ const routes = [
     }
   },
   {
-    path: "/metrics",
+    path: "/metric-explorer",
     component: () => <MetricsExplorer />,
     breadcrumb: {
-      current: "Metrics"
+      current: "Metric Explorer"
     }
   },
+  {
+    path: "/metric-explorer/:metric",
+    component: () => <MetricsDetails />,
+    breadcrumb: {
+      current: "Metric Explorer"
+    }
+  }
 ] as const;
 
 export type RoutePath = typeof routes[number]["path"];

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { MetricsExplorerHeader } from "@/components/metrics-explorer/metrics-explorer-header"
 import { MetricsTable } from "@/components/metrics-explorer/metrics-table"
-import { useMetricsData } from "./use-metrics-data"
+import { useSeriesMetadataTable } from "./use-metrics-data"
 import { TableState } from "@/lib/types"
 import { LoadingState } from "./loading"
 import { useDebounce } from "@/hooks/use-debounce"
@@ -21,7 +21,7 @@ export default function MetricsExplorer() {
   // Increase debounce delay to 750ms for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 750)
 
-  const { data, isLoading, error } = useMetricsData(tableState, debouncedSearchQuery)
+  const { data, isLoading, error } = useSeriesMetadataTable(tableState, debouncedSearchQuery)
 
   if (isLoading) {
     return <LoadingState />

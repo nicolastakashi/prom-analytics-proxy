@@ -88,9 +88,9 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/recent_queries", http.HandlerFunc(r.queryRecentQueries))
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
-		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
+		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
-		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetSerieUsage))
+		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
@@ -352,7 +352,7 @@ func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 
-	data, err := r.dbProvider.QueryRate(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, "")
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -573,7 +573,7 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, result)
 }
 
-func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
+func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
 		slog.Error("missing name parameter")
@@ -581,10 +581,13 @@ func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	statistics, err := r.dbProvider.GetMetricStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
 	if err != nil {
-		slog.Error("unable to retrieve label names", "err", err, "name", name)
-		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
+		slog.Error("unable to retrieve metric statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric statistics: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -595,10 +598,17 @@ func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	writeJSONResponse(req, w, models.SerieMetadata{
-		Labels:      labels,
-		SeriesCount: len(series),
-	})
+	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, from, to)
+	if err != nil {
+		slog.Error("unable to retrieve label names", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	statistics.SerieCount = len(series)
+	statistics.LabelCount = len(labels)
+
+	writeJSONResponse(req, w, statistics)
 }
 
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
@@ -744,7 +754,7 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
+func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
 		slog.Error("missing name parameter")

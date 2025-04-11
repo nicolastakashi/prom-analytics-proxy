@@ -1,10 +1,11 @@
-import { PagedResult } from "@/lib/types";
+import { MetricStatistics, PagedResult } from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
 
 interface ApiConfig {
   baseUrl: string;
   endpoints: {
     seriesMetadata: string;
+    metricStatistics: string;
   };
 }
 
@@ -15,12 +16,15 @@ interface FetchOptions {
   sortOrder?: string;
   filter?: string;
   type?: string;
+  from?: string;
+  to?: string;
 }
 
 const API_CONFIG: ApiConfig = {
   baseUrl: 'http://localhost:9091',
   endpoints: {
     seriesMetadata: '/api/v1/seriesMetadata',
+    metricStatistics: '/api/v1/metricStatistics',
   }
 };
 
@@ -30,13 +34,23 @@ const DEFAULT_ERROR_VALUES = {
     totalPages: 0,
     data: [],
   },
+  metricStatistics: {
+    serie_count: 0,
+    label_count: 0,
+    alert_count: 0,
+    record_count: 0,
+    dashboard_count: 0,
+    total_alerts: 0,
+    total_records: 0,
+    total_dashboards: 0,
+  },
 };
 
 async function fetchApiData<T>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { page, pageSize, sortBy, sortOrder, filter, type } = options;
+  const { page, pageSize, sortBy, sortOrder, filter, type, from, to } = options;
 
   const queryParams = new URLSearchParams({
     ...(page !== undefined && { page: page.toString() }),
@@ -45,6 +59,8 @@ async function fetchApiData<T>(
     ...(sortOrder && { sortOrder }),
     ...(filter && { filter }),
     ...(type && { type }),
+    ...(from && { from }),
+    ...(to && { to }),
   });
 
   try {
@@ -85,4 +101,18 @@ export async function getSeriesMetadata(
     ),
     DEFAULT_ERROR_VALUES.seriesMetadata
   );
-} 
+}
+
+export async function getMetricStatistics(
+  metricName: string,
+  from: string,
+  to: string
+): Promise<MetricStatistics> {
+  return withErrorHandling(
+    () => fetchApiData<MetricStatistics>(
+      API_CONFIG.endpoints.metricStatistics + `/${metricName}`,
+      { from, to }
+    ),
+    DEFAULT_ERROR_VALUES.metricStatistics
+  );
+}

@@ -71,7 +71,7 @@ func (p *MockDBProvider) AverageDuration(ctx context.Context, tr db.TimeRange) (
 	return nil, nil
 }
 
-func (p *MockDBProvider) QueryRate(ctx context.Context, tr db.TimeRange) (*db.QueryRateResult, error) {
+func (p *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metricName string) (*db.QueryRateResult, error) {
 	return nil, nil
 }
 
@@ -79,7 +79,7 @@ func (p *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.T
 	return nil, nil
 }
 
-func (p *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange) ([]db.QueryLatencyTrendsResult, error) {
+func (p *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange, metricName string) ([]db.QueryLatencyTrendsResult, error) {
 	return nil, nil
 }
 
@@ -93,6 +93,10 @@ func (p *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRa
 
 func (p *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
 	return db.PagedResult{}, nil
+}
+
+func (p *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricUsageStatics, error) {
+	return db.MetricUsageStatics{}, nil
 }
 
 func TestQueryIngester_Run(t *testing.T) {

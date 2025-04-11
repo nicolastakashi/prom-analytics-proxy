@@ -706,7 +706,7 @@ func (p *ClickHouseProvider) AverageDuration(ctx context.Context, tr TimeRange) 
 	return result, nil
 }
 
-func (p *ClickHouseProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
+func (p *ClickHouseProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -756,7 +756,7 @@ func (p *ClickHouseProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	return nil, nil
 }
 
-func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
+func (p *ClickHouseProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
 	return nil, nil
 }
 
@@ -770,4 +770,8 @@ func (p *ClickHouseProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 
 func (p *ClickHouseProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
 	return PagedResult{}, nil
+}
+
+func (p *ClickHouseProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
+	return MetricUsageStatics{}, nil
 }

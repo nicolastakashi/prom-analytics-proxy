@@ -15,59 +15,6 @@ import { MetricTypeTag } from "@/components/metrics-explorer/metric-type-tag"
 import { useLocation } from "wouter"
 import { MetricMetadata, PagedResult, TableState } from "@/lib/types"
 
-const columns: ColumnDef<MetricMetadata>[] = [
-  {
-    accessorKey: "name",
-    header: ({ column }) => {
-      const isSorted = column.getIsSorted()
-      return (
-        <Button
-          variant="ghost"
-          style={{ padding: 0 }}
-          className="p-0 font-medium text-sm hover:bg-transparent"
-          onClick={() => column.toggleSorting(isSorted === "asc")}
-        >
-          Metric Name
-          <ArrowUpDown className="ml-2 h-3 w-3" />
-        </Button>
-      )
-    },
-    cell: ({ row }) => {
-      return (
-        <div className="font-medium max-w-[300px] truncate" title={row.getValue("name")}>
-          {row.getValue("name")}
-        </div>
-      )
-    },
-  },
-  {
-    accessorKey: "type",
-    header: ({ column }) => {
-      const isSorted = column.getIsSorted()
-      return (
-        <Button
-          variant="ghost"
-          className="p-0 font-medium text-sm hover:bg-transparent"
-          onClick={() => column.toggleSorting(isSorted === "asc")}
-        >
-          Type
-          <ArrowUpDown className="ml-2 h-3 w-3" />
-        </Button>
-      )
-    },
-    cell: ({ row }) => <MetricTypeTag type={row.getValue("type")} />,
-  },
-  {
-    accessorKey: "help",
-    header: "Description",
-    cell: ({ row }) => (
-      <div className="text-sm text-muted-foreground max-w-[500px] truncate" title={row.getValue("help")}>
-        {row.getValue("help")}
-      </div>
-    ),
-  },
-]
-
 interface MetricsTableProps {
   metrics?: PagedResult<MetricMetadata>
   searchQuery: string
@@ -95,6 +42,67 @@ export function MetricsTable({
       })
     }
   }, [searchQuery, tableState, onTableStateChange])
+
+  const handleMetricClick = (metricName: string) => {
+    setLocation(`/metric-explorer/${encodeURIComponent(metricName)}`)
+  }
+
+  const columns: ColumnDef<MetricMetadata>[] = [
+    {
+      accessorKey: "name",
+      header: ({ column }) => {
+        const isSorted = column.getIsSorted()
+        return (
+          <Button
+            variant="ghost"
+            style={{ padding: 0 }}
+            className="p-0 font-medium text-sm hover:bg-transparent"
+            onClick={() => column.toggleSorting(isSorted === "asc")}
+          >
+            Metric Name
+            <ArrowUpDown className="ml-2 h-3 w-3" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => {
+        return (
+          <div 
+            className="font-medium max-w-[300px] truncate cursor-pointer hover:text-blue-500" 
+            title={row.getValue("name")}
+            onClick={() => handleMetricClick(row.getValue("name"))}
+          >
+            {row.getValue("name")}
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "type",
+      header: ({ column }) => {
+        const isSorted = column.getIsSorted()
+        return (
+          <Button
+            variant="ghost"
+            className="p-0 font-medium text-sm hover:bg-transparent"
+            onClick={() => column.toggleSorting(isSorted === "asc")}
+          >
+            Type
+            <ArrowUpDown className="ml-2 h-3 w-3" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => <MetricTypeTag type={row.getValue("type")} />,
+    },
+    {
+      accessorKey: "help",
+      header: "Description",
+      cell: ({ row }) => (
+        <div className="text-sm text-muted-foreground max-w-[500px] truncate" title={row.getValue("help")}>
+          {row.getValue("help")}
+        </div>
+      ),
+    },
+  ]
 
   const table = useReactTable({
     data: metrics?.data || [],
@@ -136,7 +144,6 @@ export function MetricsTable({
     },
   })
 
-
   return (
     <div className="mt-4 rounded-sm border">
       <Table>
@@ -159,7 +166,7 @@ export function MetricsTable({
               <TableRow
                 key={row.id}
                 className="cursor-pointer hover:bg-muted/50"
-                onClick={() => setLocation(`/metrics/${row.getValue("name")}`)}
+                onClick={() => handleMetricClick(row.getValue("name"))}
               >
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id} className="py-3">

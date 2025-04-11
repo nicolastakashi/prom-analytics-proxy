@@ -28,19 +28,23 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	Query(ctx context.Context, query string) (*QueryResult, error)
 	QueryShortCuts() []QueryShortCut
+
 	QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
-	QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error)
+	GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error)
 	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 	GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error)
-	GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error)
+	GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
 	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
+	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
+
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
 	GetDashboardUsage(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
+
 	Close() error
 }
 

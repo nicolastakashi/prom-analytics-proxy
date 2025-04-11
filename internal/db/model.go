@@ -99,6 +99,17 @@ type QueryErrorAnalysisResult struct {
 	Value float64 `json:"value"`
 }
 
+type MetricUsageStatics struct {
+	SerieCount      int `json:"serie_count"`
+	LabelCount      int `json:"label_count"`
+	AlertCount      int `json:"alert_count"`
+	RecordCount     int `json:"record_count"`
+	DashboardCount  int `json:"dashboard_count"`
+	TotalAlerts     int `json:"total_alerts"`
+	TotalRecords    int `json:"total_records"`
+	TotalDashboards int `json:"total_dashboards"`
+}
+
 type RuleUsageKind string
 
 const (

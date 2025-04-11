@@ -691,7 +691,7 @@ func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, tr TimeRange) 
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
+func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -705,11 +705,17 @@ func (p *PostGreSQLProvider) QueryRate(ctx context.Context, tr TimeRange) (*Quer
 				2
 			) AS error_rate_percent
 		FROM queries
-		WHERE ts BETWEEN $1 AND $2;
+		WHERE ts BETWEEN $1 AND $2
+		AND CASE 
+			WHEN $3 != '' THEN 
+				labelMatchers @> $4::jsonb
+			ELSE 
+				TRUE
+			END;
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, to)
+	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
@@ -788,7 +794,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	return results, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
+func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
 	interval := getIntervalByTimeRange(tr.From, tr.To)
 
 	query := `
@@ -811,12 +817,18 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	LEFT JOIN queries q ON 
 		q.ts >= b.bucket_start AND 
 		q.ts < b.bucket_end
+		AND CASE 
+			WHEN $4 != '' THEN 
+				q.labelMatchers @> $5::jsonb
+			ELSE 
+				TRUE
+			END
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	rows, err := p.db.QueryContext(ctx, query, from, interval, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query latency trends: %w", err)
 	}
@@ -1067,4 +1079,8 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
+}
+
+func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
+	return MetricUsageStatics{}, nil
 }

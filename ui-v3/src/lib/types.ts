@@ -89,3 +89,14 @@ export interface MetricMetadata {
 	help: string;
 	unit: string;
 }
+
+export interface MetricStatistics {
+	serie_count: number;
+	label_count: number;
+	alert_count: number;
+	record_count: number;
+	dashboard_count: number;
+	total_alerts: number;
+	total_records: number;
+	total_dashboards: number;
+}

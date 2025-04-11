@@ -692,7 +692,7 @@ func (p *SQLiteProvider) AverageDuration(ctx context.Context, tr TimeRange) (*Av
 	return result, nil
 }
 
-func (p *SQLiteProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRateResult, error) {
+func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -706,11 +706,17 @@ func (p *SQLiteProvider) QueryRate(ctx context.Context, tr TimeRange) (*QueryRat
 				2
 			) AS error_rate_percent
 		FROM queries
-		WHERE ts BETWEEN datetime(?) AND datetime(?);
+		WHERE ts BETWEEN datetime(?) AND datetime(?)
+		AND CASE 
+			WHEN ? != '' THEN 
+				json_extract(labelMatchers, '$[0].__name__') = ?
+			ELSE 
+				1=1
+			END;
 	`
 
 	from, to := tr.Format(ISOTimeFormatNano)
-	rows, err := p.db.QueryContext(ctx, query, from, to)
+	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, metricName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
@@ -803,7 +809,7 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	return results, nil
 }
 
-func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange) ([]QueryLatencyTrendsResult, error) {
+func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
 	interval := getIntervalByTimeRange(tr.From, tr.To)
 
 	query := `
@@ -833,6 +839,12 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 			ROW_NUMBER() OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts) ORDER BY duration) as row_num,
 			COUNT(*) OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts)) as total_rows
 		FROM queries
+		WHERE CASE 
+			WHEN ? != '' THEN 
+				json_extract(labelMatchers, '$[0].__name__') = ?
+			ELSE 
+				1=1
+			END
 	) t ON 
 		t.ts >= b.bucket_start AND 
 		t.ts < b.bucket_end
@@ -841,7 +853,7 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to)
+	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to, metricName, metricName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query latency trends: %w", err)
 	}
@@ -1086,4 +1098,47 @@ func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQuer
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
+}
+
+func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
+	query := `
+		SELECT 
+			COALESCE(SUM(CASE WHEN r.Kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
+			COALESCE(SUM(CASE WHEN r.Kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
+			COALESCE(COUNT(DISTINCT CASE WHEN d.created_at BETWEEN datetime(?) AND datetime(?) THEN d.Name END), 0) as dashboard_count,
+			(SELECT COALESCE(SUM(CASE WHEN Kind = 'alert' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_alerts,
+			(SELECT COALESCE(SUM(CASE WHEN Kind = 'record' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_records,
+			(SELECT COALESCE(COUNT(DISTINCT Name), 0) FROM DashboardUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_dashboards
+		FROM RulesUsage r
+		LEFT JOIN DashboardUsage d ON r.Serie = d.Serie
+		WHERE r.Serie = ? 
+		AND r.created_at BETWEEN datetime(?) AND datetime(?);
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query,
+		from, to, // For dashboard_count
+		from, to, // For total_alerts
+		from, to, // For total_records
+		from, to, // For total_dashboards
+		metricName, from, to) // For the main query
+	if err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
+	}
+	defer rows.Close()
+
+	result := MetricUsageStatics{}
+	if !rows.Next() {
+		return MetricUsageStatics{}, nil
+	}
+
+	if err := rows.Scan(&result.AlertCount, &result.RecordCount, &result.DashboardCount, &result.TotalAlerts, &result.TotalRecords, &result.TotalDashboards); err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
 }

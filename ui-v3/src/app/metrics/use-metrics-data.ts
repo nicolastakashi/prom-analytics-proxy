@@ -1,12 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { getSeriesMetadata } from "@/api/metrics";
-import { PagedResult, TableState, MetricMetadata } from "@/lib/types";
+import { getMetricStatistics, getSeriesMetadata } from "@/api/metrics";
+import { PagedResult, TableState, MetricMetadata, MetricStatistics } from "@/lib/types";
+import { DateRange } from "react-day-picker";
 
 interface MetricsData {
   metrics: PagedResult<MetricMetadata> | undefined;
 }
 
-export function useMetricsData(tableState?: TableState, searchQuery?: string) {
+interface MetricStatisticsData {
+  statistics: MetricStatistics | undefined;
+}
+
+export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: string) {
   const {
     data: metrics,
     isLoading,
@@ -31,3 +36,25 @@ export function useMetricsData(tableState?: TableState, searchQuery?: string) {
     error,
   };
 } 
+
+export function useMetricStatistics(metricName: string, timeRange: DateRange | undefined) {
+  const from = timeRange?.from?.toISOString() || "";
+  const to = timeRange?.to?.toISOString() || "";
+
+  const {
+    data: statistics,
+    isLoading,
+    error
+  } = useQuery<MetricStatistics>({
+    queryKey: ['metricStatistics', metricName, from, to],
+    queryFn: () => getMetricStatistics(metricName, from, to),
+  });
+
+  return {
+    data: {
+      statistics,
+    } as MetricStatisticsData,
+    isLoading,
+    error,
+  };
+}
