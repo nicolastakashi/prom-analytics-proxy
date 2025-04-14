@@ -6,7 +6,7 @@ import { ArrowDown, ArrowUp, Info, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import React from "react"
-
+import { MetricQueryPerformanceStatistics } from "@/lib/types"
 interface InfoTooltipProps {
   content: string
 }
@@ -43,7 +43,8 @@ const data = Array.from({ length: 24 }, (_, i) => ({
   p99: Math.floor(100 + Math.random() * 250),
 }))
 
-export function MetricPerformance() {
+export function MetricPerformance({ queryPerformanceData }: { queryPerformanceData: MetricQueryPerformanceStatistics | undefined }) {
+  console.log(queryPerformanceData)
   return (
     <Card>
       <CardHeader>
@@ -60,7 +61,7 @@ export function MetricPerformance() {
                     <InfoTooltip content="Total number of queries executed using this metric in the selected time period" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold">12,421</p>
+                    <p className="text-2xl font-bold">{queryPerformanceData?.totalQueries}</p>
                     <div className="flex items-center text-xs text-green-500">
                       <ArrowUp className="h-3 w-3" />
                       5.2%
@@ -73,11 +74,11 @@ export function MetricPerformance() {
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm text-muted-foreground">Query Rate</p>
-                    <InfoTooltip content="Number of queries per second being executed against this metric" />
+                    <p className="text-sm text-muted-foreground">Success Rate</p>
+                    <InfoTooltip content="Percentage of queries that succeeded." />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold">145</p>
+                    <p className="text-2xl font-bold">{(queryPerformanceData?.queryRate?.success_rate_percent || 0)}%</p>
                     <div className="flex items-center text-xs text-yellow-500">
                       <ArrowUp className="h-3 w-3" />
                       8%
@@ -91,10 +92,10 @@ export function MetricPerformance() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <p className="text-sm text-muted-foreground">Error Rate</p>
-                    <InfoTooltip content="Percentage of queries that failed or returned errors in the last 24 hours" />
+                    <InfoTooltip content="Percentage of queries that failed or returned errors." />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold">0.2%</p>
+                    <p className="text-2xl font-bold">{(queryPerformanceData?.queryRate?.error_rate_percent || 0)}%</p>
                     <div className="flex items-center text-xs text-green-500">
                       <ArrowDown className="h-3 w-3" />
                       0.1%
@@ -114,7 +115,7 @@ export function MetricPerformance() {
                     <InfoTooltip content="Average number of data points processed per query" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold">1.2M</p>
+                    <p className="text-2xl font-bold">{queryPerformanceData?.averageSamples}</p>
                     <div className="flex items-center text-xs text-green-500">
                       <ArrowDown className="h-3 w-3" />
                       3%
@@ -131,7 +132,7 @@ export function MetricPerformance() {
                     <InfoTooltip content="Maximum number of data points processed in a single query" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold">2.5M</p>
+                    <p className="text-2xl font-bold">{queryPerformanceData?.peakSamples}</p>
                     <div className="flex items-center text-xs text-yellow-500">
                       <ArrowUp className="h-3 w-3" />
                       8%

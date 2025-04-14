@@ -39,6 +39,7 @@ type Provider interface {
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
 	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
+	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)

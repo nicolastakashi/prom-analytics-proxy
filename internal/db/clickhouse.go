@@ -775,3 +775,7 @@ func (p *ClickHouseProvider) GetRecentQueries(ctx context.Context, params Recent
 func (p *ClickHouseProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	return MetricUsageStatics{}, nil
 }
+
+func (p *ClickHouseProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
+	return MetricQueryPerformanceStatistics{}, nil
+}

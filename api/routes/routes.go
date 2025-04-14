@@ -89,6 +89,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
+		mux.Handle("/api/v1/metricQueryPerformanceStatistics/{name}", http.HandlerFunc(r.GetMetricQueryPerformanceStatistics))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
 		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
 
@@ -381,7 +382,7 @@ func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 
-	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, "")
 
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
@@ -609,6 +610,36 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 	statistics.LabelCount = len(labels)
 
 	writeJSONResponse(req, w, statistics)
+}
+
+func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	if name == "" {
+		slog.Error("missing name parameter")
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, name)
+	if err != nil {
+		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	queryPerformanceStatistics, err := r.dbProvider.GetMetricQueryPerformanceStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	queryPerformanceStatistics.QueryRate = queryRate
+
+	writeJSONResponse(req, w, queryPerformanceStatistics)
 }
 
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {

@@ -1,11 +1,12 @@
-import { MetricStatistics, PagedResult } from "@/lib/types";
+import { MetricQueryPerformanceStatistics, MetricStatistics, PagedResult } from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
 
 interface ApiConfig {
   baseUrl: string;
-  endpoints: {
+    endpoints: {
     seriesMetadata: string;
     metricStatistics: string;
+    metricQueryPerformanceStatistics: string;
   };
 }
 
@@ -24,7 +25,8 @@ const API_CONFIG: ApiConfig = {
   baseUrl: 'http://localhost:9091',
   endpoints: {
     seriesMetadata: '/api/v1/seriesMetadata',
-    metricStatistics: '/api/v1/metricStatistics',
+    metricStatistics: '/api/v1/metricStatistics', 
+    metricQueryPerformanceStatistics: '/api/v1/metricQueryPerformanceStatistics',
   }
 };
 
@@ -43,6 +45,9 @@ const DEFAULT_ERROR_VALUES = {
     total_alerts: 0,
     total_records: 0,
     total_dashboards: 0,
+  },
+  metricQueryPerformanceStatistics: {
+    queryRate: 0,
   },
 };
 
@@ -114,5 +119,19 @@ export async function getMetricStatistics(
       { from, to }
     ),
     DEFAULT_ERROR_VALUES.metricStatistics
+  );
+}
+
+export async function getMetricQueryPerformanceStatistics(
+  metricName: string,
+  from: string,
+  to: string
+): Promise<MetricQueryPerformanceStatistics> {
+  return withErrorHandling(
+    () => fetchApiData<MetricQueryPerformanceStatistics>(
+      API_CONFIG.endpoints.metricQueryPerformanceStatistics + `/${metricName}`,
+      { from, to }
+    ),
+    DEFAULT_ERROR_VALUES.metricQueryPerformanceStatistics
   );
 }

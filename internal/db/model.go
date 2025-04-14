@@ -100,14 +100,14 @@ type QueryErrorAnalysisResult struct {
 }
 
 type MetricUsageStatics struct {
-	SerieCount      int `json:"serie_count"`
-	LabelCount      int `json:"label_count"`
-	AlertCount      int `json:"alert_count"`
-	RecordCount     int `json:"record_count"`
-	DashboardCount  int `json:"dashboard_count"`
-	TotalAlerts     int `json:"total_alerts"`
-	TotalRecords    int `json:"total_records"`
-	TotalDashboards int `json:"total_dashboards"`
+	SerieCount      int `json:"serieCount"`
+	LabelCount      int `json:"labelCount"`
+	AlertCount      int `json:"alertCount"`
+	RecordCount     int `json:"recordCount"`
+	DashboardCount  int `json:"dashboardCount"`
+	TotalAlerts     int `json:"totalAlerts"`
+	TotalRecords    int `json:"totalRecords"`
+	TotalDashboards int `json:"totalDashboards"`
 }
 
 type RuleUsageKind string
@@ -133,4 +133,12 @@ type DashboardUsage struct {
 	Name      string    `json:"title"`
 	URL       string    `json:"url"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type MetricQueryPerformanceStatistics struct {
+	QueryRate      *QueryRateResult `json:"queryRate"`
+	TotalQueries   *int             `json:"totalQueries"`
+	AverageSamples *float64         `json:"averageSamples"`
+	PeakSamples    *int             `json:"peakSamples"`
+	SampleRate     *float64         `json:"sampleRate"`
 }

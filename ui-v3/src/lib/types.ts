@@ -91,12 +91,19 @@ export interface MetricMetadata {
 }
 
 export interface MetricStatistics {
-	serie_count: number;
-	label_count: number;
-	alert_count: number;
-	record_count: number;
-	dashboard_count: number;
-	total_alerts: number;
-	total_records: number;
-	total_dashboards: number;
+	serieCount: number;
+	labelCount: number;
+	alertCount: number;
+	recordCount: number;
+	dashboardCount: number;
+	totalAlerts: number;
+	totalRecords: number;
+	totalDashboards: number;
+}
+
+export interface MetricQueryPerformanceStatistics {
+	queryRate: QueryRateResponse;
+	totalQueries: number;
+	averageSamples: number;
+	peakSamples: number;
 }

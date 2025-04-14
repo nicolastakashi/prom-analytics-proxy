@@ -99,6 +99,10 @@ func (p *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName str
 	return db.MetricUsageStatics{}, nil
 }
 
+func (p *MockDBProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
+	return db.MetricQueryPerformanceStatistics{}, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)

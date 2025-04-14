@@ -11,7 +11,7 @@ import React from "react"
 import { useParams } from "wouter"
 import { MetricDetailHeader } from "@/components/metrics-explorer/metric-detail-header"
 import { LoadingState } from "@/app/overview/loading"
-import { useMetricStatistics } from "../use-metrics-data"
+import { useMetricQueryPerformanceStatistics, useMetricStatistics } from "../use-metrics-data"
 import { useDateRange } from "@/contexts/date-range-context"
 import { MetricPerformance } from "@/components/metrics-explorer/metric-performance"
 
@@ -48,13 +48,14 @@ export default function MetricsDetails() {
     const { metric } = useParams();
     const { dateRange } = useDateRange();
     const { data, isLoading, error } = useMetricStatistics(metric || "", dateRange);
+    const { data: queryPerformanceData, isLoading: queryPerformanceLoading, error: queryPerformanceError } = useMetricQueryPerformanceStatistics(metric || "", dateRange);
 
-    if (isLoading) {
+    if (isLoading || queryPerformanceLoading) {
         return <LoadingState />
     }
 
-    if (error) {
-        return <div>Error: {error.message}</div>
+    if (error || queryPerformanceError) {
+        return <div>Error: {error?.message || queryPerformanceError?.message}</div>
     }
     
     return (
@@ -72,9 +73,9 @@ export default function MetricsDetails() {
                     <Database className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.serie_count}</span>
+                    <span className="text-2xl font-bold">{data.statistics?.serieCount}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.label_count} labels</span>
+                  <span className="text-xs text-muted-foreground">across {data.statistics?.labelCount} labels</span>
                 </div>
               </CardContent>
             </Card>
@@ -89,9 +90,9 @@ export default function MetricsDetails() {
                     <Bell className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.alert_count}</span>
+                    <span className="text-2xl font-bold">{data.statistics?.alertCount}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.total_alerts} alerts</span>
+                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalAlerts} alerts</span>
                 </div>
               </CardContent>
             </Card>
@@ -106,9 +107,9 @@ export default function MetricsDetails() {
                     <GitMerge className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.record_count}</span>
+                    <span className="text-2xl font-bold">{data.statistics?.recordCount}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.total_records} records</span>
+                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalRecords} records</span>
                 </div>
               </CardContent>
             </Card>
@@ -123,9 +124,9 @@ export default function MetricsDetails() {
                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.dashboard_count}</span>
+                    <span className="text-2xl font-bold">{data.statistics?.dashboardCount}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.total_dashboards} dashboards</span>
+                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalDashboards} dashboards</span>
                 </div>
               </CardContent>
             </Card>
@@ -148,7 +149,7 @@ export default function MetricsDetails() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className=" bg-white rounded-lg mt-2">
-              <MetricPerformance />
+              <MetricPerformance queryPerformanceData={queryPerformanceData} />
             </TabsContent>
           <TabsContent value="labels" className="p-4 bg-white rounded-lg mt-2">
             <div className="space-y-6">

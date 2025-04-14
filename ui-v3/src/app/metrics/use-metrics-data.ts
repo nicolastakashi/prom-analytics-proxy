@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { getMetricStatistics, getSeriesMetadata } from "@/api/metrics";
-import { PagedResult, TableState, MetricMetadata, MetricStatistics } from "@/lib/types";
+import { getMetricQueryPerformanceStatistics, getMetricStatistics, getSeriesMetadata } from "@/api/metrics";
+import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics } from "@/lib/types";
 import { DateRange } from "react-day-picker";
 
 interface MetricsData {
@@ -54,6 +54,22 @@ export function useMetricStatistics(metricName: string, timeRange: DateRange | u
     data: {
       statistics,
     } as MetricStatisticsData,
+    isLoading,
+    error,
+  };
+}
+
+export function useMetricQueryPerformanceStatistics(metricName: string, timeRange: DateRange | undefined) {
+  const from = timeRange?.from?.toISOString() || "";
+  const to = timeRange?.to?.toISOString() || "";
+
+  const { data, isLoading, error } = useQuery<MetricQueryPerformanceStatistics>({
+    queryKey: ['metricQueryPerformanceStatistics', metricName, from, to],
+    queryFn: () => getMetricQueryPerformanceStatistics(metricName, from, to),
+  });
+
+  return {
+    data,
     isLoading,
     error,
   };

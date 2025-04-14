@@ -1142,3 +1142,37 @@ func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName str
 
 	return result, nil
 }
+
+func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_queries,
+			ROUND(AVG(totalQueryableSamples), 2) as average_samples,
+			MAX(peakSamples) as peak_samples
+		FROM queries 
+		WHERE json_extract(labelMatchers, '$[0].__name__') = ?
+		AND ts BETWEEN datetime(?) AND datetime(?);
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, metricName, from, to)
+	if err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
+	}
+	defer rows.Close()
+
+	result := MetricQueryPerformanceStatistics{}
+	if !rows.Next() {
+		return MetricQueryPerformanceStatistics{}, nil
+	}
+
+	if err := rows.Scan(&result.TotalQueries, &result.AverageSamples, &result.PeakSamples); err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
+}

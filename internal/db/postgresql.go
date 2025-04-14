@@ -1084,3 +1084,7 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	return MetricUsageStatics{}, nil
 }
+
+func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
+	return MetricQueryPerformanceStatistics{}, nil
+}
