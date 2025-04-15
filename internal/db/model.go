@@ -136,9 +136,10 @@ type DashboardUsage struct {
 }
 
 type MetricQueryPerformanceStatistics struct {
-	QueryRate      *QueryRateResult `json:"queryRate"`
-	TotalQueries   *int             `json:"totalQueries"`
-	AverageSamples *float64         `json:"averageSamples"`
-	PeakSamples    *int             `json:"peakSamples"`
-	SampleRate     *float64         `json:"sampleRate"`
+	QueryRate       *QueryRateResult `json:"queryRate"`
+	TotalQueries    *int             `json:"totalQueries"`
+	AverageSamples  *float64         `json:"averageSamples"`
+	PeakSamples     *int             `json:"peakSamples"`
+	AverageDuration *float64         `json:"averageDuration"`
+	SampleRate      *float64         `json:"sampleRate"`
 }

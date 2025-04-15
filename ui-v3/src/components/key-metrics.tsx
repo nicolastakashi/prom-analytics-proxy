@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AverageDurationResponse, QueryRateResponse, QueryTypesResponse } from "@/lib/types"
+import { formatDuration } from "@/lib/utils"
 import { Activity, AlertTriangle, Clock, Filter } from "lucide-react"
 import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 
@@ -11,22 +12,6 @@ interface KeyMetricsProps {
     queryTypes?: QueryTypesResponse
     averageDuration?: AverageDurationResponse
     queryRate?: QueryRateResponse
-}
-
-function formatDuration(ms: number): string {
-    if (ms < 1) {
-        return `${Math.round(ms * 1000)}µs`
-    }
-    if (ms < 1000) {
-        return `${Math.round(ms)}ms`
-    }
-    if (ms < 60000) {
-        return `${Math.round(ms / 1000)}s`
-    }
-    if (ms < 3600000) {
-        return `${Math.round(ms / 60000)}m`
-    }
-    return `${Math.round(ms / 3600000)}h`
 }
 
 export function KeyMetrics(props: KeyMetricsProps) {

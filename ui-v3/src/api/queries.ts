@@ -22,6 +22,7 @@ interface FetchOptions {
   sortBy?: string;
   sortOrder?: string;
   filter?: string;
+  metricName?: string;
 }
 
 const API_CONFIG: ApiConfig = {
@@ -74,7 +75,7 @@ async function fetchApiData<T extends ApiResponse>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { from, to, page, pageSize, sortBy, sortOrder, filter } = options;
+  const { from, to, page, pageSize, sortBy, sortOrder, filter, metricName } = options;
   const fromUTC = getUTCDate(from);
   const toUTC = getUTCDate(to);
 
@@ -86,6 +87,7 @@ async function fetchApiData<T extends ApiResponse>(
     ...(sortBy && { sortBy }),
     ...(sortOrder && { sortOrder }),
     ...(filter && { filter }),
+    ...(metricName && { metricName }),
   });
 
   try {
@@ -139,9 +141,9 @@ export async function getQueryStatusDistribution(from?: string, to?: string): Pr
   );
 }
 
-export async function getQueryLatencyTrends(from?: string, to?: string): Promise<QueryLatencyTrendsResult[]> {
+export async function getQueryLatencyTrends(from?: string, to?: string, metricName?: string): Promise<QueryLatencyTrendsResult[]> {
   return withErrorHandling(
-    () => fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, { from, to }),
+    () => fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, { from, to, metricName }),
     []
   );
 }

@@ -1148,7 +1148,8 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 		SELECT 
 			COUNT(*) as total_queries,
 			ROUND(AVG(totalQueryableSamples), 2) as average_samples,
-			MAX(peakSamples) as peak_samples
+			MAX(peakSamples) as peak_samples,
+			ROUND(AVG(duration), 2) as average_duration
 		FROM queries 
 		WHERE json_extract(labelMatchers, '$[0].__name__') = ?
 		AND ts BETWEEN datetime(?) AND datetime(?);
@@ -1166,7 +1167,7 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 		return MetricQueryPerformanceStatistics{}, nil
 	}
 
-	if err := rows.Scan(&result.TotalQueries, &result.AverageSamples, &result.PeakSamples); err != nil {
+	if err := rows.Scan(&result.TotalQueries, &result.AverageSamples, &result.PeakSamples, &result.AverageDuration); err != nil {
 		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to scan row: %w", err)
 	}
 

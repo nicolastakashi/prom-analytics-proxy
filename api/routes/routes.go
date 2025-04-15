@@ -381,8 +381,9 @@ func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	metric_name := req.FormValue("metricName")
 
-	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, "")
+	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, metric_name)
 
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)

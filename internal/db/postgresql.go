@@ -1082,9 +1082,100 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 }
 
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
-	return MetricUsageStatics{}, nil
+	query := `
+		WITH metric_stats AS (
+			SELECT 
+				COALESCE(SUM(CASE WHEN r.kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
+				COALESCE(SUM(CASE WHEN r.kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
+				COALESCE(COUNT(DISTINCT CASE WHEN d.created_at BETWEEN $1 AND $2 THEN d.name END), 0) as dashboard_count
+			FROM RulesUsage r
+			LEFT JOIN DashboardUsage d ON r.serie = d.serie
+			WHERE r.serie = $3 
+			AND r.created_at BETWEEN $4 AND $5
+		),
+		total_stats AS (
+			SELECT 
+				COALESCE(SUM(CASE WHEN kind = 'alert' THEN 1 ELSE 0 END), 0) as total_alerts,
+				COALESCE(SUM(CASE WHEN kind = 'record' THEN 1 ELSE 0 END), 0) as total_records,
+				COALESCE(COUNT(DISTINCT name), 0) as total_dashboards
+			FROM RulesUsage
+			WHERE created_at BETWEEN $6 AND $7
+		)
+		SELECT 
+			ms.alert_count,
+			ms.record_count,
+			ms.dashboard_count,
+			ts.total_alerts,
+			ts.total_records,
+			ts.total_dashboards
+		FROM metric_stats ms, total_stats ts;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query,
+		from, to, // For dashboard_count
+		metricName, from, to, // For the main query
+		from, to, // For total stats
+	)
+	if err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
+	}
+	defer rows.Close()
+
+	result := MetricUsageStatics{}
+	if !rows.Next() {
+		return MetricUsageStatics{}, nil
+	}
+
+	if err := rows.Scan(
+		&result.AlertCount,
+		&result.RecordCount,
+		&result.DashboardCount,
+		&result.TotalAlerts,
+		&result.TotalRecords,
+		&result.TotalDashboards,
+	); err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return MetricUsageStatics{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
 }
 
 func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
-	return MetricQueryPerformanceStatistics{}, nil
+	query := `
+		SELECT 
+			COUNT(*) as total_queries,
+			ROUND(AVG(totalQueryableSamples)::numeric, 2) as average_samples,
+			MAX(peakSamples) as peak_samples,
+			ROUND(AVG(duration)::numeric, 2) as average_duration
+		FROM queries 
+		WHERE labelMatchers @> $1::jsonb
+		AND ts BETWEEN $2 AND $3;
+	`
+
+	from, to := tr.Format(ISOTimeFormat)
+	rows, err := p.db.QueryContext(ctx, query, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName), from, to)
+	if err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
+	}
+	defer rows.Close()
+
+	result := MetricQueryPerformanceStatistics{}
+	if !rows.Next() {
+		return MetricQueryPerformanceStatistics{}, nil
+	}
+
+	if err := rows.Scan(&result.TotalQueries, &result.AverageSamples, &result.PeakSamples, &result.AverageDuration); err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	if err := rows.Err(); err != nil {
+		return MetricQueryPerformanceStatistics{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return result, nil
 }

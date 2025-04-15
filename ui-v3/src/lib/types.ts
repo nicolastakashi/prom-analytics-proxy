@@ -106,4 +106,5 @@ export interface MetricQueryPerformanceStatistics {
 	totalQueries: number;
 	averageSamples: number;
 	peakSamples: number;
+	averageDuration: number;
 }

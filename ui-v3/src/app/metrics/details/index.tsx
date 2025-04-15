@@ -11,9 +11,10 @@ import React from "react"
 import { useParams } from "wouter"
 import { MetricDetailHeader } from "@/components/metrics-explorer/metric-detail-header"
 import { LoadingState } from "@/app/overview/loading"
-import { useMetricQueryPerformanceStatistics, useMetricStatistics } from "../use-metrics-data"
+import { useMetricQueryPerformanceStatistics, useMetricStatistics, useQueryLatencyTrends } from "../use-metrics-data"
 import { useDateRange } from "@/contexts/date-range-context"
 import { MetricPerformance } from "@/components/metrics-explorer/metric-performance"
+import { formatUnit } from "@/lib/utils"
 
 interface InfoTooltipProps {
     content: string
@@ -49,13 +50,14 @@ export default function MetricsDetails() {
     const { dateRange } = useDateRange();
     const { data, isLoading, error } = useMetricStatistics(metric || "", dateRange);
     const { data: queryPerformanceData, isLoading: queryPerformanceLoading, error: queryPerformanceError } = useMetricQueryPerformanceStatistics(metric || "", dateRange);
+    const { data: queryLatencyTrends, isLoading: queryLatencyTrendsLoading, error: queryLatencyTrendsError } = useQueryLatencyTrends(metric || "", dateRange);
 
-    if (isLoading || queryPerformanceLoading) {
+    if (isLoading || queryPerformanceLoading || queryLatencyTrendsLoading) {
         return <LoadingState />
     }
 
-    if (error || queryPerformanceError) {
-        return <div>Error: {error?.message || queryPerformanceError?.message}</div>
+    if (error || queryPerformanceError || queryLatencyTrendsError) {
+        return <div>Error: {error?.message || queryPerformanceError?.message || queryLatencyTrendsError?.message}</div>
     }
     
     return (
@@ -73,9 +75,9 @@ export default function MetricsDetails() {
                     <Database className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.serieCount}</span>
+                    <span className="text-2xl font-bold">{formatUnit(data.statistics?.serieCount || 0)}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.labelCount} labels</span>
+                  <span className="text-xs text-muted-foreground">across {formatUnit(data.statistics?.labelCount || 0)} labels</span>
                 </div>
               </CardContent>
             </Card>
@@ -90,9 +92,9 @@ export default function MetricsDetails() {
                     <Bell className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.alertCount}</span>
+                    <span className="text-2xl font-bold">{formatUnit(data.statistics?.alertCount || 0)}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalAlerts} alerts</span>
+                  <span className="text-xs text-muted-foreground">across {formatUnit(data.statistics?.totalAlerts || 0)} alerts</span>
                 </div>
               </CardContent>
             </Card>
@@ -107,9 +109,9 @@ export default function MetricsDetails() {
                     <GitMerge className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.recordCount}</span>
+                    <span className="text-2xl font-bold">{formatUnit(data.statistics?.recordCount || 0)}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalRecords} records</span>
+                  <span className="text-xs text-muted-foreground">across {formatUnit(data.statistics?.totalRecords || 0)} records</span>
                 </div>
               </CardContent>
             </Card>
@@ -124,9 +126,9 @@ export default function MetricsDetails() {
                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{data.statistics?.dashboardCount}</span>
+                    <span className="text-2xl font-bold">{formatUnit(data.statistics?.dashboardCount || 0)}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">across {data.statistics?.totalDashboards} dashboards</span>
+                  <span className="text-xs text-muted-foreground">across {formatUnit(data.statistics?.totalDashboards || 0)} dashboards</span>
                 </div>
               </CardContent>
             </Card>
@@ -149,7 +151,7 @@ export default function MetricsDetails() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className=" bg-white rounded-lg mt-2">
-              <MetricPerformance queryPerformanceData={queryPerformanceData} />
+              <MetricPerformance queryPerformanceData={queryPerformanceData} queryLatencyTrendsData={queryLatencyTrends} />
             </TabsContent>
           <TabsContent value="labels" className="p-4 bg-white rounded-lg mt-2">
             <div className="space-y-6">

@@ -4,19 +4,19 @@ import { QueryLatencyTrendsResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 
-export function QueryLatencyTrends({ 
-    latencyTrendsData,
-    from,
-    to,
-}: { 
-    latencyTrendsData: QueryLatencyTrendsResult[]
-    from: Date
-    to: Date
-}) {
+interface QueryLatencyTrendsProps {
+  latencyTrendsData: QueryLatencyTrendsResult[]
+  from: Date
+  to: Date
+  className?: string
+  title?: React.ReactNode
+}
+
+export function QueryLatencyTrends({ latencyTrendsData, from, to, className, title }: QueryLatencyTrendsProps) {
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
-        <CardTitle>Query Latency Trends</CardTitle>
+        <CardTitle>{title || "Query Latency Trends"}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[300px] w-full">

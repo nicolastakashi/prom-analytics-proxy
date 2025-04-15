@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { getMetricQueryPerformanceStatistics, getMetricStatistics, getSeriesMetadata } from "@/api/metrics";
-import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics } from "@/lib/types";
+import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics, QueryLatencyTrendsResult } from "@/lib/types";
 import { DateRange } from "react-day-picker";
+import { getQueryLatencyTrends } from "@/api/queries";
 
 interface MetricsData {
   metrics: PagedResult<MetricMetadata> | undefined;
@@ -66,6 +67,22 @@ export function useMetricQueryPerformanceStatistics(metricName: string, timeRang
   const { data, isLoading, error } = useQuery<MetricQueryPerformanceStatistics>({
     queryKey: ['metricQueryPerformanceStatistics', metricName, from, to],
     queryFn: () => getMetricQueryPerformanceStatistics(metricName, from, to),
+  });
+
+  return {
+    data,
+    isLoading,
+    error,
+  };
+}
+
+export function useQueryLatencyTrends(metricName: string, timeRange: DateRange | undefined) {
+  const from = timeRange?.from?.toISOString() || "";
+  const to = timeRange?.to?.toISOString() || "";
+
+  const { data, isLoading, error } = useQuery<QueryLatencyTrendsResult[]>({
+    queryKey: ['queryLatencyTrends', metricName, from, to],
+    queryFn: () => getQueryLatencyTrends(from, to, metricName),
   });
 
   return {
