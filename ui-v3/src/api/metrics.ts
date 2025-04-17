@@ -1,12 +1,40 @@
 import { MetricQueryPerformanceStatistics, MetricStatistics, PagedResult } from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
 
+interface SerieExpression {
+  query: string;
+  avgDuration: number;
+  maxPeakSamples: number;
+  avgPeakySamples: number;
+  ts: string;
+}
+
+interface SerieExpressionsResponse {
+  data: SerieExpression[];
+  total: number;
+  totalPages: number;
+}
+
+interface MetricUsageResponse {
+  total: number;
+  totalPages: number;
+  data: Array<{
+    id?: string;
+    name: string;
+    url?: string;
+    groupName?: string;
+    expression?: string;
+  }>;
+}
+
 interface ApiConfig {
   baseUrl: string;
-    endpoints: {
+  endpoints: {
     seriesMetadata: string;
     metricStatistics: string;
     metricQueryPerformanceStatistics: string;
+    serieExpressions: string;
+    metricUsage: string;
   };
 }
 
@@ -19,6 +47,7 @@ interface FetchOptions {
   type?: string;
   from?: string;
   to?: string;
+  kind?: string;
 }
 
 const API_CONFIG: ApiConfig = {
@@ -27,6 +56,8 @@ const API_CONFIG: ApiConfig = {
     seriesMetadata: '/api/v1/seriesMetadata',
     metricStatistics: '/api/v1/metricStatistics', 
     metricQueryPerformanceStatistics: '/api/v1/metricQueryPerformanceStatistics',
+    serieExpressions: '/api/v1/serieExpressions',
+    metricUsage: '/api/v1/serieUsage',
   }
 };
 
@@ -37,17 +68,36 @@ const DEFAULT_ERROR_VALUES = {
     data: [],
   },
   metricStatistics: {
-    serie_count: 0,
-    label_count: 0,
-    alert_count: 0,
-    record_count: 0,
-    dashboard_count: 0,
-    total_alerts: 0,
-    total_records: 0,
-    total_dashboards: 0,
+    serieCount: 0,
+    labelCount: 0,
+    alertCount: 0,
+    recordCount: 0,
+    dashboardCount: 0,
+    totalAlerts: 0,
+    totalRecords: 0,
+    totalDashboards: 0,
   },
   metricQueryPerformanceStatistics: {
-    queryRate: 0,
+    queryRate: {
+      success_total: 0,
+      error_total: 0,
+      success_rate_percent: 0,
+      error_rate_percent: 0,
+    },
+    totalQueries: 0,
+    averageSamples: 0,
+    peakSamples: 0,
+    averageDuration: 0,
+  },
+  serieExpressions: {
+    data: [],
+    total: 0,
+    totalPages: 0,
+  },
+  metricUsage: {
+    data: [],
+    total: 0,
+    totalPages: 0,
   },
 };
 
@@ -55,7 +105,7 @@ async function fetchApiData<T>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { page, pageSize, sortBy, sortOrder, filter, type, from, to } = options;
+  const { page, pageSize, sortBy, sortOrder, filter, type, from, to, kind } = options;
 
   const queryParams = new URLSearchParams({
     ...(page !== undefined && { page: page.toString() }),
@@ -66,6 +116,7 @@ async function fetchApiData<T>(
     ...(type && { type }),
     ...(from && { from }),
     ...(to && { to }),
+    ...(kind && { kind }),
   });
 
   try {
@@ -133,5 +184,52 @@ export async function getMetricQueryPerformanceStatistics(
       { from, to }
     ),
     DEFAULT_ERROR_VALUES.metricQueryPerformanceStatistics
+  );
+}
+
+export async function getSerieExpressions(
+  metricName: string,
+  page: number = 1,
+  pageSize: number = 10,
+  from: string = "",
+  to: string = ""
+): Promise<SerieExpressionsResponse> {
+  const url = API_CONFIG.endpoints.serieExpressions + `/${metricName}`;
+  const params: Record<string, string | number> = { page, pageSize };
+  
+  if (from) {
+    params.from = from;
+  }
+  if (to) {
+    params.to = to;
+  }
+  
+  return withErrorHandling(
+    () => fetchApiData<SerieExpressionsResponse>(url, params),
+    DEFAULT_ERROR_VALUES.serieExpressions
+  );
+}
+
+export async function getMetricUsage(
+  metricName: string,
+  kind: string,
+  page: number = 1,
+  pageSize: number = 10,
+  from: string = "",
+  to: string = ""
+): Promise<MetricUsageResponse> {
+  const url = API_CONFIG.endpoints.metricUsage + `/${metricName}`;
+  const params: Record<string, string | number> = { kind, page, pageSize };
+  
+  if (from) {
+    params.from = from;
+  }
+  if (to) {
+    params.to = to;
+  }
+  
+  return withErrorHandling(
+    () => fetchApiData<MetricUsageResponse>(url, params),
+    DEFAULT_ERROR_VALUES.metricUsage
   );
 }

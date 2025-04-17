@@ -232,86 +232,134 @@ func (p *PostGreSQLProvider) QueryShortCuts() []QueryShortCut {
 
 func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ctx context.Context,
-	serieName string,
-	page int,
-	pageSize int) (*PagedResult, error) {
+	params QueriesBySerieNameParams) (*PagedResult, error) {
 
-	endTime := time.Now()
-	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
-
-	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTime, endTime)
-	if err != nil {
-		return nil, err
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "avgDuration"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
 	}
 
-	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
-
-	data, err := p.getQueriesBySerieNameQueryData(ctx, serieName, startTime, endTime, page, pageSize)
-	if err != nil {
-		return nil, err
+	validSortFields := map[string]bool{
+		"queryParam":      true,
+		"avgDuration":     true,
+		"avgPeakySamples": true,
+		"maxPeakSamples":  true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "avgDuration"
 	}
 
-	return &PagedResult{
-		Total:      totalCount,
-		TotalPages: totalPages,
-		Data:       data,
-	}, nil
-}
-
-func (p *PostGreSQLProvider) getQueriesBySerieNameTotalCount(ctx context.Context, serieName string, startTime, endTime time.Time) (int, error) {
-	countQuery := `
-		SELECT COUNT(DISTINCT queryParam) AS TotalCount
-		FROM queries
-		WHERE
-			labelMatchers @> $1::jsonb
-			AND ts BETWEEN $2 AND $3;
-	`
-
-	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, fmt.Sprintf(`[{"__name__": "%s"}]`, serieName), startTime, endTime).Scan(&totalCount)
-	if err != nil {
-		return 0, fmt.Errorf("failed to count rows: %w", err)
-	}
-
-	return totalCount, nil
-}
-
-func (p *PostGreSQLProvider) getQueriesBySerieNameQueryData(ctx context.Context, serieName string, startTime, endTime time.Time, page, pageSize int) ([]QueriesBySerieNameResult, error) {
 	query := `
+	WITH filtered_queries AS (
 		SELECT
-			queryParam AS Query,
-			AVG(duration) AS AvgDuration,
-			AVG(peakSamples) AS AvgPeakSamples,
-			MAX(peakSamples) AS MaxPeakSamples
+			queryParam,
+			AVG(duration) AS avgDuration,
+			AVG(peakSamples) AS avgPeakySamples,
+			MAX(peakSamples) AS maxPeakSamples
 		FROM
 			queries
 		WHERE
 			labelMatchers @> $1::jsonb
 			AND ts BETWEEN $2 AND $3
+			AND CASE 
+				WHEN $4 != '' THEN 
+					queryParam LIKE '%' || $4 || '%'
+				ELSE 
+					TRUE
+				END
 		GROUP BY
 			queryParam
-		ORDER BY
-			AvgDuration DESC
-		LIMIT $4 OFFSET $5;
+	),
+	counted_queries AS (
+		SELECT COUNT(*) as total_count 
+		FROM filtered_queries
+	)
+	SELECT 
+		q.*,
+		cq.total_count
+	FROM 
+		filtered_queries q,
+		counted_queries cq
+	ORDER BY
+		CASE WHEN $5 = 'asc' THEN
+			CASE $6
+				WHEN 'queryParam' THEN q.queryParam
+				WHEN 'avgDuration' THEN q.avgDuration
+				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
+				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
+			END
+		END ASC NULLS LAST,
+		CASE WHEN $5 = 'desc' THEN
+			CASE $6
+				WHEN 'queryParam' THEN q.queryParam
+				WHEN 'avgDuration' THEN q.avgDuration
+				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
+				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
+			END
+		END DESC NULLS LAST
+	LIMIT $7 OFFSET $8;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, fmt.Sprintf(`[{"__name__": "%s"}]`, serieName), startTime, endTime, pageSize, page*pageSize)
+	args := []interface{}{
+		fmt.Sprintf(`[{"__name__": "%s"}]`, params.SerieName),
+		params.TimeRange.From,
+		params.TimeRange.To,
+		params.Filter,
+		params.SortOrder,
+		params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
-	data := []QueriesBySerieNameResult{}
+	var results []QueriesBySerieNameResult
+	var totalCount int
+
 	for rows.Next() {
-		var r QueriesBySerieNameResult
-		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
-			return nil, fmt.Errorf("unable to scan row: %w", err)
+		var result QueriesBySerieNameResult
+		if err := rows.Scan(
+			&result.Query,
+			&result.AvgDuration,
+			&result.AvgPeakySamples,
+			&result.MaxPeakSamples,
+			&totalCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		data = append(data, r)
+		results = append(results, result)
 	}
 
-	return data, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	totalPages := int(math.Ceil(float64(totalCount) / float64(params.PageSize)))
+
+	return &PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }
 
 func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
@@ -370,26 +418,62 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	return nil
 }
 
-func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error) {
-	// Calculate offset for pagination
-	offset := page * pageSize
+func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "created_at"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
+	}
 
-	// Query for total count of distinct rules
+	validSortFields := map[string]bool{
+		"name":       true,
+		"group_name": true,
+		"expression": true,
+		"created_at": true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "created_at"
+	}
+
+	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
+
+	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT name || group_name)
 		FROM RulesUsage
-		WHERE serie = $1
+		WHERE serie = $1 
 		AND kind = $2
-		AND created_at >= NOW() - INTERVAL '30 days';
+		AND created_at BETWEEN $3 AND $4
+		AND CASE 
+			WHEN $5 != '' THEN 
+				(name LIKE '%' || $5 || '%' OR expression LIKE '%' || $5 || '%')
+			ELSE 
+				TRUE
+			END;
 	`
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serie, kind).Scan(&totalCount)
+	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, startTime, endTime,
+		params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	// Query for paginated results
 	query := `
@@ -404,7 +488,14 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, ki
 				created_at,
 				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
 			FROM RulesUsage
-			WHERE serie = $1 AND kind = $2 AND created_at >= NOW() - INTERVAL '30 days'
+			WHERE serie = $1 AND kind = $2 
+			AND created_at BETWEEN $3 AND $4
+			AND CASE 
+				WHEN $5 != '' THEN 
+					(name LIKE '%' || $5 || '%' OR expression LIKE '%' || $5 || '%')
+				ELSE 
+					TRUE
+				END
 		)
 		SELECT 
 			serie,
@@ -416,11 +507,35 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, serie string, ki
 			created_at
 		FROM latest_rules
 		WHERE rank = 1
-		ORDER BY created_at DESC
-		LIMIT $3 OFFSET $4;
+		ORDER BY
+			CASE WHEN $6 = 'asc' THEN
+				CASE $7
+					WHEN 'name' THEN name
+					WHEN 'group_name' THEN group_name
+					WHEN 'expression' THEN expression
+					WHEN 'created_at' THEN created_at
+				END
+			END ASC,
+			CASE WHEN $6 = 'desc' THEN
+				CASE $7
+					WHEN 'name' THEN name
+					WHEN 'group_name' THEN group_name
+					WHEN 'expression' THEN expression
+					WHEN 'created_at' THEN created_at
+				END
+			END DESC
+		LIMIT $8 OFFSET $9;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, serie, kind, pageSize, offset)
+	args := []interface{}{
+		params.Serie, params.Kind, startTime, endTime,
+		params.Filter,
+		params.SortOrder, params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rules usage: %w", err)
 	}

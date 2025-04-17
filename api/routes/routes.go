@@ -658,7 +658,20 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), name, page, pageSize)
+	sortBy := req.URL.Query().Get("sortBy")
+	sortOrder := req.URL.Query().Get("sortOrder")
+	filter := req.URL.Query().Get("filter")
+
+	params := db.QueriesBySerieNameParams{
+		SerieName: name,
+		Page:      page,
+		PageSize:  pageSize,
+		Filter:    filter,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	}
+
+	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), params)
 	if err != nil {
 		slog.Error("failed to retrieve series expressions", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("failed to retrieve series expressions: %w", err), http.StatusInternalServerError)
@@ -815,6 +828,10 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	filter := req.URL.Query().Get("filter")
+	sortBy := req.URL.Query().Get("sortBy")
+	sortOrder := req.URL.Query().Get("sortOrder")
+
 	if kind == "dashboard" {
 		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), name, page, pageSize)
 		if err != nil {
@@ -826,7 +843,17 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), name, kind, page, pageSize)
+	params := db.RulesUsageParams{
+		Serie:     name,
+		Kind:      kind,
+		Page:      page,
+		PageSize:  pageSize,
+		Filter:    filter,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	}
+
+	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), params)
 	if err != nil {
 		slog.Error("unable to retrieve rules usage", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve rules usage"), http.StatusInternalServerError)

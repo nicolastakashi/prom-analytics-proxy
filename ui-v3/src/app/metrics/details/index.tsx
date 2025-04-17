@@ -1,5 +1,5 @@
 // import { MetricLabels } from "@/components/metrics-explorer/metric-labels"
-// import MetricUsage from "@/components/metrics-explorer/metric-usage"
+import MetricUsage from "@/components/metrics-explorer/metric-usage"
 // import { MetricPerformance } from "@/components/metrics-explorer/metric-performance"
 // import { MetricRecommendations } from "@/components/metrics-explorer/metric-recommendations"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -152,14 +152,14 @@ export default function MetricsDetails() {
           </TabsList>
           <TabsContent value="performance" className=" bg-white rounded-lg mt-2">
               <MetricPerformance queryPerformanceData={queryPerformanceData} queryLatencyTrendsData={queryLatencyTrends} />
-            </TabsContent>
-          <TabsContent value="labels" className="p-4 bg-white rounded-lg mt-2">
+          </TabsContent>
+          <TabsContent value="labels" className=" bg-white rounded-lg mt-2">
             <div className="space-y-6">
               {/* <MetricLabels metricName={params.name} /> */}
             </div>
           </TabsContent>
-          <TabsContent value="usage" className="p-4 bg-white rounded-lg mt-2">
-            {/* <MetricUsage metricName={params.name} /> */}
+          <TabsContent value="usage" className=" bg-white rounded-lg mt-2">
+            <MetricUsage metricName={metric || ""} />
           </TabsContent>
           <TabsContent value="recommendations" className="p-4 bg-white rounded-lg mt-2">
             {/* <MetricRecommendations metricName={params.name} /> */}

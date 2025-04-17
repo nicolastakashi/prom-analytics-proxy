@@ -69,7 +69,7 @@ type PagedResult struct {
 }
 
 type QueriesBySerieNameResult struct {
-	QueryParam      string    `json:"queryParam"`
+	Query           string    `json:"query"`
 	AvgDuration     float64   `json:"avgDuration"`
 	AvgPeakySamples float64   `json:"avgPeakySamples"`
 	MaxPeakSamples  int       `json:"maxPeakSamples"`

@@ -39,9 +39,7 @@ func (m *MockDBProvider) QueryShortCuts() []db.QueryShortCut {
 
 func (p *MockDBProvider) GetQueriesBySerieName(
 	ctx context.Context,
-	serieName string,
-	page int,
-	pageSize int) (*db.PagedResult, error) {
+	params db.QueriesBySerieNameParams) (*db.PagedResult, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -50,8 +48,8 @@ func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.R
 	return args.Error(0)
 }
 
-func (m *MockDBProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*db.PagedResult, error) {
-	args := m.Called(ctx, serie, page, pageSize)
+func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsageParams) (*db.PagedResult, error) {
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 

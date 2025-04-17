@@ -32,7 +32,7 @@ type Provider interface {
 	QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
 	GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error)
-	GetQueriesBySerieName(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
+	GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error)
 	GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error)
 	GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
@@ -42,7 +42,7 @@ type Provider interface {
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
-	GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error)
+	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
 	GetDashboardUsage(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
 
@@ -127,6 +127,17 @@ type RecentQueriesParams struct {
 	SortOrder string
 	Filter    string
 	TimeRange TimeRange
+}
+
+// QueriesBySerieNameParams represents parameters for querying by serie name
+type QueriesBySerieNameParams struct {
+	SerieName string
+	TimeRange TimeRange
+	Page      int
+	PageSize  int
+	Filter    string
+	SortBy    string
+	SortOrder string
 }
 
 type SeriesMetadataParams struct {

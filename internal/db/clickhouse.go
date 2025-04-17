@@ -239,85 +239,137 @@ func (p *ClickHouseProvider) QueryShortCuts() []QueryShortCut {
 
 func (p *ClickHouseProvider) GetQueriesBySerieName(
 	ctx context.Context,
-	serieName string,
-	page int,
-	pageSize int) (*PagedResult, error) {
+	params QueriesBySerieNameParams) (*PagedResult, error) {
 
-	endTime := time.Now()
-	startTime := endTime.Add(-30 * 24 * time.Hour) // 30 days ago
-
-	totalCount, err := p.getQueriesBySerieNameTotalCount(ctx, serieName, startTime, endTime)
-	if err != nil {
-		return nil, err
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "avgDuration"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
 	}
 
-	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
-
-	data, err := p.getQueriesBySerieNameQueryData(ctx, serieName, startTime, endTime, page, pageSize)
-	if err != nil {
-		return nil, err
+	validSortFields := map[string]bool{
+		"queryParam":      true,
+		"avgDuration":     true,
+		"avgPeakySamples": true,
+		"maxPeakSamples":  true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "avgDuration"
 	}
 
-	return &PagedResult{
-		Total:      totalCount,
-		TotalPages: totalPages,
-		Data:       data,
-	}, nil
-}
-
-func (p *ClickHouseProvider) getQueriesBySerieNameTotalCount(ctx context.Context, serieName string, startTime, endTime time.Time) (int, error) {
-	countQuery := `
-		SELECT COUNT(DISTINCT QueryParam) AS TotalCount
-		FROM queries
-		WHERE 
-			LabelMatchers.value[indexOf(LabelMatchers.key, '__name__')] = ?
-			AND TS BETWEEN ? AND ?;
-	`
-
-	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serieName, startTime, endTime).Scan(&totalCount)
-	if err != nil {
-		return 0, fmt.Errorf("failed to count rows: %w", err)
-	}
-
-	return totalCount, nil
-}
-
-func (p *ClickHouseProvider) getQueriesBySerieNameQueryData(ctx context.Context, serieName string, startTime, endTime time.Time, page, pageSize int) ([]QueriesBySerieNameResult, error) {
+	// Build the query with filtering and sorting
 	query := `
+	WITH filtered_queries AS (
 		SELECT
-			QueryParam AS Query,
-			AVG(Duration) AS AvgDuration,
-			AVG(PeakSamples) AS AvgPeakSamples,
-			MAX(PeakSamples) AS MaxPeakSamples
+			QueryParam,
+			AVG(Duration) AS avgDuration,
+			AVG(PeakSamples) AS avgPeakySamples,
+			MAX(PeakSamples) AS maxPeakSamples
 		FROM queries
 		WHERE 
 			LabelMatchers.value[indexOf(LabelMatchers.key, '__name__')] = ?
 			AND TS BETWEEN ? AND ?
+			AND CASE 
+				WHEN ? != '' THEN 
+					position(QueryParam, ?) > 0
+				ELSE 
+					1=1
+				END
 		GROUP BY
 			QueryParam
-		ORDER BY
-			AvgDuration DESC
-		LIMIT ? OFFSET ?;
+	),
+	counted_queries AS (
+		SELECT COUNT(*) as total_count 
+		FROM filtered_queries
+	)
+	SELECT 
+		q.*,
+		cq.total_count
+	FROM 
+		filtered_queries q
+	CROSS JOIN counted_queries cq
+	ORDER BY
+		CASE WHEN ? = 'asc' THEN
+			CASE ?
+				WHEN 'queryParam' THEN q.QueryParam
+				WHEN 'avgDuration' THEN q.avgDuration
+				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
+				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
+			END
+		END ASC,
+		CASE WHEN ? = 'desc' THEN
+			CASE ?
+				WHEN 'queryParam' THEN q.QueryParam
+				WHEN 'avgDuration' THEN q.avgDuration
+				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
+				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
+			END
+		END DESC
+	LIMIT ? OFFSET ?;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, serieName, startTime, endTime, pageSize, page*pageSize)
+	args := []interface{}{
+		params.SerieName,
+		params.TimeRange.From,
+		params.TimeRange.To,
+		params.Filter,
+		params.Filter,
+		params.SortOrder,
+		params.SortBy,
+		params.SortOrder,
+		params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
-	data := []QueriesBySerieNameResult{}
+	var results []QueriesBySerieNameResult
+	var totalCount int
+
 	for rows.Next() {
-		var r QueriesBySerieNameResult
-		if err := rows.Scan(&r.QueryParam, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples); err != nil {
-			return nil, fmt.Errorf("unable to scan row: %w", err)
+		var result QueriesBySerieNameResult
+		if err := rows.Scan(
+			&result.Query,
+			&result.AvgDuration,
+			&result.AvgPeakySamples,
+			&result.MaxPeakSamples,
+			&totalCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		data = append(data, r)
+		results = append(results, result)
 	}
 
-	return data, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	totalPages := int(math.Ceil(float64(totalCount) / float64(params.PageSize)))
+
+	return &PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       results,
+	}, nil
 }
 
 func (p *ClickHouseProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
@@ -381,32 +433,95 @@ func (p *ClickHouseProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	return nil
 }
 
-func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, kind string, page int, pageSize int) (*PagedResult, error) {
-	// Calculate offset for pagination
-	if page < 1 {
-		page = 1
+func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
 	}
-	offset := (page - 1) * pageSize
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "created_at"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
+	}
 
-	// Query for total count of distinct rules
+	validSortFields := map[string]bool{
+		"name":       true,
+		"group_name": true,
+		"expression": true,
+		"created_at": true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "created_at"
+	}
+
+	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT CONCAT(name, group_name))
 		FROM RulesUsage
 		WHERE serie = ? 
 		AND kind = ?
-		AND created_at >= NOW() - INTERVAL 30 DAY;
+		AND created_at BETWEEN ? AND ?
+		AND CASE 
+			WHEN ? != '' THEN 
+				(name LIKE concat('%', ?, '%') OR expression LIKE concat('%', ?, '%'))
+			ELSE 
+				1=1
+			END;
 	`
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serie, kind).Scan(&totalCount)
+	startTime := params.TimeRange.From
+	endTime := params.TimeRange.To
+	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, startTime, endTime,
+		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+
+	// Build the ORDER BY clause based on sort parameters
+	var orderBy string
+	if params.SortOrder == "asc" {
+		switch params.SortBy {
+		case "name":
+			orderBy = "ORDER BY name ASC"
+		case "group_name":
+			orderBy = "ORDER BY group_name ASC"
+		case "expression":
+			orderBy = "ORDER BY expression ASC"
+		case "created_at":
+			orderBy = "ORDER BY created_at ASC"
+		default:
+			orderBy = "ORDER BY created_at ASC"
+		}
+	} else {
+		switch params.SortBy {
+		case "name":
+			orderBy = "ORDER BY name DESC"
+		case "group_name":
+			orderBy = "ORDER BY group_name DESC"
+		case "expression":
+			orderBy = "ORDER BY expression DESC"
+		case "created_at":
+			orderBy = "ORDER BY created_at DESC"
+		default:
+			orderBy = "ORDER BY created_at DESC"
+		}
+	}
 
 	// Query for paginated results
-	query := `
+	query := fmt.Sprintf(`
 		WITH latest_rules AS (
 			SELECT 
 				serie,
@@ -418,7 +533,14 @@ func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, ki
 				created_at,
 				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
 			FROM RulesUsage
-			WHERE serie = ? AND kind = ? AND created_at >= NOW() - INTERVAL 30 DAY
+			WHERE serie = ? AND kind = ? 
+			AND created_at BETWEEN ? AND ?
+			AND CASE 
+				WHEN ? != '' THEN 
+					(name LIKE concat('%%', ?, '%%') OR expression LIKE concat('%%', ?, '%%'))
+				ELSE 
+					1=1
+				END
 		)
 		SELECT 
 			serie,
@@ -430,11 +552,20 @@ func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, ki
 			created_at
 		FROM latest_rules
 		WHERE rank = 1
-		ORDER BY created_at DESC
+		%s
 		LIMIT ? OFFSET ?;
-	`
+	`, orderBy)
 
-	rows, err := p.db.QueryContext(ctx, query, serie, kind, pageSize, offset)
+	// Calculate offset for pagination
+	offset := (params.Page - 1) * params.PageSize
+
+	args := []interface{}{
+		params.Serie, params.Kind, startTime, endTime,
+		params.Filter, params.Filter, params.Filter,
+		params.PageSize, offset,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rules usage: %w", err)
 	}
@@ -483,7 +614,7 @@ func (p *ClickHouseProvider) GetRulesUsage(ctx context.Context, serie string, ki
 	}
 
 	return &PagedResult{
-		Total:      totalCount, // Use totalCount instead of len(results)
+		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
