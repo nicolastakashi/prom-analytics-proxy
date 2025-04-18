@@ -135,6 +135,27 @@ type DashboardUsage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type RulesUsageParams struct {
+	Serie     string
+	Kind      string
+	Filter    string
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
+	TimeRange TimeRange
+}
+
+type DashboardUsageParams struct {
+	Serie     string
+	Filter    string
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
+	TimeRange TimeRange
+}
+
 type MetricQueryPerformanceStatistics struct {
 	QueryRate       *QueryRateResult `json:"queryRate"`
 	TotalQueries    *int             `json:"totalQueries"`

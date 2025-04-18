@@ -661,6 +661,8 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 	sortBy := req.URL.Query().Get("sortBy")
 	sortOrder := req.URL.Query().Get("sortOrder")
 	filter := req.URL.Query().Get("filter")
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
 
 	params := db.QueriesBySerieNameParams{
 		SerieName: name,
@@ -669,6 +671,7 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 		Filter:    filter,
 		SortBy:    sortBy,
 		SortOrder: sortOrder,
+		TimeRange: db.TimeRange{From: from, To: to},
 	}
 
 	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), params)
@@ -831,9 +834,21 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	filter := req.URL.Query().Get("filter")
 	sortBy := req.URL.Query().Get("sortBy")
 	sortOrder := req.URL.Query().Get("sortOrder")
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
 
 	if kind == "dashboard" {
-		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), name, page, pageSize)
+		params := db.DashboardUsageParams{
+			Serie:     name,
+			Page:      page,
+			PageSize:  pageSize,
+			Filter:    filter,
+			SortBy:    sortBy,
+			SortOrder: sortOrder,
+			TimeRange: db.TimeRange{From: from, To: to},
+		}
+
+		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), params)
 		if err != nil {
 			slog.Error("unable to retrieve dashboard usage", "err", err)
 			writeErrorResponse(req, w, fmt.Errorf("unable to retrieve dashboard usage"), http.StatusInternalServerError)
@@ -851,6 +866,7 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 		Filter:    filter,
 		SortBy:    sortBy,
 		SortOrder: sortOrder,
+		TimeRange: db.TimeRange{From: from, To: to},
 	}
 
 	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), params)

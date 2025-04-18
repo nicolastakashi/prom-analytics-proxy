@@ -57,7 +57,7 @@ func (p *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	return nil
 }
 
-func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, serieName string, page, pageSize int) (*db.PagedResult, error) {
+func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.DashboardUsageParams) (*db.PagedResult, error) {
 	return nil, nil
 }
 

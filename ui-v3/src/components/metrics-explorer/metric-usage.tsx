@@ -4,10 +4,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
+import { DateRange } from "@/lib/types";
 
 interface MetricUsageProps {
   metricName: string;
-  dateRange?: { from: Date; to: Date };
+  dateRange?: DateRange | undefined;
 }
 
 // Define interface for expression data items
@@ -255,7 +256,7 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
     sortBy: queriesState.sortBy || 'avgDuration',
     sortOrder: queriesState.sortOrder || 'desc',
     filter: queriesState.filter,
-    type: 'all'
+    type: 'all',
   }, dateRange);
 
   // Fetch data for dashboards tab

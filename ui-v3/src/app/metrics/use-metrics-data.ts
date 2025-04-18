@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getMetricQueryPerformanceStatistics, getMetricStatistics, getSeriesMetadata, getSerieExpressions, getMetricUsage } from "@/api/metrics";
-import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics, QueryLatencyTrendsResult } from "@/lib/types";
-import { DateRange } from "react-day-picker";
+import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics, QueryLatencyTrendsResult, DateRange } from "@/lib/types";
 import { getQueryLatencyTrends } from "@/api/queries";
 
 interface MetricsData {
@@ -129,10 +128,9 @@ export function useMetricUsage(
   });
 }
 
-export function useSerieExpressions(metricName: string, tableState?: TableState, timeRange?: DateRange) {
+export function useSerieExpressions(metricName: string, tableState?: TableState, timeRange?: DateRange | undefined) {
   const from = timeRange?.from?.toISOString() || "";
   const to = timeRange?.to?.toISOString() || "";
-  
   const { data, isLoading, error } = useQuery({
     queryKey: ['serie-expressions', metricName, tableState, from, to],
     queryFn: () => getSerieExpressions(

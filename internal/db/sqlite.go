@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -411,17 +410,6 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	return nil
 }
 
-type RulesUsageParams struct {
-	Serie     string
-	Kind      string
-	Filter    string
-	Page      int
-	PageSize  int
-	SortBy    string
-	SortOrder string
-	TimeRange TimeRange
-}
-
 func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
 	// Set default values if not provided
 	if params.Page <= 0 {
@@ -643,28 +631,65 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	return nil
 }
 
-func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
-	offset := (page - 1) * pageSize
+func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "created_at"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
+	}
+
+	validSortFields := map[string]bool{
+		"name":       true,
+		"url":        true,
+		"created_at": true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "created_at"
+	}
+
+	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
 	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT name)
 		FROM DashboardUsage
 		WHERE serie = ? 
-		AND created_at >= datetime('now', '-30 days');
+		AND created_at BETWEEN ? AND ?
+		AND CASE 
+			WHEN ? != '' THEN 
+				(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+			ELSE 
+				1=1
+			END;
 	`
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	err := p.db.QueryRowContext(ctx, countQuery,
+		params.Serie, startTime, endTime,
+		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	// Query for paginated results
 	query := `
-		WITH latest_rules AS (
+		WITH latest_dashboards AS (
 			SELECT 
 				id,
 				serie,
@@ -673,7 +698,14 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, pa
 				created_at,
 				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
 			FROM DashboardUsage
-			WHERE serie = ? AND created_at >= datetime('now', '-30 days')
+			WHERE serie = ? 
+			AND created_at BETWEEN ? AND ?
+			AND CASE 
+				WHEN ? != '' THEN 
+					(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+				ELSE 
+					1=1
+				END
 		)
 		SELECT 
 			id,
@@ -681,13 +713,36 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, pa
 			name,
 			url,
 			created_at
-		FROM latest_rules
+		FROM latest_dashboards
 		WHERE rank = 1
-		ORDER BY created_at DESC
+		ORDER BY
+			CASE WHEN ? = 'asc' THEN
+				CASE ?
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END ASC,
+			CASE WHEN ? = 'desc' THEN
+				CASE ?
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END DESC
 		LIMIT ? OFFSET ?;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	args := []interface{}{
+		params.Serie, startTime, endTime,
+		params.Filter, params.Filter, params.Filter,
+		params.SortOrder, params.SortBy,
+		params.SortOrder, params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
@@ -724,7 +779,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, serie string, pa
 	}
 
 	return &PagedResult{
-		Total:      len(results),
+		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
@@ -1271,7 +1326,7 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 	query := `
 		SELECT 
 			COUNT(*) as total_queries,
-			ROUND(AVG(totalQueryableSamples), 2) as average_samples,
+			ROUND(AVG(peakSamples), 2) as average_samples,
 			MAX(peakSamples) as peak_samples,
 			ROUND(AVG(duration), 2) as average_duration
 		FROM queries 

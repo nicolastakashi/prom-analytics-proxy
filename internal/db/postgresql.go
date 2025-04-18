@@ -638,29 +638,64 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	return nil
 }
 
-func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
-	// Calculate offset for pagination
-	offset := page * pageSize
+func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "created_at"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
+	}
 
-	// Query for total count of distinct rules
+	validSortFields := map[string]bool{
+		"name":       true,
+		"url":        true,
+		"created_at": true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "created_at"
+	}
+
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+
+	// Query for total count of distinct dashboards
 	countQuery := `
 		SELECT COUNT(DISTINCT name)
 		FROM DashboardUsage
 		WHERE serie = $1
-		AND created_at >= NOW() - INTERVAL '30 days';
+		AND created_at BETWEEN $2 AND $3
+		AND CASE 
+			WHEN $4 != '' THEN 
+				(name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
+			ELSE 
+				TRUE
+			END;
 	`
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	err := p.db.QueryRowContext(ctx, countQuery,
+		params.Serie, from, to, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	// Query for paginated results
 	query := `
-		WITH latest_rules AS (
+		WITH latest_dashboards AS (
 			SELECT 
 				id,
 				serie,
@@ -668,24 +703,49 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, serie string
 				url,
 				created_at,
 				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
-			FROM RulesUsage
-			WHERE serie = $1 AND created_at >= NOW() - INTERVAL '30 days'
+			FROM DashboardUsage
+			WHERE serie = $1 
+			AND created_at BETWEEN $2 AND $3
+			AND CASE 
+				WHEN $4 != '' THEN 
+					(name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
+				ELSE 
+					TRUE
+				END
 		)
 		SELECT 
 			id,
 			serie,
 			name,
 			url,
-			created_at,
-		FROM latest_rules
+			created_at
+		FROM latest_dashboards
 		WHERE rank = 1
-		ORDER BY created_at DESC
-		LIMIT $3 OFFSET $4;
+		ORDER BY
+			CASE WHEN $5 = 'asc' THEN
+				CASE $6
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END ASC,
+			CASE WHEN $5 = 'desc' THEN
+				CASE $6
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END DESC
+		LIMIT $7 OFFSET $8;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	offset := (params.Page - 1) * params.PageSize
+	rows, err := p.db.QueryContext(ctx, query,
+		params.Serie, from, to, params.Filter,
+		params.SortOrder, params.SortBy,
+		params.PageSize, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
 	defer rows.Close()
 

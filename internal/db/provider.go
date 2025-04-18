@@ -44,7 +44,7 @@ type Provider interface {
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
-	GetDashboardUsage(ctx context.Context, serieName string, page int, pageSize int) (*PagedResult, error)
+	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
 
 	Close() error
 }

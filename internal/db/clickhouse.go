@@ -666,32 +666,65 @@ func (p *ClickHouseProvider) InsertDashboardUsage(ctx context.Context, dashboard
 
 	return nil
 }
-func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string, page, pageSize int) (*PagedResult, error) {
-	// Calculate offset for pagination
-	if page < 1 {
-		page = 1
+func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
+	// Set default values if not provided
+	if params.Page <= 0 {
+		params.Page = 1
 	}
-	offset := (page - 1) * pageSize
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "created_at"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now()
+	}
 
-	// Query for total count of distinct rules
+	validSortFields := map[string]bool{
+		"name":       true,
+		"url":        true,
+		"created_at": true,
+	}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "created_at"
+	}
+
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+
+	// Query for total count of distinct dashboards
 	countQuery := `
 		SELECT COUNT(DISTINCT CONCAT(id))
 		FROM DashboardUsage
 		WHERE serie = ? 
-		AND created_at >= NOW() - INTERVAL 30 DAY;
+		AND created_at BETWEEN ? AND ?
+		AND CASE 
+			WHEN ? != '' THEN 
+				(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+			ELSE 
+				1=1
+			END;
 	`
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, serie).Scan(&totalCount)
+	err := p.db.QueryRowContext(ctx, countQuery,
+		params.Serie, from, to,
+		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	// Calculate total pages
-	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	// Query for paginated results
 	query := `
-		WITH latest_rules AS (
+		WITH latest_dashboards AS (
 			SELECT 
 				id,
 				serie,
@@ -700,7 +733,14 @@ func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string
 				created_at,
 				ROW_NUMBER() OVER (PARTITION BY serie, id ORDER BY created_at DESC) AS rank
 			FROM DashboardUsage
-			WHERE serie = ? AND created_at >= NOW() - INTERVAL 30 DAY
+			WHERE serie = ? 
+			AND created_at BETWEEN ? AND ?
+			AND CASE 
+				WHEN ? != '' THEN 
+					(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+				ELSE 
+					1=1
+				END
 		)
 		SELECT 
 			id,
@@ -708,15 +748,38 @@ func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string
 			name,
 			url,
 			created_at
-		FROM latest_rules
+		FROM latest_dashboards
 		WHERE rank = 1
-		ORDER BY created_at DESC
+		ORDER BY
+			CASE WHEN ? = 'asc' THEN
+				CASE ?
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END ASC,
+			CASE WHEN ? = 'desc' THEN
+				CASE ?
+					WHEN 'name' THEN name
+					WHEN 'url' THEN url
+					WHEN 'created_at' THEN created_at
+				END
+			END DESC
 		LIMIT ? OFFSET ?;
 	`
 
-	rows, err := p.db.QueryContext(ctx, query, serie, pageSize, offset)
+	args := []interface{}{
+		params.Serie, from, to,
+		params.Filter, params.Filter, params.Filter,
+		params.SortOrder, params.SortBy,
+		params.SortOrder, params.SortBy,
+		params.PageSize,
+		(params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
 	defer rows.Close()
 
@@ -751,7 +814,7 @@ func (p *ClickHouseProvider) GetDashboardUsage(ctx context.Context, serie string
 	}
 
 	return &PagedResult{
-		Total:      totalCount, // Use totalCount instead of len(results)
+		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil

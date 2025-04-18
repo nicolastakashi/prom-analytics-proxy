@@ -159,7 +159,7 @@ export default function MetricsDetails() {
             </div>
           </TabsContent>
           <TabsContent value="usage" className=" bg-white rounded-lg mt-2">
-            <MetricUsage metricName={metric || ""} />
+            <MetricUsage metricName={metric || ""} dateRange={dateRange} />
           </TabsContent>
           <TabsContent value="recommendations" className="p-4 bg-white rounded-lg mt-2">
             {/* <MetricRecommendations metricName={params.name} /> */}
