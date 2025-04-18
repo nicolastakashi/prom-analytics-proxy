@@ -25,19 +25,10 @@ func (m *MockDBProvider) Close() error {
 	return args.Error(0)
 }
 
-func (m *MockDBProvider) Query(ctx context.Context, query string) (*db.QueryResult, error) {
-	args := m.Called(ctx, query)
-	return args.Get(0).(*db.QueryResult), args.Error(1)
-}
-
 func (p *MockDBProvider) WithDB(f func(db *sql.DB)) {
 }
 
-func (m *MockDBProvider) QueryShortCuts() []db.QueryShortCut {
-	return nil
-}
-
-func (p *MockDBProvider) GetQueriesBySerieName(
+func (m *MockDBProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params db.QueriesBySerieNameParams) (*db.PagedResult, error) {
 	return nil, fmt.Errorf("not implemented")

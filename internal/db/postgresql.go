@@ -173,63 +173,6 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 	return nil
 }
 
-func (p *PostGreSQLProvider) Query(ctx context.Context, query string) (*QueryResult, error) {
-	if err := ValidateSQLQuery(query); err != nil {
-		return nil, fmt.Errorf("query not allowed: %w", err)
-	}
-
-	rows, err := p.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	data := []map[string]interface{}{}
-	for rows.Next() {
-		columnPointers := make([]interface{}, len(columns))
-		columnValues := make([]interface{}, len(columns))
-		for i := range columnValues {
-			columnPointers[i] = &columnValues[i]
-		}
-
-		if err := rows.Scan(columnPointers...); err != nil {
-			return nil, fmt.Errorf("unable to scan row: %w", err)
-		}
-
-		rowMap := make(map[string]interface{})
-		for i, colName := range columns {
-			var v interface{}
-			switch columnValues[i].(type) {
-			case []uint8:
-				v = string(columnValues[i].([]uint8))
-			case []string:
-				v = columnValues[i].([]string)
-			case nil:
-				v = nil
-			default:
-				v = columnValues[i]
-			}
-			rowMap[colName] = v
-		}
-
-		data = append(data, rowMap)
-	}
-
-	return &QueryResult{
-		Columns: columns,
-		Data:    data,
-	}, nil
-}
-
-func (p *PostGreSQLProvider) QueryShortCuts() []QueryShortCut {
-	return commonQueryShortCuts
-}
-
 func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params QueriesBySerieNameParams) (*PagedResult, error) {

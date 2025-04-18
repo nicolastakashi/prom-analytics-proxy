@@ -26,8 +26,6 @@ var (
 type Provider interface {
 	WithDB(func(db *sql.DB))
 	Insert(ctx context.Context, queries []Query) error
-	Query(ctx context.Context, query string) (*QueryResult, error)
-	QueryShortCuts() []QueryShortCut
 
 	QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
@@ -95,29 +93,6 @@ func ValidateSQLQuery(query string) error {
 	}
 
 	return nil
-}
-
-var commonQueryShortCuts = []QueryShortCut{
-	{
-		Title: "Top 10 Longest Queries by Duration",
-		Query: `SELECT fingerprint, queryParam, duration, ts FROM queries GROUP BY fingerprint ORDER BY duration DESC LIMIT 10`,
-	},
-	{
-		Title: "Top 10 Queries with Highest Peak Samples",
-		Query: `SELECT fingerprint, queryParam, peakSamples, ts FROM queries GROUP BY fingerprint ORDER BY peakSamples DESC LIMIT 10`,
-	},
-	{
-		Title: "Top 10 Queries with Highest Queryable Samples",
-		Query: `SELECT fingerprint, queryParam, totalQueryableSamples, ts FROM queries GROUP BY fingerprint ORDER BY totalQueryableSamples DESC LIMIT 10`,
-	},
-	{
-		Title: "Top 10 Average and Maximum Duration per Query",
-		Query: `SELECT fingerprint, queryParam, AVG(duration) AS avgDuration, MAX(duration) AS maxDuration FROM queries GROUP BY fingerprint, queryParam ORDER BY avgDuration DESC`,
-	},
-	{
-		Title: "Top 10 Most Frequent Queries",
-		Query: `SELECT fingerprint, queryParam, COUNT(fingerprint) AS count FROM queries GROUP BY fingerprint, queryParam ORDER BY count DESC LIMIT 10`,
-	},
 }
 
 type RecentQueriesParams struct {

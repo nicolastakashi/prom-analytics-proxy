@@ -34,11 +34,6 @@ type Query struct {
 	PeakSamples           int
 }
 
-type QueryResult struct {
-	Columns []string                 `json:"columns"`
-	Data    []map[string]interface{} `json:"data"`
-}
-
 type QueryTypesResult struct {
 	TotalQueries   *int     `json:"total_queries"`
 	InstantPercent *float64 `json:"instant_percent"`
@@ -55,11 +50,6 @@ type QueryRateResult struct {
 	SuccessRatePercent *float64 `json:"success_rate_percent"`
 	ErrorTotal         *int     `json:"error_total"`
 	ErrorRatePercent   *float64 `json:"error_rate_percent"`
-}
-
-type QueryShortCut struct {
-	Title string `json:"title"`
-	Query string `json:"query"`
 }
 
 type PagedResult struct {

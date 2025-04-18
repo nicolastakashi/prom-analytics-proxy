@@ -77,7 +77,6 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 			prometheus.Labels{"handler": "query_range"},
 			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
-		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
 		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
 		mux.Handle("/api/v1/query/average_duration", http.HandlerFunc(r.averageDuration))
 		mux.Handle("/api/v1/query/rate", http.HandlerFunc(r.queryRate))
@@ -86,7 +85,6 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
 		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
 		mux.Handle("/api/v1/query/recent_queries", http.HandlerFunc(r.queryRecentQueries))
-		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
 		mux.Handle("/api/v1/metricQueryPerformanceStatistics/{name}", http.HandlerFunc(r.GetMetricQueryPerformanceStatistics))
@@ -295,24 +293,6 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	r.queryIngester.Ingest(query)
 }
 
-func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
-	query := req.FormValue("query")
-	if query == "" {
-		slog.Error("missing query parameter")
-		writeErrorResponse(req, w, fmt.Errorf("missing query parameter"), http.StatusBadRequest)
-		return
-	}
-
-	data, err := r.dbProvider.Query(req.Context(), query)
-	if err != nil {
-		slog.Error("unable to execute query", "err", err, "query", query)
-		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSONResponse(req, w, data)
-}
-
 func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -464,11 +444,6 @@ func (r *routes) queryRecentQueries(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	writeJSONResponse(req, w, data)
-}
-
-func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
-	data := r.dbProvider.QueryShortCuts()
 	writeJSONResponse(req, w, data)
 }
 
