@@ -3,8 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -17,10 +17,13 @@ const (
 	DisplayTimeFormat = "2006-01-02 15:04"    // For user display
 )
 
-// Common errors
-var (
-	ErrNoResults   = errors.New("no results found")
-	ErrInvalidScan = errors.New("invalid row scan")
+// Time constants
+const (
+	FifteenMinutes = 15 * time.Minute
+	ThirtyMinutes  = 30 * time.Minute
+	OneHour        = time.Hour
+	OneDay         = 24 * time.Hour
+	ThirtyDays     = 30 * 24 * time.Hour
 )
 
 type Provider interface {
@@ -54,7 +57,7 @@ func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, 
 	case SQLite:
 		return newSqliteProvider(ctx)
 	default:
-		return nil, fmt.Errorf("invalid database type %q, only 'postgresql' and 'sqlite' are supported", dbProvider)
+		return nil, ValidationError("database type", fmt.Sprintf("invalid type %q, only 'postgresql' and 'sqlite' are supported", dbProvider))
 	}
 }
 
@@ -83,11 +86,66 @@ func containsDeniedPattern(query string) bool {
 
 func ValidateSQLQuery(query string) error {
 	if containsDeniedKeyword(query) {
-		return fmt.Errorf("query contains disallowed keyword")
+		return ValidationError("SQL", "query contains disallowed keyword")
 	}
 
 	if containsDeniedPattern(query) {
-		return fmt.Errorf("query contains dangerous pattern")
+		return ValidationError("SQL", "query contains dangerous pattern")
+	}
+
+	return nil
+}
+
+// SetDefaultTimeRange ensures the time range has valid values
+func SetDefaultTimeRange(tr *TimeRange) {
+	if tr.From.IsZero() {
+		tr.From = time.Now().Add(-ThirtyDays) // Default to 30 days ago
+	}
+	if tr.To.IsZero() {
+		tr.To = time.Now()
+	}
+}
+
+// ValidateSortField checks if the sort field is valid and sets defaults if needed
+func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[string]bool, defaultSort string) {
+	if *sortBy == "" {
+		*sortBy = defaultSort
+	}
+	if *sortOrder == "" {
+		*sortOrder = "desc"
+	}
+	if !validSortFields[*sortBy] {
+		*sortBy = defaultSort
+	}
+}
+
+// ValidatePagination sets default page and pageSize if needed
+func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
+	if *page <= 0 {
+		*page = 1
+	}
+	if *pageSize <= 0 {
+		*pageSize = defaultPageSize
+	}
+}
+
+// CalculateTotalPages calculates total pages from total count and page size
+func CalculateTotalPages(totalCount, pageSize int) int {
+	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
+}
+
+// ProcessRows is a generic function to process SQL rows with error handling
+func ProcessRows(rows *sql.Rows, scanFunc func(*sql.Rows) error) error {
+	defer rows.Close()
+
+	for rows.Next() {
+		if err := scanFunc(rows); err != nil {
+			return ErrorWithOperation(err, "scanning row")
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return ErrorWithOperation(err, "row iteration")
 	}
 
 	return nil

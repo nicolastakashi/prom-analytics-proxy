@@ -65,10 +65,6 @@ const (
 			created_at DATETIME NOT NULL
 		);
 	`
-	FifteenMinutes = 15 * time.Minute
-	ThirtyMinutes  = 30 * time.Minute
-	OneHour        = time.Hour
-	OneDay         = 24 * time.Hour
 )
 
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
@@ -78,27 +74,27 @@ func RegisterSqliteFlags(flagSet *flag.FlagSet) {
 func newSqliteProvider(ctx context.Context) (Provider, error) {
 	db, err := otelsql.Open("sqlite", config.DefaultConfig.Database.SQLite.DatabasePath, otelsql.WithAttributes(semconv.DBSystemSqlite))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+		return nil, ConnectionError(err, "SQLite", "failed to open connection")
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
+		return nil, ConnectionError(err, "SQLite", "failed to ping database")
 	}
 
 	if _, err := db.ExecContext(ctx, createSqliteTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, SchemaError(err, "creation", "queries")
 	}
 
 	if _, err := db.Exec(configureSqliteStmt); err != nil {
-		return nil, fmt.Errorf("failed to configure sqlite database: %w)", err)
+		return nil, SchemaError(err, "configuration", "SQLite settings")
 	}
 
 	if _, err := db.ExecContext(ctx, createSqliteRulesUsageTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create rules usage table: %w", err)
+		return nil, SchemaError(err, "creation", "RulesUsage")
 	}
 
 	if _, err := db.ExecContext(ctx, createSqliteDashboardUsageTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create dashboard usage table: %w", err)
+		return nil, SchemaError(err, "creation", "DashboardUsage")
 	}
 
 	return &SQLiteProvider{
@@ -119,24 +115,26 @@ func (p *SQLiteProvider) WithDB(f func(db *sql.DB)) {
 func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if len(queries) == 0 {
+		return nil
+	}
+
 	query := `
 		INSERT INTO queries (
 			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
 		) VALUES `
 
-	values := make([]interface{}, 0, len(queries)*14)
-	placeholders := ""
+	// Get SQLite placeholder format
+	qc := NewSQLiteQueryContext()
+	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
+	query += placeholders
 
-	for i, q := range queries {
+	values := make([]interface{}, 0, len(queries)*14)
+	for _, q := range queries {
 		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
-			return fmt.Errorf("failed to marshal label matchers: %w", err)
-		}
-
-		placeholders += "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-
-		if i < len(queries)-1 {
-			placeholders += ", "
+			return QueryError(err, "marshaling label matchers", "")
 		}
 
 		values = append(values,
@@ -157,36 +155,17 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 		)
 	}
 
-	query += placeholders
-
 	_, err := p.db.ExecContext(ctx, query, values...)
 	if err != nil {
-		return fmt.Errorf("failed to execute insert query: %w", err)
+		return QueryError(err, "executing insert query", "")
 	}
 
 	return nil
 }
 
 func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error) {
-	// Set default values if not provided
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	}
-	if params.SortBy == "" {
-		params.SortBy = "avgDuration"
-	}
-	if params.SortOrder == "" {
-		params.SortOrder = "desc"
-	}
-	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
-	}
-	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
-	}
+	// Set default values using common helpers
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
 		"queryParam":      true,
@@ -194,11 +173,10 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		"avgPeakySamples": true,
 		"maxPeakSamples":  true,
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "avgDuration"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
+	SetDefaultTimeRange(&params.TimeRange)
 
-	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
+	startTime, endTime := PrepareTimeRange(params.TimeRange, "sqlite")
 
 	query := `
 	WITH filtered_queries AS (
@@ -260,9 +238,9 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		(params.Page - 1) * params.PageSize,
 	}
 
-	rows, err := p.db.QueryContext(ctx, query, args...)
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -278,16 +256,16 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 			&result.MaxPeakSamples,
 			&totalCount,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
-	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+	totalPages := CalculateTotalPages(totalCount, params.PageSize)
 
 	return &PagedResult{
 		Total:      totalCount,
@@ -730,38 +708,51 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 
 // QueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
 func (p *SQLiteProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+	SetDefaultTimeRange(&tr)
+	startTime, endTime := PrepareTimeRange(tr, "sqlite")
+
 	query := `
-	SELECT
-		COUNT(*) AS total_queries,
-		SUM(CASE WHEN type = 'instant' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS instant_percent,
-		SUM(CASE WHEN type = 'range' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS range_percent
-	FROM queries
-	WHERE ts BETWEEN datetime(?) AND datetime(?)
-	ORDER BY ts;
+		WITH total AS (
+			SELECT COUNT(*) AS count
+			FROM queries
+			WHERE ts BETWEEN ? AND ?
+		),
+		types AS (
+			SELECT 
+				COUNT(CASE WHEN type = 'instant' THEN 1 END) AS instant_count,
+				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
+			FROM queries
+			WHERE ts BETWEEN ? AND ?
+		)
+		SELECT 
+			t.count,
+			CASE WHEN t.count > 0 THEN ROUND(ty.instant_count * 100.0 / t.count, 2) ELSE 0 END,
+			CASE WHEN t.count > 0 THEN ROUND(ty.range_count * 100.0 / t.count, 2) ELSE 0 END
+		FROM 
+			total t, 
+			types ty;
 	`
 
-	fromStr, toStr := tr.Format(ISOTimeFormatNano)
-	rows, err := p.db.QueryContext(ctx, query, fromStr, toStr)
+	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query types: %w", err)
-	}
-	defer rows.Close()
-
-	result := &QueryTypesResult{}
-
-	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+		return nil, err
 	}
 
-	if err := rows.Scan(&result.TotalQueries, &result.InstantPercent, &result.RangePercent); err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
+	var result QueryTypesResult
+	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
+	if err != nil {
+		if IsNoResults(err) {
+			// Return zero values if no results
+			return &QueryTypesResult{
+				TotalQueries:   new(int),
+				InstantPercent: new(float64),
+				RangePercent:   new(float64),
+			}, nil
+		}
+		return nil, err
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
-	return result, nil
+	return &result, nil
 }
 
 func (p *SQLiteProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
@@ -861,27 +852,10 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 	return result, nil
 }
 
-func getIntervalByTimeRange(from, to time.Time) string {
-	timeRange := to.Sub(from)
-	hourInMs := time.Hour
-	dayInMs := 24 * hourInMs
-
-	switch {
-	case timeRange <= hourInMs:
-		return "+1 minutes"
-	case timeRange <= 6*hourInMs:
-		return "+15 minutes"
-	case timeRange <= 24*hourInMs:
-		return "+30 minutes"
-	case timeRange <= 7*dayInMs:
-		return "+1 hour"
-	default:
-		return "+1 day"
-	}
-}
-
 func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "sqlite")
+	from, to := PrepareTimeRange(tr, "sqlite")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -908,10 +882,9 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	ORDER BY bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query status distribution: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -919,20 +892,22 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	for rows.Next() {
 		var result QueryStatusDistributionResult
 		if err := rows.Scan(&result.Time, &result.Status2xx, &result.Status4xx, &result.Status5xx); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "sqlite")
+	from, to := PrepareTimeRange(tr, "sqlite")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -974,10 +949,9 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to, metricName, metricName)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to, metricName, metricName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query latency trends: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -985,20 +959,22 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	for rows.Next() {
 		var result QueryLatencyTrendsResult
 		if err := rows.Scan(&result.Time, &result.Value, &result.P95); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "sqlite")
+	from, to := PrepareTimeRange(tr, "sqlite")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -1023,10 +999,9 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query throughput analysis: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -1034,20 +1009,22 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	for rows.Next() {
 		var result QueryThroughputAnalysisResult
 		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "sqlite")
+	from, to := PrepareTimeRange(tr, "sqlite")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -1064,21 +1041,20 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 	SELECT 
 		b.bucket_start as time,
 		COALESCE(SUM(CASE 
-			WHEN t.statusCode >= 400 THEN 1 
+			WHEN q.statusCode >= 400 THEN 1 
 			ELSE 0 
 		END), 0) as value
 	FROM time_buckets b
-	LEFT JOIN queries t ON 
-		t.ts >= b.bucket_start AND 
-		t.ts < b.bucket_end
+	LEFT JOIN queries q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, from, interval, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query error analysis: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -1086,13 +1062,13 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 	for rows.Next() {
 		var result QueryErrorAnalysisResult
 		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil

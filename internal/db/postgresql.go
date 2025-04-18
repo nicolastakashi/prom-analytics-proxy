@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"sync"
 	"time"
@@ -80,23 +79,23 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 
 	db, err := otelsql.Open("postgres", psqlInfo, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open postgresql connection: %w", err)
+		return nil, ConnectionError(err, "PostgreSQL", "failed to open connection")
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping postgresql: %w", err)
+		return nil, ConnectionError(err, "PostgreSQL", "failed to ping database")
 	}
 
 	if _, err := db.ExecContext(ctx, createPostgresTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, SchemaError(err, "creation", "queries")
 	}
 
 	if _, err := db.ExecContext(ctx, createPostgresRulesUsageTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create rules usage table: %w", err)
+		return nil, SchemaError(err, "creation", "RulesUsage")
 	}
 
 	if _, err := db.ExecContext(ctx, createPostgresDashboardUsageTableStmt); err != nil {
-		return nil, fmt.Errorf("failed to create dashboard usage table: %w", err)
+		return nil, SchemaError(err, "creation", "DashboardUsage")
 	}
 
 	return &PostGreSQLProvider{
@@ -120,29 +119,25 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	if len(queries) == 0 {
+		return nil
+	}
+
 	query := `
 		INSERT INTO queries (
 			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
 		) VALUES `
 
-	values := make([]interface{}, 0, len(queries)*14)
-	placeholders := ""
+	// Get PostgreSQL placeholder format
+	qc := NewPostgreSQLQueryContext()
+	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
+	query += placeholders
 
-	for i, q := range queries {
+	values := make([]interface{}, 0, len(queries)*14)
+	for _, q := range queries {
 		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
-			return fmt.Errorf("failed to marshal label matchers: %w", err)
-		}
-
-		// This is required to build a string like
-		// "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14), ($15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)"
-		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			i*14+1, i*14+2, i*14+3, i*14+4, i*14+5, i*14+6, i*14+7, i*14+8, i*14+9, i*14+10, i*14+11, i*14+12, i*14+13, i*14+14,
-		)
-
-		if i < len(queries)-1 {
-			placeholders += ", "
+			return QueryError(err, "marshaling label matchers", "")
 		}
 
 		values = append(values,
@@ -163,11 +158,9 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 		)
 	}
 
-	query += placeholders
-
 	_, err := p.db.ExecContext(ctx, query, values...)
 	if err != nil {
-		return fmt.Errorf("failed to execute insert query: %w", err)
+		return QueryError(err, "executing insert query", "")
 	}
 
 	return nil
@@ -177,25 +170,8 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params QueriesBySerieNameParams) (*PagedResult, error) {
 
-	// Set default values if not provided
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	}
-	if params.SortBy == "" {
-		params.SortBy = "avgDuration"
-	}
-	if params.SortOrder == "" {
-		params.SortOrder = "desc"
-	}
-	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
-	}
-	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
-	}
+	// Set default values using common helpers
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
 		"queryParam":      true,
@@ -203,9 +179,8 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 		"avgPeakySamples": true,
 		"maxPeakSamples":  true,
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "avgDuration"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
+	SetDefaultTimeRange(&params.TimeRange)
 
 	query := `
 	WITH filtered_queries AS (
@@ -269,9 +244,9 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 		(params.Page - 1) * params.PageSize,
 	}
 
-	rows, err := p.db.QueryContext(ctx, query, args...)
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -287,16 +262,16 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 			&result.MaxPeakSamples,
 			&totalCount,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
-	totalPages := int(math.Ceil(float64(totalCount) / float64(params.PageSize)))
+	totalPages := CalculateTotalPages(totalCount, params.PageSize)
 
 	return &PagedResult{
 		Total:      totalCount,
@@ -730,36 +705,51 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 }
 
 func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+	SetDefaultTimeRange(&tr)
+	startTime, endTime := PrepareTimeRange(tr, "postgresql")
+
 	query := `
-		SELECT
-			COUNT(*) AS total_queries,
-			SUM(CASE WHEN type = 'instant' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS instant_percent,
-			SUM(CASE WHEN type = 'range' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS range_percent
-		FROM queries
-		WHERE ts BETWEEN $1 AND $2;
+		WITH total AS (
+			SELECT COUNT(*) AS count
+			FROM queries
+			WHERE ts BETWEEN $1 AND $2
+		),
+		types AS (
+			SELECT 
+				COUNT(CASE WHEN type = 'instant' THEN 1 END) AS instant_count,
+				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
+			FROM queries
+			WHERE ts BETWEEN $3 AND $4
+		)
+		SELECT 
+			t.count,
+			CASE WHEN t.count > 0 THEN ROUND(ty.instant_count * 100.0 / t.count, 2) ELSE 0 END,
+			CASE WHEN t.count > 0 THEN ROUND(ty.range_count * 100.0 / t.count, 2) ELSE 0 END
+		FROM 
+			total t, 
+			types ty;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, startTime, endTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query types: %w", err)
-	}
-	defer rows.Close()
-
-	result := &QueryTypesResult{}
-	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+		return nil, err
 	}
 
-	if err := rows.Scan(&result.TotalQueries, &result.InstantPercent, &result.RangePercent); err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
+	var result QueryTypesResult
+	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
+	if err != nil {
+		if IsNoResults(err) {
+			// Return zero values if no results
+			return &QueryTypesResult{
+				TotalQueries:   new(int),
+				InstantPercent: new(float64),
+				RangePercent:   new(float64),
+			}, nil
+		}
+		return nil, err
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
-	return result, nil
+	return &result, nil
 }
 
 func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
@@ -861,8 +851,15 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	return result, nil
 }
 
+// Define the function first to fix references
+func getIntervalByTimeRange(from, to time.Time) string {
+	return GetInterval(from, to, "postgresql")
+}
+
 func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "postgresql")
+	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -889,10 +886,9 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	ORDER BY bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query status distribution: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -900,20 +896,22 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	for rows.Next() {
 		var result QueryStatusDistributionResult
 		if err := rows.Scan(&result.Time, &result.Status2xx, &result.Status4xx, &result.Status5xx); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "postgresql")
+	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -945,10 +943,9 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, interval, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to query latency trends: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -957,21 +954,23 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 		var result QueryLatencyTrendsResult
 		var p95 float64
 		if err := rows.Scan(&result.Time, &result.Value, &p95); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		result.P95 = int(p95)
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "postgresql")
+	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -996,10 +995,9 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query throughput analysis: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -1007,20 +1005,22 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	for rows.Next() {
 		var result QueryThroughputAnalysisResult
 		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
-	interval := getIntervalByTimeRange(tr.From, tr.To)
+	SetDefaultTimeRange(&tr)
+	interval := GetInterval(tr.From, tr.To, "postgresql")
+	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
@@ -1048,10 +1048,9 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	ORDER BY b.bucket_start;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query error analysis: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -1059,13 +1058,13 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	for rows.Next() {
 		var result QueryErrorAnalysisResult
 		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return nil, ErrorWithOperation(err, "row iteration")
 	}
 
 	return results, nil
