@@ -6,6 +6,9 @@ import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DateRange } from "@/lib/types";
 
+// Define our extended column type with maxWidth
+type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number };
+
 interface MetricUsageProps {
   metricName: string;
   dateRange?: DateRange | undefined;
@@ -83,7 +86,7 @@ function useTabState(initialPage = 1, initialSortBy = 'avgDuration', initialSort
 }
 
 // Define column configurations
-const getQueriesColumns = (): ColumnDef<ExpressionDataItem, unknown>[] => [
+const getQueriesColumns = (): ExtendedColumnDef<ExpressionDataItem, unknown>[] => [
   {
     accessorKey: "query",
     header: ({ column }) => (
@@ -123,7 +126,7 @@ const getQueriesColumns = (): ColumnDef<ExpressionDataItem, unknown>[] => [
   },
 ];
 
-const getAlertsColumns = (): ColumnDef<MetricUsageItem, unknown>[] => [
+const getAlertsColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -139,7 +142,7 @@ const getAlertsColumns = (): ColumnDef<MetricUsageItem, unknown>[] => [
   },
 ];
 
-const getRecordingColumns = (): ColumnDef<MetricUsageItem, unknown>[] => [
+const getRecordingColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -155,7 +158,7 @@ const getRecordingColumns = (): ColumnDef<MetricUsageItem, unknown>[] => [
   },
 ];
 
-const getDashboardColumns = (): ColumnDef<MetricUsageItem, unknown>[] => [
+const getDashboardColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -257,7 +260,7 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
     sortOrder: queriesState.sortOrder || 'desc',
     filter: queriesState.filter,
     type: 'all',
-  }, dateRange);
+  }, dateRange && dateRange.from ? dateRange : undefined);
 
   // Fetch data for dashboards tab
   const {

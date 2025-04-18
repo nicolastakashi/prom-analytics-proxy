@@ -140,30 +140,18 @@ export default function MetricsDetails() {
             <TabsTrigger value="performance" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
               Performance
             </TabsTrigger>
-            <TabsTrigger value="labels" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
-              Labels & Dimensions
-            </TabsTrigger>
             <TabsTrigger value="usage" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
               Usage
-            </TabsTrigger>
-            <TabsTrigger value="recommendations" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
-              Recommendations
             </TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className=" bg-white rounded-lg mt-2">
               <MetricPerformance queryPerformanceData={queryPerformanceData} queryLatencyTrendsData={queryLatencyTrends} />
           </TabsContent>
-          <TabsContent value="labels" className=" bg-white rounded-lg mt-2">
-            <div className="space-y-6">
-              {/* <MetricLabels metricName={params.name} /> */}
-            </div>
-          </TabsContent>
           <TabsContent value="usage" className=" bg-white rounded-lg mt-2">
             <MetricUsage metricName={metric || ""} dateRange={dateRange} />
           </TabsContent>
-          <TabsContent value="recommendations" className="p-4 bg-white rounded-lg mt-2">
-            {/* <MetricRecommendations metricName={params.name} /> */}
-          </TabsContent>
+          {/* <TabsContent value="recommendations" className="p-4 bg-white rounded-lg mt-2">
+          </TabsContent> */}
         </Tabs>
       </div>
           </div>

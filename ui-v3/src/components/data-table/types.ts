@@ -3,7 +3,7 @@ import { ColumnDef, SortingState } from "@tanstack/react-table";
 // Core DataTable props interface
 export interface DataTableProps<TData> {
   data: TData[];
-  columns: ColumnDef<TData, unknown>[];
+  columns: Array<ColumnDef<TData, unknown> & { maxWidth?: string | number }>;
   searchColumn?: keyof TData;
   pagination?: boolean;
   pageSize?: number;
