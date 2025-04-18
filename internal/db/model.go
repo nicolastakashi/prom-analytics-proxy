@@ -10,7 +10,6 @@ type DatabaseProvider string
 const (
 	QueryTypeRange   QueryType        = "range"
 	QueryTypeInstant QueryType        = "instant"
-	ClickHouse       DatabaseProvider = "clickhouse"
 	PostGreSQL       DatabaseProvider = "postgresql"
 	SQLite           DatabaseProvider = "sqlite"
 )

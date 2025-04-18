@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
 	"gopkg.in/yaml.v3"
 )
@@ -22,7 +21,6 @@ type Config struct {
 
 type DatabaseConfig struct {
 	Provider   string           `yaml:"provider"`
-	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
 	PostgreSQL PostgreSQLConfig `yaml:"postgresql"`
 	SQLite     SQLiteConfig     `yaml:"sqlite"`
 }
@@ -34,12 +32,6 @@ type UpstreamConfig struct {
 
 type ServerConfig struct {
 	InsecureListenAddress string `yaml:"insecure_listen_address"`
-}
-
-type ClickHouseConfig struct {
-	Addr        string          `yaml:"addr"`
-	DialTimeout time.Duration   `yaml:"dial_timeout"`
-	Auth        clickhouse.Auth `yaml:"auth"`
 }
 
 type PostgreSQLConfig struct {

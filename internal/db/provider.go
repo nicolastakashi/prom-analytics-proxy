@@ -49,14 +49,12 @@ type Provider interface {
 
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
 	switch dbProvider {
-	case ClickHouse:
-		return newClickHouseProvider(ctx)
 	case PostGreSQL:
 		return newPostGreSQLProvider(ctx)
 	case SQLite:
 		return newSqliteProvider(ctx)
 	default:
-		return nil, fmt.Errorf("invalid database type %q, only 'clickhouse' and 'postgresql' are supported", dbProvider)
+		return nil, fmt.Errorf("invalid database type %q, only 'postgresql' and 'sqlite' are supported", dbProvider)
 	}
 }
 

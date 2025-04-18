@@ -30,7 +30,7 @@ Offers seamless integration with Perses Metrics Usage to gather and correlate me
 
 ### Data Storage
 
-Supports storing the collected analytics data in either ClickHouse, PostgreSQL, or SQLite, giving flexibility based on your database preferences.
+Supports storing the collected analytics data in either PostgreSQL or SQLite, giving flexibility based on your database preferences.
 
 ### User Interface
 
@@ -51,20 +51,10 @@ Both components are designed to work together, with `prom-analytics-proxy` handl
 The `prom-analytics-proxy` application supports several configuration options that can be set via command-line flags or configuration file, using the `-config-file` flag.
 
 ```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
-  -clickhouse-addr string
-    	Address of the clickhouse server, comma separated for multiple servers. (default "localhost:9000")
-  -clickhouse-database string
-    	Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var. (default "default")
-  -clickhouse-dial-timeout duration
-    	Timeout to dial clickhouse. (default 5s)
-  -clickhouse-password string
-    	Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.
-  -clickhouse-username string
-    	Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.
   -config-file string
     	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
-    	The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.
+    	The provider of database to use for storing query data. Supported values: postgresql, sqlite.
   -include-query-stats
     	Request query stats from the upstream prometheus API.
   -insecure-listen-address string
