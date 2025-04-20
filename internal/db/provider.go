@@ -97,10 +97,10 @@ func ValidateSQLQuery(query string) error {
 
 func SetDefaultTimeRange(tr *TimeRange) {
 	if tr.From.IsZero() {
-		tr.From = time.Now().Add(-ThirtyDays)
+		tr.From = time.Now().UTC().Add(-ThirtyDays)
 	}
 	if tr.To.IsZero() {
-		tr.To = time.Now()
+		tr.To = time.Now().UTC()
 	}
 }
 

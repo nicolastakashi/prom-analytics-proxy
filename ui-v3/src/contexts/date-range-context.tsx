@@ -1,6 +1,7 @@
 import { createContext, useContext, ReactNode, useState, useEffect } from 'react';
 import { useSearchParams } from 'wouter';
 import type { DateRange } from 'react-day-picker';
+import { fromUTC, formatLocalToUTC } from '@/lib/utils/date-utils';
 
 interface DateRangeContextType {
   dateRange: DateRange | undefined;
@@ -19,8 +20,9 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
 
     if (from && to) {
       try {
-        const fromDate = new Date(from);
-        const toDate = new Date(to);
+        // Convert from UTC to local time for internal use
+        const fromDate = fromUTC(from);
+        const toDate = fromUTC(to);
 
         if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
           setInternalDateRange({ from: fromDate, to: toDate });
@@ -34,9 +36,10 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
   const setDateRange = (range: DateRange | undefined) => {
     setInternalDateRange(range);
     if (range?.from && range?.to) {
+      // Convert to UTC for URL params
       setSearchParams({
-        from: range.from.toISOString(),
-        to: range.to.toISOString()
+        from: formatLocalToUTC(range.from),
+        to: formatLocalToUTC(range.to)
       });
     }
   };

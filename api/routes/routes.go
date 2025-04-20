@@ -168,9 +168,9 @@ func getTimeParam(req *http.Request, param string) time.Time {
 		if err != nil {
 			slog.Error("unable to parse time parameter", "err", err)
 		}
-		return timeParamNormalized
+		return timeParamNormalized.UTC()
 	}
-	return time.Now()
+	return time.Now().UTC()
 }
 
 func getStepParam(req *http.Request) float64 {
@@ -203,7 +203,7 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
-	start := time.Now()
+	start := time.Now().UTC()
 	query := db.Query{
 		TS:   start,
 		Type: db.QueryTypeInstant,
@@ -246,7 +246,7 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
-	start := time.Now()
+	start := time.Now().UTC()
 	query := db.Query{
 		TS:   start,
 		Type: db.QueryTypeRange,
@@ -298,11 +298,11 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 	to := getTimeParam(req, "to")
 
 	if from.IsZero() {
-		from = time.Now().Add(-7 * 24 * time.Hour)
+		from = time.Now().UTC().Add(-7 * 24 * time.Hour)
 	}
 
 	if to.IsZero() {
-		to = time.Now()
+		to = time.Now().UTC()
 	}
 
 	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to})
@@ -568,7 +568,7 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(*r.seriesLimit))
+	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().UTC().Add(-5*time.Minute), time.Now().UTC(), v1.WithLimit(*r.seriesLimit))
 	if err != nil {
 		slog.Error("unable to retrieve series data", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series data: %w", err), http.StatusInternalServerError)

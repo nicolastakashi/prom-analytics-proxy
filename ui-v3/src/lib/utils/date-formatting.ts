@@ -1,7 +1,9 @@
 import { format } from "date-fns"
+import { fromUTC } from "./date-utils"
 
 export function formatTimestampByGranularity(timestamp: string | number | Date, from: Date, to: Date) {
-    const date = new Date(timestamp)
+    // Convert the timestamp from UTC to local time zone if it's a string (from API)
+    const date = typeof timestamp === 'string' ? fromUTC(timestamp) : new Date(timestamp)
     const timeRange = to.getTime() - from.getTime()
     const hourInMs = 60 * 60 * 1000
     const dayInMs = 24 * hourInMs

@@ -300,7 +300,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	}
 	defer stmt.Close()
 
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	for _, rule := range rulesUsage {
 		labelsJSON, err := json.Marshal(rule.Labels)
@@ -343,10 +343,10 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour)
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
 	}
 	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
+		params.TimeRange.To = time.Now().UTC()
 	}
 
 	validSortFields := map[string]bool{
@@ -514,7 +514,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	}
 	defer stmt.Close()
 
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	for _, dashboard := range dashboardUsage {
 		_, err = stmt.ExecContext(ctx,
@@ -550,10 +550,10 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour)
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
 	}
 	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
+		params.TimeRange.To = time.Now().UTC()
 	}
 
 	validSortFields := map[string]bool{

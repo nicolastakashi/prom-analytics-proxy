@@ -1,4 +1,5 @@
 import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery } from "@/lib/types"
+import { toUTC } from "@/lib/utils/date-utils"
 
 interface ApiConfig {
   baseUrl: string;
@@ -66,7 +67,8 @@ function getUTCDate(date?: string): string {
   if (!date) {
     return new Date().toISOString();
   }
-  return new Date(date).toISOString();
+  // Use our utility function to ensure date is in UTC
+  return toUTC(date);
 }
 
 type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | QueryThroughputAnalysisResult[] | PagedResult<RecentQuery>;

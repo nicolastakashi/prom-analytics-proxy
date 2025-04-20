@@ -294,7 +294,7 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	}
 	defer stmt.Close()
 
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	for _, rule := range rulesUsage {
 		labelsJSON, err := json.Marshal(rule.Labels)
@@ -337,10 +337,10 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour) // Default to 30 days ago
 	}
 	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
+		params.TimeRange.To = time.Now().UTC()
 	}
 
 	validSortFields := map[string]bool{
@@ -500,7 +500,7 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 		}
 	}()
 
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO DashboardUsage (
@@ -545,10 +545,10 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour) // Default to 30 days ago
 	}
 	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now()
+		params.TimeRange.To = time.Now().UTC()
 	}
 
 	validSortFields := map[string]bool{

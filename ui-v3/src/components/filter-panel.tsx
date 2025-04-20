@@ -7,8 +7,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CalendarIcon } from "lucide-react"
 import type { DateRange, DayClickEventHandler } from "react-day-picker"
 import { format, subDays, subHours, startOfDay, endOfDay } from "date-fns"
-import { useLocation, useSearchParams } from "wouter"
+import { useSearchParams } from "wouter"
 import { useDateRange } from "@/contexts/date-range-context"
+import { fromUTC } from "@/lib/utils/date-utils"
 
 // Types
 interface TimeRange {
@@ -61,9 +62,8 @@ function generateQuickRanges(): TimeRange[] {
 }
 
 export function FilterPanel() {
-    const [pathname, setPathname] = useLocation()
-    const [searchParams] = useSearchParams()
     const { dateRange, setDateRange } = useDateRange()
+    const [searchParams] = useSearchParams()
     const [isOpen, setIsOpen] = useState(false)
     
     // Local state for the calendar selection
@@ -82,8 +82,8 @@ export function FilterPanel() {
         const toParam = searchParams.get("to")
         
         if (fromParam && toParam) {
-            const from = new Date(fromParam)
-            const to = new Date(toParam)
+            const from = fromUTC(fromParam)
+            const to = fromUTC(toParam)
             setCalendarState({ from, to })
             setDateRange({ from, to })
             setFromTime(format(from, "HH:mm"))
@@ -130,13 +130,8 @@ export function FilterPanel() {
             newFrom.setHours(parseInt(fromHours), parseInt(fromMinutes), 0, 0)
             newTo.setHours(parseInt(toHours), parseInt(toMinutes), 59, 999)
 
-            // Update URL and state
-            const params = new URLSearchParams(searchParams)
-            params.set("from", format(newFrom, "yyyy-MM-dd'T'HH:mm:ss'Z'"))
-            params.set("to", format(newTo, "yyyy-MM-dd'T'HH:mm:ss'Z'"))
-            
+            // Update state - dateRange context will handle UTC conversion
             setDateRange({ from: newFrom, to: newTo })
-            setPathname(`${pathname}?${params.toString()}`)
             setIsOpen(false)
             return
         }
@@ -148,16 +143,11 @@ export function FilterPanel() {
         setFromTime(format(range.from, "HH:mm"))
         setToTime(format(range.to, "HH:mm"))
         
-        // Automatically apply quick range selection
-        const params = new URLSearchParams(searchParams)
-        params.set("from", format(range.from, "yyyy-MM-dd'T'HH:mm:ss'Z'"))
-        params.set("to", format(range.to, "yyyy-MM-dd'T'HH:mm:ss'Z'"))
-        
+        // DateRange context handles UTC conversion
         setDateRange({ from: range.from, to: range.to })
         setCalendarState({ from: range.from, to: range.to })
-        setPathname(`${pathname}?${params.toString()}`)
         setIsOpen(false)
-    }, [pathname, searchParams, setDateRange, setPathname])
+    }, [setDateRange])
 
     return (
         <div className="flex flex-wrap items-center gap-2">

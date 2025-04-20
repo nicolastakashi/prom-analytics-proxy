@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTable } from "@/contexts/table-context"
 import { RecentQuery, PagedResult } from "@/lib/types"
-import { format, parseISO } from "date-fns"
+import { formatUTCtoLocal } from "@/lib/utils/date-utils"
 
 interface QueryTableProps {
   data?: PagedResult<RecentQuery>
@@ -112,10 +112,9 @@ const columns: ColumnDef<RecentQuery>[] = [
     },
     cell: ({ row }) => {
       const timestamp = row.getValue("timestamp") as string
-      const date = parseISO(timestamp)
       return (
         <div className="font-medium whitespace-nowrap">
-          {format(date, "MMM d, yyyy HH:mm:ss")}
+          {formatUTCtoLocal(timestamp, "MMM d, yyyy HH:mm:ss")}
         </div>
       )
     },

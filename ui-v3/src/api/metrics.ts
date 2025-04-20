@@ -1,5 +1,6 @@
 import { MetricQueryPerformanceStatistics, MetricStatistics, PagedResult } from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
+import { toUTC } from "@/lib/utils/date-utils";
 
 interface SerieExpression {
   query: string;
@@ -114,8 +115,8 @@ async function fetchApiData<T>(
     ...(sortOrder && { sortOrder }),
     ...(filter && { filter }),
     ...(type && { type }),
-    ...(from && { from }),
-    ...(to && { to }),
+    ...(from && { from: toUTC(from) }),
+    ...(to && { to: toUTC(to) }),
     ...(kind && { kind }),
   });
 
