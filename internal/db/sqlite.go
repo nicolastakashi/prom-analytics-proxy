@@ -164,7 +164,6 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 }
 
 func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error) {
-	// Set default values using common helpers
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
@@ -275,19 +274,16 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 }
 
 func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
-	// Begin a transaction
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		// Rollback the transaction if it's not committed
 		if err != nil {
 			_ = tx.Rollback()
 		}
 	}()
 
-	// Prepare the SQL statement for insertion
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO RulesUsage (
 			serie, group_name, name, expression, kind, labels, created_at
@@ -300,22 +296,19 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 
 	createdAt := time.Now()
 
-	// Iterate over the rulesUsage slice and execute the insert statement
 	for _, rule := range rulesUsage {
-		// Convert the Labels field to JSON or a comma-separated string
 		labelsJSON, err := json.Marshal(rule.Labels)
 		if err != nil {
 			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
 		}
 
-		// Execute the insert statement
 		_, err = stmt.ExecContext(ctx,
 			rule.Serie,
 			rule.GroupName,
 			rule.Name,
 			rule.Expression,
 			rule.Kind,
-			string(labelsJSON), // Pass the JSON string representation
+			string(labelsJSON),
 			createdAt,
 		)
 		if err != nil {
@@ -323,7 +316,6 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -332,7 +324,6 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 }
 
 func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
-	// Set default values if not provided
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -364,7 +355,6 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
-	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT name || group_name)
 		FROM RulesUsage
@@ -385,10 +375,8 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
-	// Calculate total pages
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	// Query for paginated results
 	query := `
 		WITH latest_rules AS (
 			SELECT 
@@ -467,12 +455,10 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 			createdAt  time.Time
 		)
 
-		// Scan each row
 		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Parse JSON labels
 		var labels []string
 		if labelsJSON != "" {
 			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
@@ -480,7 +466,6 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 			}
 		}
 
-		// Append to results
 		results = append(results, RulesUsage{
 			Serie:      serie,
 			GroupName:  groupName,
@@ -505,13 +490,11 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 }
 
 func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
-	// Begin a transaction
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		// Rollback the transaction if it's not committed
 		if err != nil {
 			_ = tx.Rollback()
 		}
@@ -519,7 +502,6 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 
 	createdAt := time.Now()
 
-	// Prepare the SQL statement for insertion
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO DashboardUsage (
 			id, serie, name, url, created_at
@@ -530,9 +512,7 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	}
 	defer stmt.Close()
 
-	// Iterate over the rulesUsage slice and execute the insert statement
 	for _, dashboard := range dashboardUsage {
-		// Execute the insert statement
 		_, err = stmt.ExecContext(ctx,
 			dashboard.Id,
 			dashboard.Serie,
@@ -545,7 +525,6 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -553,7 +532,6 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 }
 
 func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
-	// Set default values if not provided
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -584,7 +562,6 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
-	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT name)
 		FROM DashboardUsage
@@ -605,10 +582,8 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
-	// Calculate total pages
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	// Query for paginated results
 	query := `
 		WITH latest_dashboards AS (
 			SELECT 
@@ -679,12 +654,10 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 			createdAt time.Time
 		)
 
-		// Scan each row
 		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Append to results
 		results = append(results, DashboardUsage{
 			Id:        id,
 			Serie:     serie,
@@ -694,7 +667,6 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		})
 	}
 
-	// Check for errors after iteration
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
@@ -706,8 +678,8 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	}, nil
 }
 
-// QueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
-func (p *SQLiteProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+// GetQueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
+func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
 	SetDefaultTimeRange(&tr)
 	startTime, endTime := PrepareTimeRange(tr, "sqlite")
 
@@ -742,7 +714,6 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTy
 	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
 	if err != nil {
 		if IsNoResults(err) {
-			// Return zero values if no results
 			return &QueryTypesResult{
 				TotalQueries:   new(int),
 				InstantPercent: new(float64),
@@ -755,7 +726,7 @@ func (p *SQLiteProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTy
 	return &result, nil
 }
 
-func (p *SQLiteProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
+func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current

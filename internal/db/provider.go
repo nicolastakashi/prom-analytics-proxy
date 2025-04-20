@@ -29,9 +29,11 @@ const (
 type Provider interface {
 	WithDB(func(db *sql.DB))
 	Insert(ctx context.Context, queries []Query) error
+	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
+	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
 
-	QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
-	AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
+	GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
+	GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
 	GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error)
 	GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error)
 	GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error)
@@ -41,10 +43,7 @@ type Provider interface {
 	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
-
-	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
-	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
 	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
 
 	Close() error
@@ -64,7 +63,7 @@ func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, 
 var deniedKeywords = []string{"DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "EXEC", "--", ";"}
 
 func containsDeniedKeyword(query string) bool {
-	upperQuery := strings.ToUpper(query) // Normalize to upper case for comparison
+	upperQuery := strings.ToUpper(query)
 	for _, keyword := range deniedKeywords {
 		if strings.Contains(upperQuery, keyword) {
 			return true
@@ -96,17 +95,15 @@ func ValidateSQLQuery(query string) error {
 	return nil
 }
 
-// SetDefaultTimeRange ensures the time range has valid values
 func SetDefaultTimeRange(tr *TimeRange) {
 	if tr.From.IsZero() {
-		tr.From = time.Now().Add(-ThirtyDays) // Default to 30 days ago
+		tr.From = time.Now().Add(-ThirtyDays)
 	}
 	if tr.To.IsZero() {
 		tr.To = time.Now()
 	}
 }
 
-// ValidateSortField checks if the sort field is valid and sets defaults if needed
 func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[string]bool, defaultSort string) {
 	if *sortBy == "" {
 		*sortBy = defaultSort
@@ -119,7 +116,6 @@ func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[st
 	}
 }
 
-// ValidatePagination sets default page and pageSize if needed
 func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
 	if *page <= 0 {
 		*page = 1
@@ -129,12 +125,10 @@ func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
 	}
 }
 
-// CalculateTotalPages calculates total pages from total count and page size
 func CalculateTotalPages(totalCount, pageSize int) int {
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
 }
 
-// ProcessRows is a generic function to process SQL rows with error handling
 func ProcessRows(rows *sql.Rows, scanFunc func(*sql.Rows) error) error {
 	defer rows.Close()
 
@@ -160,7 +154,6 @@ type RecentQueriesParams struct {
 	TimeRange TimeRange
 }
 
-// QueriesBySerieNameParams represents parameters for querying by serie name
 type QueriesBySerieNameParams struct {
 	SerieName string
 	TimeRange TimeRange
@@ -185,12 +178,10 @@ type TimeRange struct {
 	To   time.Time
 }
 
-// Format formats the time range according to the given format
 func (tr TimeRange) Format(layout string) (string, string) {
 	return tr.From.UTC().Format(layout), tr.To.UTC().Format(layout)
 }
 
-// Previous returns the previous time range of the same duration
 func (tr TimeRange) Previous() TimeRange {
 	duration := tr.To.Sub(tr.From)
 	return TimeRange{
@@ -207,7 +198,6 @@ type ListQueriesResult struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// Add RecentQueriesResult type
 type RecentQueriesResult struct {
 	QueryParam string    `json:"queryParam"`
 	Duration   int64     `json:"duration"`

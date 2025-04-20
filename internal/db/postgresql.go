@@ -47,7 +47,7 @@ const (
 			name TEXT NOT NULL,
 			expression TEXT NOT NULL,
 			kind TEXT NOT NULL,
-			labels JSONB, -- JSONB is used for better performance with JSON data
+			labels JSONB,
 			created_at TIMESTAMP NOT NULL
 		);`
 
@@ -128,7 +128,6 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
 		) VALUES `
 
-	// Get PostgreSQL placeholder format
 	qc := NewPostgreSQLQueryContext()
 	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
 	query += placeholders
@@ -286,13 +285,11 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		// Rollback the transaction if it's not committed
 		if err != nil {
 			_ = tx.Rollback()
 		}
 	}()
 
-	// Prepare the SQL statement for insertion
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO RulesUsage (
 			serie, group_name, name, expression, kind, labels, created_at
@@ -305,15 +302,12 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 
 	createdAt := time.Now()
 
-	// Iterate over the rulesUsage slice and execute the insert statement
 	for _, rule := range rulesUsage {
-		// Convert the Labels field to JSON
 		labelsJSON, err := json.Marshal(rule.Labels)
 		if err != nil {
 			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
 		}
 
-		// Execute the insert statement
 		_, err = stmt.ExecContext(ctx,
 			rule.Serie,
 			rule.GroupName,
@@ -328,7 +322,6 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -337,7 +330,6 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 }
 
 func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
-	// Set default values if not provided
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -351,7 +343,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour)
 	}
 	if params.TimeRange.To.IsZero() {
 		params.TimeRange.To = time.Now()
@@ -369,7 +361,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 
 	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
 
-	// Query for total count
 	countQuery := `
 		SELECT COUNT(DISTINCT name || group_name)
 		FROM RulesUsage
@@ -390,10 +381,8 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
-	// Calculate total pages
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	// Query for paginated results
 	query := `
 		WITH latest_rules AS (
 			SELECT 
@@ -471,12 +460,10 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			createdAt  time.Time
 		)
 
-		// Scan each row
 		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Parse JSON labels
 		var labels []string
 		if labelsJSON != "" {
 			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
@@ -484,7 +471,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			}
 		}
 
-		// Append to results
 		results = append(results, RulesUsage{
 			Serie:      serie,
 			GroupName:  groupName,
@@ -496,7 +482,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		})
 	}
 
-	// Check for errors after iteration
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
@@ -514,13 +499,11 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		// Rollback the transaction if it's not committed
 		if err != nil {
 			_ = tx.Rollback()
 		}
 	}()
 
-	// Prepare the SQL statement for insertion
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO DashboardUsage (
 			id, serie, name, url, created_at
@@ -533,9 +516,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 
 	createdAt := time.Now()
 
-	// Iterate over the rulesUsage slice and execute the insert statement
 	for _, dashboard := range dashboardUsage {
-		// Execute the insert statement
 		_, err = stmt.ExecContext(ctx,
 			dashboard.Id,
 			dashboard.Serie,
@@ -548,7 +529,6 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 		}
 	}
 
-	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -557,7 +537,6 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 }
 
 func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
-	// Set default values if not provided
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -571,7 +550,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		params.SortOrder = "desc"
 	}
 	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour) // Default to 30 days ago
+		params.TimeRange.From = time.Now().Add(-30 * 24 * time.Hour)
 	}
 	if params.TimeRange.To.IsZero() {
 		params.TimeRange.To = time.Now()
@@ -588,7 +567,6 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
-	// Query for total count of distinct dashboards
 	countQuery := `
 		SELECT COUNT(DISTINCT name)
 		FROM DashboardUsage
@@ -608,10 +586,8 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		return nil, fmt.Errorf("failed to query total count: %w", err)
 	}
 
-	// Calculate total pages
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	// Query for paginated results
 	query := `
 		WITH latest_dashboards AS (
 			SELECT 
@@ -677,12 +653,10 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 			createdAt time.Time
 		)
 
-		// Scan each row
 		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Append to results
 		results = append(results, DashboardUsage{
 			Id:        id,
 			Serie:     serie,
@@ -692,7 +666,6 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		})
 	}
 
-	// Check for errors after iteration
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
@@ -704,7 +677,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	}, nil
 }
 
-func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
 	SetDefaultTimeRange(&tr)
 	startTime, endTime := PrepareTimeRange(tr, "postgresql")
 
@@ -739,7 +712,6 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*Que
 	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
 	if err != nil {
 		if IsNoResults(err) {
-			// Return zero values if no results
 			return &QueryTypesResult{
 				TotalQueries:   new(int),
 				InstantPercent: new(float64),
@@ -752,7 +724,7 @@ func (p *PostGreSQLProvider) QueryTypes(ctx context.Context, tr TimeRange) (*Que
 	return &result, nil
 }
 
-func (p *PostGreSQLProvider) AverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
+func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current
@@ -849,11 +821,6 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	}
 
 	return result, nil
-}
-
-// Define the function first to fix references
-func getIntervalByTimeRange(from, to time.Time) string {
-	return GetInterval(from, to, "postgresql")
 }
 
 func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
@@ -1230,9 +1197,9 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 
 	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query,
-		from, to, // For dashboard_count
-		metricName, from, to, // For the main query
-		from, to, // For total stats
+		from, to,
+		metricName, from, to,
+		from, to,
 	)
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)

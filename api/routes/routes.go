@@ -305,7 +305,7 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 		to = time.Now()
 	}
 
-	data, err := r.dbProvider.QueryTypes(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to})
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -319,7 +319,7 @@ func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 
-	data, err := r.dbProvider.AverageDuration(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetAverageDuration(req.Context(), db.TimeRange{From: from, To: to})
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)

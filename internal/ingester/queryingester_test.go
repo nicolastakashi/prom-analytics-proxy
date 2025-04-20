@@ -52,11 +52,11 @@ func (p *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.Dashbo
 	return nil, nil
 }
 
-func (p *MockDBProvider) QueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
+func (p *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
 	return nil, nil
 }
 
-func (p *MockDBProvider) AverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
+func (p *MockDBProvider) GetAverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
 	return nil, nil
 }
 
