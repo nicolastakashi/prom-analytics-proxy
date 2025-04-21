@@ -1,5 +1,5 @@
 import { type LucideIcon } from "lucide-react"
-import { Link } from "wouter"
+import { Link, useLocation } from "wouter"
 
 import {
   SidebarGroup,
@@ -16,24 +16,34 @@ interface NavigationItem {
 }
 
 interface NavigationProps {
+  label: string
   items: NavigationItem[]
 }
 
-export function Navigation({ items }: NavigationProps) {
+export function Navigation({ label, items }: NavigationProps) {
+  const [location] = useLocation()
+
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Analytics</SidebarGroupLabel>
-      <SidebarMenu>
-        {items.map((item) => (
-          <SidebarMenuItem key={item.name}>
-            <Link href={item.url}>
-              <SidebarMenuButton>
-                <item.icon className="flex-shrink-0" />
-                <span className="flex-1">{item.name}</span>
-              </SidebarMenuButton>
-            </Link>
-          </SidebarMenuItem>
-        ))}
+    <SidebarGroup className="py-2">
+      <SidebarGroupLabel className="px-4 mb-2 text-xs font-medium text-sidebar-foreground/70">{label}</SidebarGroupLabel>
+      <SidebarMenu className="space-y-1.5">
+        {items.map((item) => {
+          const isActive = location === item.url
+          
+          return (
+            <SidebarMenuItem key={item.name}>
+              <Link href={item.url}>
+                <SidebarMenuButton 
+                  isActive={isActive} 
+                  className={`${isActive ? 'font-medium' : 'font-normal'} transition-all`}
+                >
+                  <item.icon className={`flex-shrink-0 ${isActive ? "text-primary" : ""}`} />
+                  <span className="flex-1">{item.name}</span>
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
+          )
+        })}
       </SidebarMenu>
     </SidebarGroup>
   )
