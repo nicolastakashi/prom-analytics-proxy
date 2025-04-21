@@ -70,7 +70,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="border-b border-sidebar-border">
+      <SidebarHeader className={`flex h-16 min-h-[4rem] items-center justify-${isCollapsed ? "center" : "start"} border-b border-sidebar-border`}>
         <TeamSwitcher teams={data.teams} />
       </SidebarHeader>
       <SidebarContent className="flex-grow">

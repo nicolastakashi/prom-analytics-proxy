@@ -4,9 +4,9 @@ import { useEffect, useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, RefreshCw } from "lucide-react"
 import type { DateRange, DayClickEventHandler } from "react-day-picker"
-import { format, subDays, subHours, startOfDay, endOfDay } from "date-fns"
+import { format, subDays, subHours, startOfDay, endOfDay, differenceInMilliseconds } from "date-fns"
 import { useSearchParams } from "wouter"
 import { useDateRange } from "@/contexts/date-range-context"
 import { fromUTC } from "@/lib/utils/date-utils"
@@ -65,6 +65,7 @@ export function FilterPanel() {
     const { dateRange, setDateRange } = useDateRange()
     const [searchParams] = useSearchParams()
     const [isOpen, setIsOpen] = useState(false)
+    const [isRefreshing, setIsRefreshing] = useState(false)
     
     // Local state for the calendar selection
     const [calendarState, setCalendarState] = useState<DateRange | undefined>(dateRange)
@@ -148,6 +149,54 @@ export function FilterPanel() {
         setCalendarState({ from: range.from, to: range.to })
         setIsOpen(false)
     }, [setDateRange])
+
+    // Handle refresh functionality
+    const handleRefresh = useCallback(() => {
+        if (!dateRange?.from || !dateRange?.to) return
+        
+        setIsRefreshing(true)
+        
+        try {
+            const now = new Date()
+            const oldFrom = new Date(dateRange.from)
+            const oldTo = new Date(dateRange.to)
+            
+            // Calculate the time difference to maintain the range duration
+            const rangeDuration = differenceInMilliseconds(oldTo, oldFrom)
+            
+            // Create new range with same duration but updated to current time
+            const newFrom = new Date(now.getTime() - rangeDuration)
+            const newTo = now
+            
+            // Update the date range
+            setDateRange({ from: newFrom, to: newTo })
+            setCalendarState({ from: newFrom, to: newTo })
+            
+            // Update time inputs
+            setFromTime(format(newFrom, "HH:mm"))
+            setToTime(format(newTo, "HH:mm"))
+        } catch (error) {
+            console.error("Error refreshing date range", error)
+        } finally {
+            // Add small delay to show the refresh animation
+            setTimeout(() => {
+                setIsRefreshing(false)
+            }, 500)
+        }
+    }, [dateRange, setDateRange])
+
+    // Add keyboard shortcut for refresh (Ctrl+R)
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
+                event.preventDefault() // Prevent browser refresh
+                handleRefresh()
+            }
+        }
+        
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [handleRefresh])
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -238,6 +287,19 @@ export function FilterPanel() {
                     </div>
                 </PopoverContent>
             </Popover>
+            
+            {/* Refresh button */}
+            <Button
+                variant="outline"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isRefreshing || !dateRange?.from || !dateRange?.to}
+                aria-label="Refresh time range"
+                title="Refresh time range (Ctrl+R)"
+                className="h-10 w-10"
+            >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
         </div>
     )
 }

@@ -37,43 +37,45 @@ export default function Layout({ children, breadcrumb }: LayoutProps) {
     return (
         <ErrorBoundaryWithToast>
             <SidebarProvider>
-                <AppSidebar />
-                <SidebarInset>
-                <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-                    <div className="flex w-full items-center justify-between px-4">
-                        <div className="flex items-center gap-2">
-                            <SidebarTrigger className="-ml-1" />
-                            <Separator
-                                orientation="vertical"
-                                className="mr-2 data-[orientation=vertical]:h-4"
-                            />
-                            <Breadcrumb>
-                                <BreadcrumbList>
-                                    {breadcrumb?.parent && (
-                                        <>
-                                            <BreadcrumbItem className="hidden md:block">
-                                                <BreadcrumbLink href={breadcrumb.parent.href}>
-                                                    {breadcrumb.parent.label}
-                                                </BreadcrumbLink>
+                <div className="flex w-full">
+                    <AppSidebar />
+                    <SidebarInset className="flex flex-col w-full">
+                        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-sidebar-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                            <div className="flex w-full items-center justify-between px-4">
+                                <div className="flex items-center gap-2">
+                                    <SidebarTrigger className="-ml-1" />
+                                    <Separator
+                                        orientation="vertical"
+                                        className="mr-2 data-[orientation=vertical]:h-4"
+                                    />
+                                    <Breadcrumb>
+                                        <BreadcrumbList>
+                                            {breadcrumb?.parent && (
+                                                <>
+                                                    <BreadcrumbItem className="hidden md:block">
+                                                        <BreadcrumbLink href={breadcrumb.parent.href}>
+                                                            {breadcrumb.parent.label}
+                                                        </BreadcrumbLink>
+                                                    </BreadcrumbItem>
+                                                    <BreadcrumbSeparator className="hidden md:block" />
+                                                </>
+                                            )}
+                                            <BreadcrumbItem>
+                                                <BreadcrumbPage>{breadcrumb?.current || 'Overview'}</BreadcrumbPage>
                                             </BreadcrumbItem>
-                                            <BreadcrumbSeparator className="hidden md:block" />
-                                        </>
-                                    )}
-                                    <BreadcrumbItem>
-                                        <BreadcrumbPage>{breadcrumb?.current || 'Overview'}</BreadcrumbPage>
-                                    </BreadcrumbItem>
-                                </BreadcrumbList>
-                            </Breadcrumb>
+                                        </BreadcrumbList>
+                                    </Breadcrumb>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    {showFilterPanel && <FilterPanel />}
+                                </div>
+                            </div>
+                        </header>
+                        <div className="flex-1 w-full">
+                            {children}
                         </div>
-                        <div className="flex items-center gap-4">
-                            {showFilterPanel && <FilterPanel />}
-                        </div>
-                    </div>
-                </header>
-                <div className="flex-1">
-                    {children}
+                    </SidebarInset>
                 </div>
-                </SidebarInset>
             </SidebarProvider>
         </ErrorBoundaryWithToast>
     )
