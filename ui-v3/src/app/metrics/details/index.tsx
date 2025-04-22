@@ -46,7 +46,8 @@ interface InfoTooltipProps {
   
 
 export default function MetricsDetails() {
-    const { metric } = useParams();
+    const params = useParams();
+    const { metric } = params;
     const { dateRange } = useDateRange();
     const { data, isLoading, error } = useMetricStatistics(metric || "", dateRange);
     const { data: queryPerformanceData, isLoading: queryPerformanceLoading, error: queryPerformanceError } = useMetricQueryPerformanceStatistics(metric || "", dateRange);

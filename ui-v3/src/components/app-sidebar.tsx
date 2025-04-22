@@ -2,10 +2,7 @@ import * as React from "react"
 import {
   AudioWaveform,
   Command,
-  Frame,
   GalleryVerticalEnd,
-  Map,
-  PieChart,
   Settings,
 } from "lucide-react"
 import { Link, useLocation } from "wouter"
@@ -23,6 +20,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { routeConfigs } from "@/lib/routes"
 
 // This is sample data.
 const data = {
@@ -43,24 +41,16 @@ const data = {
       plan: "Free",
     },
   ],
-  analytics: [
-    {
-      name: "Overview",
-      url: "/",
-      icon: Frame,
-    },
-    {
-      name: "Performance",
-      url: "/performance",
-      icon: PieChart,
-    },
-    {
-      name: "Metrics Explorer",
-      url: "/metric-explorer",
-      icon: Map,
-    },
-  ],
 }
+
+// Get navigation items from routes configuration
+const navigationItems = routeConfigs
+  .filter(route => route.navigation?.showInSidebar)
+  .map(route => ({
+    name: route.navigation!.name,
+    url: route.path,
+    icon: route.navigation!.icon,
+  }))
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [location] = useLocation()
@@ -76,7 +66,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent className="flex-grow">
         <Navigation 
           label="Analytics" 
-          items={data.analytics} 
+          items={navigationItems}
         />
       </SidebarContent>
       <SidebarFooter className="mt-auto border-t border-sidebar-border py-3">

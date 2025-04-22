@@ -6,6 +6,7 @@ import { MetricTypeTag } from "@/components/metrics-explorer/metric-type-tag"
 import { useLocation } from "wouter"
 import { MetricMetadata, PagedResult, TableState } from "@/lib/types"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import { ROUTES } from "@/lib/routes"
 
 interface MetricsTableProps {
   metrics?: PagedResult<MetricMetadata>
@@ -36,7 +37,9 @@ export function MetricsTable({
   }, [searchQuery, tableState, onTableStateChange])
 
   const handleMetricClick = (metricName: string) => {
-    setLocation(`/metric-explorer/${encodeURIComponent(metricName)}`)
+    // Use the route path from ROUTES constant, replacing the parameter with the actual value
+    const detailsPath = ROUTES.METRICS_DETAILS.replace(':metric', encodeURIComponent(metricName))
+    setLocation(detailsPath)
   }
   
   // Initialize sorting state from tableState

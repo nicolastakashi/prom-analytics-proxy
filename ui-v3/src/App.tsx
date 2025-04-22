@@ -1,14 +1,11 @@
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useLocation } from "wouter";
 import Layout from "./components/layout";
-import { Overview } from "@/app/overview/index";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { DateRangeProvider } from "@/contexts/date-range-context";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorBoundaryWithToast } from "@/components/error-boundary";
-import { useLocation } from "wouter";
-import MetricsExplorer from "./app/metrics";
-import MetricsDetails from "./app/metrics/details";
+import { routeConfigs, ROUTES } from "@/lib/routes";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,42 +16,24 @@ const queryClient = new QueryClient({
   },
 });
 
-const routes = [
-  {
-    path: "/",
-    component: Overview,
-    breadcrumb: {
-      current: "Overview"
-    }
-  },
-  {
-    path: "/performance",
-    component: () => <div>Performance</div>,
-    breadcrumb: {
-      current: "Performance"
-    }
-  },
-  {
-    path: "/metric-explorer",
-    component: () => <MetricsExplorer />,
-    breadcrumb: {
-      current: "Metric Explorer"
-    }
-  },
-  {
-    path: "/metric-explorer/:metric",
-    component: () => <MetricsDetails />,
-    breadcrumb: {
-      current: "Metric Explorer"
-    }
-  }
-] as const;
-
-export type RoutePath = typeof routes[number]["path"];
+// Helper function to check if a location matches a route pattern
+const matchRoute = (pattern: string, path: string) => {
+  // Convert route pattern to regex by replacing :param with a capture group
+  const regexPattern = pattern
+    .replace(/:[^/]+/g, '([^/]+)')
+    .replace(/\//g, '\\/');
+  
+  const regex = new RegExp(`^${regexPattern}$`);
+  return regex.test(path);
+};
 
 function App() {
   const [location] = useLocation();
-  const currentRoute = routes.find(route => route.path === location) || routes[0];
+  
+  // Find the current route by checking each route pattern against the current location
+  const currentRoute = routeConfigs.find(route => 
+    matchRoute(route.path, location)
+  ) || routeConfigs[0]; // Default to first route if no match
 
   return (
     <ErrorBoundaryWithToast>
@@ -62,13 +41,13 @@ function App() {
         <DateRangeProvider>
           <Layout breadcrumb={currentRoute.breadcrumb}>
             <Switch>
-              {routes.map(({ path, component: Component }) => (
+              {routeConfigs.map(({ path, component: Component }) => (
                 <Route key={path} path={path} component={Component} />
               ))}
               
               {/* Redirect any unknown routes to Overview */}
               <Route>
-                <Redirect to="/" />
+                <Redirect to={ROUTES.HOME} />
               </Route>
             </Switch>
           </Layout>
