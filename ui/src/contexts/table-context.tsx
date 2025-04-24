@@ -11,6 +11,7 @@ const TableContext = createContext<TableContextType | undefined>(undefined)
 export function TableProvider({ children }: { children: ReactNode }) {
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
+    type: '',
     pageSize: 10,
     sortBy: 'timestamp',
     sortOrder: 'desc',
