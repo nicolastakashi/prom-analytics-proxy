@@ -1,54 +1,62 @@
-import { Button } from "./components/shadcn/button"
-import { Moon, Sun } from "lucide-react"
-import { useTheme } from './theme-provider'
-import { Routes, Route, Link } from 'react-router-dom'
-import Explore from "./pages/explore"
-import Metrics from "./pages/metrics"
-import MetricDetails from "./pages/metrics/detail"
+import { Route, Switch, Redirect, useLocation } from "wouter";
+import Layout from "./components/layout";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { DateRangeProvider } from "@/contexts/date-range-context";
+import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundaryWithToast } from "@/components/error-boundary";
+import { routeConfigs, ROUTES } from "@/lib/routes";
 
-export default function App() {
-  const { setTheme, theme } = useTheme()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
-  const toggleDarkMode = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark')
-  }
+// Helper function to check if a location matches a route pattern
+const matchRoute = (pattern: string, path: string) => {
+  // Convert route pattern to regex by replacing :param with a capture group
+  const regexPattern = pattern
+    .replace(/:[^/]+/g, '([^/]+)')
+    .replace(/\//g, '\\/');
+  
+  const regex = new RegExp(`^${regexPattern}$`);
+  return regex.test(path);
+};
+
+function App() {
+  const [location] = useLocation();
+  
+  // Find the current route by checking each route pattern against the current location
+  const currentRoute = routeConfigs.find(route => 
+    matchRoute(route.path, location)
+  ) || routeConfigs[0]; // Default to first route if no match
 
   return (
-    <div className={`min-h-screen bg-gray-200 dark:bg-gray-900`}>
-      <div className="bg-background text-foreground">
-        <header className="border-b border-border">
-          <div className="flex items-center justify-between px-4 h-14">
-            <div className="flex items-center space-x-3">
-              <Link to="/" className="text-lg font-semibold">
-                Prom Analytics Proxy
-              </Link>
-              <div className="flex items-center">
-                <Button variant="ghost" asChild className="text-muted-foreground hover:text-foreground">
-                  <Link to="/">Explore</Link>
-                </Button>
-                <Button variant="ghost" asChild className="text-muted-foreground hover:text-foreground">
-                  <Link to="/series">Metrics</Link>
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-center">
-              <Button variant="ghost" size="icon" onClick={toggleDarkMode}>
-                {theme == 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        <div className="flex flex-col min-h-[calc(100vh-3.5rem)]">
-          <Routes>
-            <Route path="/" element={<Explore />} />
-            <Route path="/series" element={<Metrics />} />
-            <Route path="/series/:id" element={<MetricDetails />} />
-          </Routes>
-        </div>
-      </div>
-    </div>
-  )
+    <ErrorBoundaryWithToast>
+      <QueryClientProvider client={queryClient}>
+        <DateRangeProvider>
+          <Layout breadcrumb={currentRoute.breadcrumb}>
+            <Switch>
+              {routeConfigs.map(({ path, component: Component }) => (
+                <Route key={path} path={path} component={Component} />
+              ))}
+              
+              {/* Redirect any unknown routes to Overview */}
+              <Route>
+                <Redirect to={ROUTES.HOME} />
+              </Route>
+            </Switch>
+          </Layout>
+          <ReactQueryDevtools initialIsOpen={false} />
+          <Toaster />
+        </DateRangeProvider>
+      </QueryClientProvider>
+    </ErrorBoundaryWithToast>
+  );
 }
 
-
+export default App;
