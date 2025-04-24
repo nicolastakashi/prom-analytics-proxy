@@ -52,7 +52,7 @@ interface FetchOptions {
 }
 
 const API_CONFIG: ApiConfig = {
-  baseUrl: 'http://localhost:9091',
+  baseUrl: process.env.NODE_ENV === 'development' ? 'http://localhost:9091' : '',
   endpoints: {
     seriesMetadata: '/api/v1/seriesMetadata',
     metricStatistics: '/api/v1/metricStatistics', 

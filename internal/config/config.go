@@ -17,6 +17,7 @@ type Config struct {
 	Tracing       *otlp.Config   `yaml:"tracing"`
 	MetadataLimit uint64         `yaml:"metadata_limit"`
 	SeriesLimit   uint64         `yaml:"series_limit"`
+	CORS          CORSConfig     `yaml:"cors"`
 }
 
 type DatabaseConfig struct {
@@ -56,7 +57,23 @@ type InsertConfig struct {
 	Timeout       time.Duration `yaml:"timeout"`
 }
 
-var DefaultConfig = &Config{}
+type CORSConfig struct {
+	AllowedOrigins   []string `yaml:"allowed_origins"`
+	AllowedMethods   []string `yaml:"allowed_methods"`
+	AllowedHeaders   []string `yaml:"allowed_headers"`
+	AllowCredentials bool     `yaml:"allow_credentials"`
+	MaxAge           int      `yaml:"max_age"`
+}
+
+var DefaultConfig = &Config{
+	CORS: CORSConfig{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	},
+}
 
 func LoadConfig(path string) error {
 	f, err := os.ReadFile(path)

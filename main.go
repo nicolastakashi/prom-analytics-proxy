@@ -175,12 +175,22 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle("/", routes)
 
+		// Add security headers middleware
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			mux.ServeHTTP(w, r)
+		})
+
+		// Configure CORS with options from config
 		corsHandler := cors.New(cors.Options{
-			AllowedOrigins:   []string{"*"}, // Allow all origins, adjust this for specific origins
-			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Content-Type", "Authorization"},
-			AllowCredentials: true,
-		}).Handler(mux)
+			AllowedOrigins:   config.DefaultConfig.CORS.AllowedOrigins,
+			AllowedMethods:   config.DefaultConfig.CORS.AllowedMethods,
+			AllowedHeaders:   config.DefaultConfig.CORS.AllowedHeaders,
+			AllowCredentials: config.DefaultConfig.CORS.AllowCredentials,
+			MaxAge:           config.DefaultConfig.CORS.MaxAge,
+		}).Handler(handler)
 
 		l, err := net.Listen("tcp", config.DefaultConfig.Server.InsecureListenAddress)
 		if err != nil {

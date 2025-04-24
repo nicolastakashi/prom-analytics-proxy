@@ -27,7 +27,7 @@ interface FetchOptions {
 }
 
 const API_CONFIG: ApiConfig = {
-  baseUrl: 'http://localhost:9091',
+  baseUrl: process.env.NODE_ENV === 'development' ? 'http://localhost:9091' : '',
   endpoints: {
     queryTypes: '/api/v1/query/types',
     queryRate: '/api/v1/query/rate',
