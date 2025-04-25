@@ -7,6 +7,7 @@ toolchain go1.23.3
 require (
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
+
 	github.com/perses/metrics-usage v0.5.1-0.20250322203639-1b178e64b18c
 	github.com/prometheus/prometheus v0.302.1
 	github.com/stretchr/testify v1.10.0
@@ -35,6 +36,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
+	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/perses/perses v0.50.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -74,7 +76,11 @@ require (
 	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
+
 	github.com/prometheus/client_golang v1.21.1
+	github.com/perses/metrics-usage v0.5.1-0.20250307103756-d645dabed339
+	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/prometheus/client_golang v1.21.0
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
