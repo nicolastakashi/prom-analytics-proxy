@@ -7,3 +7,5 @@ validators:
     type: "ignore"
   - regex: 'github\.com'
     type: "ignore"
+  - regex: 'youtube\.com'
+    type: "ignore"

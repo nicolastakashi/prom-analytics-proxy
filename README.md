@@ -1,6 +1,8 @@
 # prom-analytics-proxy
 
 [![Build](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/nicolastakashi/prom-analytics-proxy)](https://goreportcard.com/report/github.com/nicolastakashi/prom-analytics-proxy)
 
 ## Table of Contents
 
@@ -10,63 +12,118 @@
 
 ## Overview
 
-`prom-analytics-proxy` is a lightweight proxy application designed to sit between your Prometheus server and its clients. It provides valuable insights by collecting detailed analytics on PromQL queries, helping you understand query performance, resource usage, and overall system behavior. This can significantly improve observability for Prometheus users, providing actionable data to optimize query execution and infrastructure.
+`prom-analytics-proxy` is a powerful observability tool that acts as a transparent proxy between your Prometheus server and its clients. It provides deep insights into your PromQL query patterns, helping you optimize performance and resource usage while maintaining complete visibility into your monitoring stack.
 
-![prom-analytics-proxy-ui example](assets/images/01.png)
-![prom-analytics-proxy-ui example](assets/images/02.png)
-![prom-analytics-proxy-ui example](assets/images/03.png)
+### Watch the Introduction Video
+
+[![Prometheus Analytics Proxy Introduction](https://img.youtube.com/vi/8PX4FwgxUd8/0.jpg)](https://www.youtube.com/watch?v=8PX4FwgxUd8)
+
+*Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup.*
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
+cd prom-analytics-proxy
+
+# Build and run
+make build
+./prom-analytics-proxy -upstream http://your-prometheus-server:9090
+```
 
 ## Features
 
-There are several key features that `prom-analytics-proxy` offers to enhance your Prometheus monitoring setup:
-
 ### Query Analytics
 
-Collects detailed statistics on PromQL queries, including query execution times, resource consumption, and the number of series touched.
+- Detailed statistics on PromQL queries
+- Execution time tracking
+- Resource consumption metrics
+- Series count analysis
 
 ### Metrics Usage
 
-Offers seamless integration with Perses Metrics Usage to gather and correlate metrics usage data from multiple sources—such as Recording Rules, Alerts, and Dashboards, alongside existing metrics and queries for deeper insights. For more information please check the [Metrics Usage Integration](#metrics-usage-integration) section.
+- Integration with Perses Metrics Usage
+- Multi-source data correlation
+- Comprehensive metrics tracking
+- [Learn more about Metrics Usage Integration](#metrics-usage-integration)
 
 ### Data Storage
 
-Supports storing the collected analytics data in either ClickHouse, PostgreSQL, or SQLite, giving flexibility based on your database preferences.
+- PostgreSQL support
+- SQLite support
+- Flexible storage options
+- Efficient data management
 
 ### User Interface
 
-Offers an intuitive web-based UI for exploring and visualizing analytics data, enabling engineers to make data-driven decisions for query optimization. Includes Query Shortcuts for quick access to frequently used query patterns.
+- Intuitive web-based dashboard
+- Query performance visualization
+- Query Shortcuts for common patterns
+- Real-time analytics
 
 ## Project Structure
 
-The project is organized into the following core components:
+The project is organized into two main components:
 
-- **`prom-analytics-proxy`**: A Go-based backend application responsible for acting as a proxy between Prometheus and clients. It captures and processes analytics from PromQL queries, offering insights into query performance metrics such as execution time, resource usage, and efficiency.
+### Backend (`prom-analytics-proxy`)
 
-- **`prom-analytics-proxy-ui`**: A React-based user interface located in the `ui` directory. This component provides a visual platform to explore the analytics data collected by the proxy, making it easier to analyze and identify trends in PromQL queries.
+- Go-based proxy application
+- Query analytics collection
+- Performance metrics processing
+- Data storage management
 
-Both components are designed to work together, with `prom-analytics-proxy` handling data collection and backend logic, while `prom-analytics-proxy-ui` provides a frontend interface for exploring query insights.
+### Frontend (`prom-analytics-proxy-ui`)
+
+- React-based user interface
+- Data visualization
+- Query analysis tools
+- Interactive dashboards
 
 ## Configuration
 
-The `prom-analytics-proxy` application supports several configuration options that can be set via command-line flags or configuration file, using the `-config-file` flag.
+The application can be configured through command-line flags or a configuration file. Here are the key configuration options:
+
+### Basic Configuration
+
+```yaml
+# Example configuration
+upstream: "http://prometheus:9090"
+insecure-listen-address: ":9091"
+database-provider: "postgresql" # or "sqlite"
+```
+
+### Database Configuration
+
+```yaml
+# PostgreSQL
+postgresql-addr: "localhost"
+postgresql-port: 5432
+postgresql-database: "prom_analytics"
+postgresql-user: "user"
+postgresql-password: "password"
+
+# SQLite
+sqlite-database-path: "prom-analytics-proxy.db"
+```
+
+### Performance Tuning
+
+```yaml
+insert-batch-size: 10
+insert-buffer-size: 100
+insert-flush-interval: "5s"
+insert-grace-period: "5s"
+insert-timeout: "1s"
+```
 
 ```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
-  -clickhouse-addr string
-    	Address of the clickhouse server, comma separated for multiple servers. (default "localhost:9000")
-  -clickhouse-database string
-    	Database for the clickhouse server, can also be set via CLICKHOUSE_DATABASE env var. (default "default")
-  -clickhouse-dial-timeout duration
-    	Timeout to dial clickhouse. (default 5s)
-  -clickhouse-password string
-    	Password for the clickhouse server, can also be set via CLICKHOUSE_PASSWORD env var.
-  -clickhouse-username string
-    	Username for the clickhouse server, can also be set via CLICKHOUSE_USER env var.
   -config-file string
     	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
-    	The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.
+    	The provider of database to use for storing query data. Supported values: postgresql, sqlite.
   -include-query-stats
-    	Request query stats from the upstream prometheus API.
+    	Request query stats from the upstream prometheus API. (default true)
   -insecure-listen-address string
     	The address the prom-analytics-proxy proxy HTTP server should listen on. (default ":9091")
   -insert-batch-size int
@@ -144,31 +201,4 @@ The `prom-analytics-proxy` application integrates with Perses Metrics Usage to g
 
 Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
 
-You can find a sample configuration file for the Metrics Usage integration in the `config` directory. The file includes the following options, assuming the `prom-analytics-proxy` is running on `localhost:9091`:
-
-```yaml
-metric_collector:
-  enable: true
-  http_client:
-    url: "https://demo.promlabs.com"
-
-rules_collectors:
-  - enable: true
-    prometheus_client:
-      url: "https://demo.promlabs.com"
-    metric_usage_client:
-      url: "http://localhost:9091"
-
-labels_collectors:
-  - enable: true
-    prometheus_client:
-      url: "https://demo.promlabs.com"
-    metric_usage_client:
-      url: "http://localhost:9091"
-perses_collector:
-  enable: true
-  perses_client:
-    url: "https://demo.perses.dev"
-  metric_usage_client:
-    url: "http://localhost:9091"
-```
+You can find a sample configuration file for the Metrics Usage integration in the `config` directory. The file includes the following options, assuming the `prom-analytics-proxy` is running on `

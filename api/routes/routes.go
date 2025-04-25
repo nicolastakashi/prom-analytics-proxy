@@ -11,12 +11,15 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	metricsUsageV1 "github.com/perses/metrics-usage/pkg/api/v1"
@@ -26,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
+	yaml "gopkg.in/yaml.v3"
 )
 
 type LimitsConfig struct {
@@ -44,6 +48,7 @@ type routes struct {
 	metadataLimit     string
 	seriesLimit       *uint64
 	limits            LimitsConfig
+	config            *config.Config
 }
 
 type Option func(*routes)
@@ -57,6 +62,12 @@ func WithDBProvider(dbProvider db.Provider) Option {
 func WithQueryIngester(queryIngester *ingester.QueryIngester) Option {
 	return func(r *routes) {
 		r.queryIngester = queryIngester
+	}
+}
+
+func WithConfig(cfg *config.Config) Option {
+	return func(r *routes) {
+		r.config = cfg
 	}
 }
 
@@ -75,15 +86,23 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 			prometheus.Labels{"handler": "query_range"},
 			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
-		mux.Handle("/api/v1/queries", http.HandlerFunc(r.analytics))
-		mux.Handle("/api/v1/queryShortcuts", http.HandlerFunc(r.queryShortcuts))
+		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
+		mux.Handle("/api/v1/query/average_duration", http.HandlerFunc(r.averageDuration))
+		mux.Handle("/api/v1/query/rate", http.HandlerFunc(r.queryRate))
+		mux.Handle("/api/v1/query/status_distribution", http.HandlerFunc(r.queryStatusDistribution))
+		mux.Handle("/api/v1/query/latency", http.HandlerFunc(r.queryLatencyTrends))
+		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
+		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
+		mux.Handle("/api/v1/query/recent_queries", http.HandlerFunc(r.queryRecentQueries))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
-		mux.Handle("/api/v1/serieMetadata/{name}", http.HandlerFunc(r.serieMetadata))
+		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
+		mux.Handle("/api/v1/metricQueryPerformanceStatistics/{name}", http.HandlerFunc(r.GetMetricQueryPerformanceStatistics))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
-		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetSerieUsage))
+		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
+		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
 		r.mux = mux
 	}
 }
@@ -159,9 +178,9 @@ func getTimeParam(req *http.Request, param string) time.Time {
 		if err != nil {
 			slog.Error("unable to parse time parameter", "err", err)
 		}
-		return timeParamNormalized
+		return timeParamNormalized.UTC()
 	}
-	return time.Now()
+	return time.Now().UTC()
 }
 
 func getStepParam(req *http.Request) float64 {
@@ -194,7 +213,7 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
-	start := time.Now()
+	start := time.Now().UTC()
 	query := db.Query{
 		TS:   start,
 		Type: db.QueryTypeInstant,
@@ -237,7 +256,7 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
-	start := time.Now()
+	start := time.Now().UTC()
 	query := db.Query{
 		TS:   start,
 		Type: db.QueryTypeRange,
@@ -284,17 +303,21 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	r.queryIngester.Ingest(query)
 }
 
-func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
-	query := req.FormValue("query")
-	if query == "" {
-		slog.Error("missing query parameter")
-		writeErrorResponse(req, w, fmt.Errorf("missing query parameter"), http.StatusBadRequest)
-		return
+func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	if from.IsZero() {
+		from = time.Now().UTC().Add(-7 * 24 * time.Hour)
 	}
 
-	data, err := r.dbProvider.Query(req.Context(), query)
+	if to.IsZero() {
+		to = time.Now().UTC()
+	}
+
+	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to})
 	if err != nil {
-		slog.Error("unable to execute query", "err", err, "query", query)
+		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
 		return
 	}
@@ -302,12 +325,174 @@ func (r *routes) analytics(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
-func (r *routes) queryShortcuts(w http.ResponseWriter, req *http.Request) {
-	data := r.dbProvider.QueryShortCuts()
+func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetAverageDuration(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, "")
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryStatusDistribution(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
+
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	metric_name := req.FormValue("metricName")
+
+	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, metric_name)
+
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryThroughputAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryRecentQueries(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	pageSize, err := getQueryParamAsInt(req, "pageSize", 10)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	sortBy := req.FormValue("sortBy")
+	if sortBy == "" {
+		sortBy = "timestamp"
+	}
+
+	sortOrder := req.FormValue("sortOrder")
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+
+	params := db.RecentQueriesParams{
+		TimeRange: db.TimeRange{From: from, To: to},
+		Page:      page,
+		PageSize:  pageSize,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		Filter:    req.FormValue("filter"),
+	}
+
+	data, err := r.dbProvider.GetRecentQueries(req.Context(), params)
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
 	writeJSONResponse(req, w, data)
 }
 
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
+	params := db.SeriesMetadataParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "name",
+		SortOrder: "asc",
+		Filter:    "",
+		Type:      "",
+	}
+
+	// Parse query parameters
+	if page, err := getQueryParamAsInt(req, "page", 1); err == nil {
+		params.Page = page
+	}
+
+	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
+		params.PageSize = pageSize
+	}
+
+	if sortBy := req.FormValue("sortBy"); sortBy != "" {
+		params.SortBy = sortBy
+	}
+
+	if sortOrder := req.FormValue("sortOrder"); sortOrder != "" {
+		params.SortOrder = sortOrder
+	}
+
+	if filter := req.FormValue("filter"); filter != "" {
+		params.Filter = filter
+	}
+
+	if metricType := req.FormValue("type"); metricType != "" {
+		params.Type = metricType
+	}
+
+	// Get all metadata
 	metadata, err := r.promAPI.Metadata(req.Context(), "", r.metadataLimit)
 	if err != nil {
 		slog.Error("unable to retrieve series metadata", "err", err)
@@ -315,10 +500,67 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	writeJSONResponse(req, w, metadata)
+	// Filter and sort metadata
+	var filteredMetadata []models.MetricMetadata
+	for metric, metas := range metadata {
+		for _, meta := range metas {
+			// Apply filter if exists
+			if params.Filter != "" && !strings.Contains(strings.ToLower(metric), strings.ToLower(params.Filter)) {
+				continue
+			}
+
+			// Apply type filter if exists
+			if params.Type != "" && params.Type != "all" && !strings.EqualFold(string(meta.Type), params.Type) {
+				continue
+			}
+
+			filteredMetadata = append(filteredMetadata, models.MetricMetadata{
+				Name: metric,
+				Type: string(meta.Type),
+				Help: meta.Help,
+				Unit: meta.Unit,
+			})
+		}
+	}
+
+	// Sort metadata
+	sort.Slice(filteredMetadata, func(i, j int) bool {
+		var result bool
+		switch params.SortBy {
+		case "name":
+			result = filteredMetadata[i].Name < filteredMetadata[j].Name
+		case "type":
+			result = filteredMetadata[i].Type < filteredMetadata[j].Type
+		default:
+			result = filteredMetadata[i].Name < filteredMetadata[j].Name
+		}
+
+		if params.SortOrder == "desc" {
+			return !result
+		}
+		return result
+	})
+
+	// Calculate pagination
+	totalCount := len(filteredMetadata)
+	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+	start := (params.Page - 1) * params.PageSize
+	end := start + params.PageSize
+	if end > totalCount {
+		end = totalCount
+	}
+
+	// Return paginated result using db.PagedResult
+	result := db.PagedResult{
+		Total:      totalCount,
+		TotalPages: totalPages,
+		Data:       filteredMetadata[start:end],
+	}
+
+	writeJSONResponse(req, w, result)
 }
 
-func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
+func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
 		slog.Error("missing name parameter")
@@ -326,24 +568,64 @@ func (r *routes) serieMetadata(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, time.Now().Add(-1*time.Minute), time.Now())
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	statistics, err := r.dbProvider.GetMetricStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
 	if err != nil {
-		slog.Error("unable to retrieve label names", "err", err, "name", name)
-		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
+		slog.Error("unable to retrieve metric statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric statistics: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().Add(-5*time.Minute), time.Now(), v1.WithLimit(*r.seriesLimit))
+	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().UTC().Add(-5*time.Minute), time.Now().UTC(), v1.WithLimit(*r.seriesLimit))
 	if err != nil {
 		slog.Error("unable to retrieve series data", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series data: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONResponse(req, w, models.SerieMetadata{
-		Labels:      labels,
-		SeriesCount: len(series),
-	})
+	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, from, to)
+	if err != nil {
+		slog.Error("unable to retrieve label names", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	statistics.SerieCount = len(series)
+	statistics.LabelCount = len(labels)
+
+	writeJSONResponse(req, w, statistics)
+}
+
+func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	if name == "" {
+		slog.Error("missing name parameter")
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, name)
+	if err != nil {
+		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	queryPerformanceStatistics, err := r.dbProvider.GetMetricQueryPerformanceStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	queryPerformanceStatistics.QueryRate = queryRate
+
+	writeJSONResponse(req, w, queryPerformanceStatistics)
 }
 
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
@@ -361,7 +643,23 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), name, page, pageSize)
+	sortBy := req.URL.Query().Get("sortBy")
+	sortOrder := req.URL.Query().Get("sortOrder")
+	filter := req.URL.Query().Get("filter")
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	params := db.QueriesBySerieNameParams{
+		SerieName: name,
+		Page:      page,
+		PageSize:  pageSize,
+		Filter:    filter,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		TimeRange: db.TimeRange{From: from, To: to},
+	}
+
+	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), params)
 	if err != nil {
 		slog.Error("failed to retrieve series expressions", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("failed to retrieve series expressions: %w", err), http.StatusInternalServerError)
@@ -425,8 +723,7 @@ func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, statu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.Error("failed to encode JSON response", "err", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return
@@ -490,7 +787,7 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
+func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
 		slog.Error("missing name parameter")
@@ -519,8 +816,24 @@ func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	filter := req.URL.Query().Get("filter")
+	sortBy := req.URL.Query().Get("sortBy")
+	sortOrder := req.URL.Query().Get("sortOrder")
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
 	if kind == "dashboard" {
-		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), name, page, pageSize)
+		params := db.DashboardUsageParams{
+			Serie:     name,
+			Page:      page,
+			PageSize:  pageSize,
+			Filter:    filter,
+			SortBy:    sortBy,
+			SortOrder: sortOrder,
+			TimeRange: db.TimeRange{From: from, To: to},
+		}
+
+		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), params)
 		if err != nil {
 			slog.Error("unable to retrieve dashboard usage", "err", err)
 			writeErrorResponse(req, w, fmt.Errorf("unable to retrieve dashboard usage"), http.StatusInternalServerError)
@@ -530,7 +843,18 @@ func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), name, kind, page, pageSize)
+	params := db.RulesUsageParams{
+		Serie:     name,
+		Kind:      kind,
+		Page:      page,
+		PageSize:  pageSize,
+		Filter:    filter,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		TimeRange: db.TimeRange{From: from, To: to},
+	}
+
+	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), params)
 	if err != nil {
 		slog.Error("unable to retrieve rules usage", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve rules usage"), http.StatusInternalServerError)
@@ -538,4 +862,23 @@ func (r *routes) GetSerieUsage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	writeJSONResponse(req, w, alerts)
+}
+
+func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
+	if r.config == nil {
+		writeErrorResponse(req, w, fmt.Errorf("configuration not available"), http.StatusInternalServerError)
+		return
+	}
+
+	sanitizedConfig := r.config.GetSanitizedConfig()
+	yamlData, err := yaml.Marshal(sanitizedConfig)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("failed to marshal YAML: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml")
+	if _, err := w.Write(yamlData); err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("failed to write response: %w", err), http.StatusInternalServerError)
+		return
+	}
 }

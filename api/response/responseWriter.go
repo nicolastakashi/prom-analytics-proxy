@@ -42,7 +42,7 @@ func (recw *responseWriter) ParseQueryResponse(includeQueryStats bool) *models.R
 	var reader io.Reader = recw.body
 	var err error
 
-	if strings.Contains(recw.Header().Get("Content-Encoding"), "gzip") {
+	if strings.Contains(recw.ResponseWriter.Header().Get("Content-Encoding"), "gzip") {
 		reader, err = gzip.NewReader(recw.body)
 		if err != nil {
 			slog.Error("unable to create gzip reader", "err", err)

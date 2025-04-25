@@ -48,19 +48,19 @@ func main() {
 	log.RegisterFlags(flagset)
 
 	flagset.StringVar(&configFile, "config-file", "", "Path to the configuration file, it takes precedence over the command line flags.")
+	flagset.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for storing query data. Supported values: postgresql, sqlite.")
+
 	flagset.Uint64("metadata-limit", 0, "The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	flagset.Uint64("series-limit", 0, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	flagset.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
-	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
+	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", true, "Request query stats from the upstream prometheus API.")
 	flagset.IntVar(&config.DefaultConfig.Insert.BufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
 	flagset.IntVar(&config.DefaultConfig.Insert.BatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
 	flagset.DurationVar(&config.DefaultConfig.Insert.Timeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
 	flagset.DurationVar(&config.DefaultConfig.Insert.FlushInterval, "insert-flush-interval", 5*time.Second, "Flush interval for inserting queries into the database.")
 	flagset.DurationVar(&config.DefaultConfig.Insert.GracePeriod, "insert-grace-period", 5*time.Second, "Grace period to insert pending queries after program shutdown.")
-	flagset.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for storing query data. Supported values: clickhouse, postgresql, sqlite.")
 
-	db.RegisterClickHouseFlags(flagset)
 	db.RegisterPostGreSQLFlags(flagset)
 	db.RegisterSqliteFlags(flagset)
 
@@ -162,6 +162,7 @@ func main() {
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
 			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
+			routes.WithConfig(config.DefaultConfig),
 			routes.WithLimits(routes.LimitsConfig{
 				SeriesLimit:   config.DefaultConfig.SeriesLimit,
 				MetadataLimit: config.DefaultConfig.MetadataLimit,
@@ -176,12 +177,22 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle("/", routes)
 
+		// Add security headers middleware
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			mux.ServeHTTP(w, r)
+		})
+
+		// Configure CORS with options from config
 		corsHandler := cors.New(cors.Options{
-			AllowedOrigins:   []string{"*"}, // Allow all origins, adjust this for specific origins
-			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Content-Type", "Authorization"},
-			AllowCredentials: true,
-		}).Handler(mux)
+			AllowedOrigins:   config.DefaultConfig.CORS.AllowedOrigins,
+			AllowedMethods:   config.DefaultConfig.CORS.AllowedMethods,
+			AllowedHeaders:   config.DefaultConfig.CORS.AllowedHeaders,
+			AllowCredentials: config.DefaultConfig.CORS.AllowCredentials,
+			MaxAge:           config.DefaultConfig.CORS.MaxAge,
+		}).Handler(handler)
 
 		l, err := net.Listen("tcp", config.DefaultConfig.Server.InsecureListenAddress)
 		if err != nil {

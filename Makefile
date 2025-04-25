@@ -85,7 +85,7 @@ uibuild:
 
 .PHONY: uidependencies
 uidependencies:
-	cd ui && npm install
+	cd ui && npm install --legacy-peer-deps
 
 .PHONY: build
 
