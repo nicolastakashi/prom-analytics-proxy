@@ -20,6 +20,7 @@ const queryClient = new QueryClient({
 const matchRoute = (pattern: string, path: string) => {
   // Convert route pattern to regex by replacing :param with a capture group
   const regexPattern = pattern
+    .replace(/\\/g, '\\\\') // Escape backslashes
     .replace(/:[^/]+/g, '([^/]+)')
     .replace(/\//g, '\\/');
   
