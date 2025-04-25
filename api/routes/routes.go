@@ -510,7 +510,7 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 			}
 
 			// Apply type filter if exists
-			if params.Type != "" && params.Type != "all" && strings.ToLower(string(meta.Type)) != strings.ToLower(params.Type) {
+			if params.Type != "" && params.Type != "all" && !strings.EqualFold(string(meta.Type), params.Type) {
 				continue
 			}
 
@@ -877,5 +877,8 @@ func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml")
-	w.Write(yamlData)
+	if _, err := w.Write(yamlData); err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("failed to write response: %w", err), http.StatusInternalServerError)
+		return
+	}
 }
