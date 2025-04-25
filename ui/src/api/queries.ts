@@ -1,4 +1,5 @@
 import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery } from "@/lib/types"
+import { ConfigResponse } from "@/types/config"
 import { toUTC } from "@/lib/utils/date-utils"
 
 interface ApiConfig {
@@ -12,6 +13,7 @@ interface ApiConfig {
     queryThroughputAnalysis: string;
     queryErrorAnalysis: string;
     recentQueries: string;
+    configs: string;
   };
 }
 
@@ -24,6 +26,7 @@ interface FetchOptions {
   sortOrder?: string;
   filter?: string;
   metricName?: string;
+  format?: 'json' | 'yaml';
 }
 
 const API_CONFIG: ApiConfig = {
@@ -37,6 +40,7 @@ const API_CONFIG: ApiConfig = {
     queryThroughputAnalysis: '/api/v1/query/throughput',
     queryErrorAnalysis: '/api/v1/query/errors',
     recentQueries: '/api/v1/query/recent_queries',
+    configs: '/api/v1/configs',
   }
 };
 
@@ -61,6 +65,8 @@ const DEFAULT_ERROR_VALUES = {
     totalPages: 0,
     data: [],
   },
+  configs: {
+  },
 };
 
 function getUTCDate(date?: string): string {
@@ -71,13 +77,18 @@ function getUTCDate(date?: string): string {
   return toUTC(date);
 }
 
-type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | QueryThroughputAnalysisResult[] | PagedResult<RecentQuery>;
+type EmptyObject = Record<string, never>;
+
+type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | 
+  QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | 
+  QueryThroughputAnalysisResult[] | QueryErrorAnalysisResult[] | 
+  PagedResult<RecentQuery> | ConfigResponse | string | EmptyObject;
 
 async function fetchApiData<T extends ApiResponse>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { from, to, page, pageSize, sortBy, sortOrder, filter, metricName } = options;
+  const { from, to, page, pageSize, sortBy, sortOrder, filter, metricName, format } = options;
   const fromUTC = getUTCDate(from);
   const toUTC = getUTCDate(to);
 
@@ -90,6 +101,7 @@ async function fetchApiData<T extends ApiResponse>(
     ...(sortOrder && { sortOrder }),
     ...(filter && { filter }),
     ...(metricName && { metricName }),
+    ...(format && { format }),
   });
 
   try {
@@ -97,6 +109,13 @@ async function fetchApiData<T extends ApiResponse>(
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
+    
+    // If format is yaml, return the text directly
+    if (format === 'yaml') {
+      return await response.text() as T;
+    }
+    
+    // Otherwise parse as JSON
     return await response.json() as T;
   } catch (error) {
     console.error(`Failed to fetch data from ${endpoint}:`, error);
@@ -184,5 +203,12 @@ export async function getRecentQueries(
       filter,
     }),
     DEFAULT_ERROR_VALUES.recentQueries
+  );
+}
+
+export async function getConfigurations(format: 'json' | 'yaml' = 'json'): Promise<ConfigResponse | EmptyObject> {
+  return withErrorHandling(
+    () => fetchApiData<ConfigResponse>(API_CONFIG.endpoints.configs, { format }),
+    DEFAULT_ERROR_VALUES.configs
   );
 }

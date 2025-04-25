@@ -19,6 +19,7 @@ export interface RouteConfig {
 
 const MetricsExplorer = lazy(() => import('@/app/metrics'))
 const MetricsDetails = lazy(() => import('@/app/metrics/details'))
+const SettingsPage = lazy(() => import('@/app/settings'))
 
 export const ROUTES = {
   HOME: '/',
@@ -27,9 +28,11 @@ export const ROUTES = {
   METRIC_EXPLORER: '/metrics-explorer', // For backward compatibility
   METRICS_DETAILS: '/metrics-explorer/:metric',
   METRIC_DETAILS: '/metrics-explorer/:metric', // For backward compatibility
+  SETTINGS: '/settings',
 } as const
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES]
+
 
 export const routeConfigs: readonly RouteConfig[] = [
   {
@@ -67,5 +70,12 @@ export const routeConfigs: readonly RouteConfig[] = [
       icon: Map,
       showInSidebar: false
     }
+  },
+  {
+    path: ROUTES.SETTINGS,
+    component: SettingsPage,
+    breadcrumb: {
+      current: "Settings"
+    },
   }
 ] as const 

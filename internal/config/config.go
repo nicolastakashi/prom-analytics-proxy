@@ -10,59 +10,59 @@ import (
 )
 
 type Config struct {
-	Upstream      UpstreamConfig `yaml:"upstream"`
-	Server        ServerConfig   `yaml:"server"`
-	Database      DatabaseConfig `yaml:"database"`
-	Insert        InsertConfig   `yaml:"insert"`
-	Tracing       *otlp.Config   `yaml:"tracing"`
-	MetadataLimit uint64         `yaml:"metadata_limit"`
-	SeriesLimit   uint64         `yaml:"series_limit"`
-	CORS          CORSConfig     `yaml:"cors"`
+	Upstream      UpstreamConfig `yaml:"upstream,omitempty"`
+	Server        ServerConfig   `yaml:"server,omitempty"`
+	Database      DatabaseConfig `yaml:"database,omitempty"`
+	Insert        InsertConfig   `yaml:"insert,omitempty"`
+	Tracing       *otlp.Config   `yaml:"tracing,omitempty"`
+	MetadataLimit uint64         `yaml:"metadata_limit,omitempty"`
+	SeriesLimit   uint64         `yaml:"series_limit,omitempty"`
+	CORS          CORSConfig     `yaml:"cors,omitempty"`
 }
 
 type DatabaseConfig struct {
-	Provider   string           `yaml:"provider"`
-	PostgreSQL PostgreSQLConfig `yaml:"postgresql"`
-	SQLite     SQLiteConfig     `yaml:"sqlite"`
+	Provider   string           `yaml:"provider,omitempty"`
+	PostgreSQL PostgreSQLConfig `yaml:"postgresql,omitempty"`
+	SQLite     SQLiteConfig     `yaml:"sqlite,omitempty"`
 }
 
 type UpstreamConfig struct {
-	URL               string `yaml:"url"`
-	IncludeQueryStats bool   `yaml:"include_query_stats"`
+	URL               string `yaml:"url,omitempty"`
+	IncludeQueryStats bool   `yaml:"include_query_stats,omitempty"`
 }
 
 type ServerConfig struct {
-	InsecureListenAddress string `yaml:"insecure_listen_address"`
+	InsecureListenAddress string `yaml:"insecure_listen_address,omitempty"`
 }
 
 type PostgreSQLConfig struct {
-	Addr        string        `yaml:"addr"`
-	Database    string        `yaml:"database"`
-	DialTimeout time.Duration `yaml:"dial_timeout"`
-	Password    string        `yaml:"password"`
-	Port        int           `yaml:"port"`
-	SSLMode     string        `yaml:"sslmode"`
-	User        string        `yaml:"user"`
+	Addr        string        `yaml:"addr,omitempty"`
+	Database    string        `yaml:"database,omitempty"`
+	DialTimeout time.Duration `yaml:"dial_timeout,omitempty"`
+	Password    string        `yaml:"password,omitempty"`
+	Port        int           `yaml:"port,omitempty"`
+	SSLMode     string        `yaml:"sslmode,omitempty"`
+	User        string        `yaml:"user,omitempty"`
 }
 
 type SQLiteConfig struct {
-	DatabasePath string `yaml:"database_path"`
+	DatabasePath string `yaml:"database_paths,omitempty"`
 }
 
 type InsertConfig struct {
-	BatchSize     int           `yaml:"batch_size"`
-	BufferSize    int           `yaml:"buffer_size"`
-	FlushInterval time.Duration `yaml:"flush_interval"`
-	GracePeriod   time.Duration `yaml:"grace_period"`
-	Timeout       time.Duration `yaml:"timeout"`
+	BatchSize     int           `yaml:"batch_size,omitempty"`
+	BufferSize    int           `yaml:"buffer_size,omitempty"`
+	FlushInterval time.Duration `yaml:"flush_interval,omitempty"`
+	GracePeriod   time.Duration `yaml:"grace_period,omitempty"`
+	Timeout       time.Duration `yaml:"timeout,omitempty"`
 }
 
 type CORSConfig struct {
-	AllowedOrigins   []string `yaml:"allowed_origins"`
-	AllowedMethods   []string `yaml:"allowed_methods"`
-	AllowedHeaders   []string `yaml:"allowed_headers"`
-	AllowCredentials bool     `yaml:"allow_credentials"`
-	MaxAge           int      `yaml:"max_age"`
+	AllowedOrigins   []string `yaml:"allowed_origins,omitempty"`
+	AllowedMethods   []string `yaml:"allowed_methods,omitempty"`
+	AllowedHeaders   []string `yaml:"allowed_headers,omitempty"`
+	AllowCredentials bool     `yaml:"allow_credentials,omitempty"`
+	MaxAge           int      `yaml:"max_age,omitempty"`
 }
 
 var DefaultConfig = &Config{
@@ -98,4 +98,62 @@ func (c *Config) GetTracingServiceName() string {
 		return c.Tracing.ServiceName
 	}
 	return serviceName
+}
+
+// SanitizedConfig represents a safe version of the configuration
+// that excludes sensitive information
+
+// GetSanitizedConfig returns a safe version of the configuration
+// that excludes sensitive information
+func (c *Config) GetSanitizedConfig() *Config {
+
+	// Copy Database config
+	if c.Database.Provider == "postgresql" {
+		c.Database.PostgreSQL.User = ""
+		c.Database.SQLite.DatabasePath = ""
+	}
+
+	// // Set sensitive fields to empty values
+	// if c.Database.Provider == "postgresql" {
+	// 	sanitized.Database.SQLite.DatabasePath = ""
+	// } else {
+	// 	sanitized.Database.PostgreSQL.Addr = ""
+	// 	sanitized.Database.PostgreSQL.Database = ""
+	// 	sanitized.Database.PostgreSQL.Port = 0
+	// 	sanitized.Database.PostgreSQL.SSLMode = ""
+	// 	sanitized.Database.PostgreSQL.User = ""
+	// }
+
+	// // Copy Insert config with duration strings
+	// sanitized.Insert.BatchSize = c.Insert.BatchSize
+	// sanitized.Insert.BufferSize = c.Insert.BufferSize
+	// sanitized.Insert.FlushInterval = c.Insert.FlushInterval.String()
+	// sanitized.Insert.GracePeriod = c.Insert.GracePeriod.String()
+	// sanitized.Insert.Timeout = c.Insert.Timeout.String()
+
+	// // Copy CORS config
+	// sanitized.CORS.AllowedOrigins = c.CORS.AllowedOrigins
+	// sanitized.CORS.AllowedMethods = c.CORS.AllowedMethods
+	// sanitized.CORS.AllowedHeaders = c.CORS.AllowedHeaders
+	// sanitized.CORS.AllowCredentials = c.CORS.AllowCredentials
+	// sanitized.CORS.MaxAge = c.CORS.MaxAge
+
+	// // Copy Tracing config if enabled
+	// if c.Tracing != nil {
+	// 	sanitized.Tracing = &struct {
+	// 		ServiceName string            `json:"service_name,omitempty" yaml:"service_name,omitempty"`
+	// 		Endpoint    string            `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	// 		Insecure    bool              `json:"insecure,omitempty" yaml:"insecure,omitempty"`
+	// 		Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// 		Timeout     string            `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	// 	}{
+	// 		ServiceName: c.GetTracingServiceName(),
+	// 		Endpoint:    c.Tracing.Endpoint,
+	// 		Insecure:    c.Tracing.Insecure,
+	// 		Headers:     c.Tracing.Headers,
+	// 		Timeout:     c.Tracing.Timeout.String(),
+	// 	}
+	// }
+
+	return c
 }

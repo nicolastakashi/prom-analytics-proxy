@@ -8,31 +8,6 @@ import (
 	"time"
 )
 
-// Common SQL templates that can be used with both SQLite and PostgreSQL
-const (
-	queryTypesSQLTemplate = `
-		WITH total AS (
-			SELECT COUNT(*) AS count
-			FROM queries
-			WHERE ts BETWEEN %s AND %s
-		),
-		types AS (
-			SELECT 
-				COUNT(CASE WHEN type = 'instant' THEN 1 END) AS instant_count,
-				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
-			FROM queries
-			WHERE ts BETWEEN %s AND %s
-		)
-		SELECT 
-			t.count,
-			CASE WHEN t.count > 0 THEN ROUND(ty.instant_count * 100.0 / t.count, 2) ELSE 0 END,
-			CASE WHEN t.count > 0 THEN ROUND(ty.range_count * 100.0 / t.count, 2) ELSE 0 END
-		FROM 
-			total t, 
-			types ty;
-	`
-)
-
 // QueryBuildingContext holds the context for building SQL queries
 type QueryBuildingContext struct {
 	Dialect       string

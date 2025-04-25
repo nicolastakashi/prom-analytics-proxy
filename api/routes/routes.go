@@ -19,6 +19,7 @@ import (
 	"github.com/metalmatze/signal/server/signalhttp"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	metricsUsageV1 "github.com/perses/metrics-usage/pkg/api/v1"
@@ -28,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
+	"gopkg.in/yaml.v3"
 )
 
 type LimitsConfig struct {
@@ -46,6 +48,7 @@ type routes struct {
 	metadataLimit     string
 	seriesLimit       *uint64
 	limits            LimitsConfig
+	config            *config.Config
 }
 
 type Option func(*routes)
@@ -59,6 +62,12 @@ func WithDBProvider(dbProvider db.Provider) Option {
 func WithQueryIngester(queryIngester *ingester.QueryIngester) Option {
 	return func(r *routes) {
 		r.queryIngester = queryIngester
+	}
+}
+
+func WithConfig(cfg *config.Config) Option {
+	return func(r *routes) {
+		r.config = cfg
 	}
 }
 
@@ -93,6 +102,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
+		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
 		r.mux = mux
 	}
 }
@@ -852,4 +862,20 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	}
 
 	writeJSONResponse(req, w, alerts)
+}
+
+func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
+	if r.config == nil {
+		writeErrorResponse(req, w, fmt.Errorf("configuration not available"), http.StatusInternalServerError)
+		return
+	}
+
+	sanitizedConfig := r.config.GetSanitizedConfig()
+	yamlData, err := yaml.Marshal(sanitizedConfig)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("failed to marshal YAML: %w", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Write(yamlData)
 }
