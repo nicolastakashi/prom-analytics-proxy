@@ -18,7 +18,7 @@
 
 [![Prometheus Analytics Proxy Introduction](https://img.youtube.com/vi/8PX4FwgxUd8/0.jpg)](https://www.youtube.com/watch?v=8PX4FwgxUd8)
 
-_Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup._
+*Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup.*
 
 ## Quick Start
 
@@ -123,7 +123,7 @@ insert-timeout: "1s"
   -database-provider string
     	The provider of database to use for storing query data. Supported values: postgresql, sqlite.
   -include-query-stats
-    	Request query stats from the upstream prometheus API.
+    	Request query stats from the upstream prometheus API. (default true)
   -insecure-listen-address string
     	The address the prom-analytics-proxy proxy HTTP server should listen on. (default ":9091")
   -insert-batch-size int
