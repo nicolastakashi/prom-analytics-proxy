@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
-	"gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -73,6 +73,9 @@ var DefaultConfig = &Config{
 		AllowCredentials: true,
 		MaxAge:           300,
 	},
+	Upstream: UpstreamConfig{
+		IncludeQueryStats: true,
+	},
 }
 
 func LoadConfig(path string) error {
@@ -112,48 +115,6 @@ func (c *Config) GetSanitizedConfig() *Config {
 		c.Database.PostgreSQL.User = ""
 		c.Database.SQLite.DatabasePath = ""
 	}
-
-	// // Set sensitive fields to empty values
-	// if c.Database.Provider == "postgresql" {
-	// 	sanitized.Database.SQLite.DatabasePath = ""
-	// } else {
-	// 	sanitized.Database.PostgreSQL.Addr = ""
-	// 	sanitized.Database.PostgreSQL.Database = ""
-	// 	sanitized.Database.PostgreSQL.Port = 0
-	// 	sanitized.Database.PostgreSQL.SSLMode = ""
-	// 	sanitized.Database.PostgreSQL.User = ""
-	// }
-
-	// // Copy Insert config with duration strings
-	// sanitized.Insert.BatchSize = c.Insert.BatchSize
-	// sanitized.Insert.BufferSize = c.Insert.BufferSize
-	// sanitized.Insert.FlushInterval = c.Insert.FlushInterval.String()
-	// sanitized.Insert.GracePeriod = c.Insert.GracePeriod.String()
-	// sanitized.Insert.Timeout = c.Insert.Timeout.String()
-
-	// // Copy CORS config
-	// sanitized.CORS.AllowedOrigins = c.CORS.AllowedOrigins
-	// sanitized.CORS.AllowedMethods = c.CORS.AllowedMethods
-	// sanitized.CORS.AllowedHeaders = c.CORS.AllowedHeaders
-	// sanitized.CORS.AllowCredentials = c.CORS.AllowCredentials
-	// sanitized.CORS.MaxAge = c.CORS.MaxAge
-
-	// // Copy Tracing config if enabled
-	// if c.Tracing != nil {
-	// 	sanitized.Tracing = &struct {
-	// 		ServiceName string            `json:"service_name,omitempty" yaml:"service_name,omitempty"`
-	// 		Endpoint    string            `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
-	// 		Insecure    bool              `json:"insecure,omitempty" yaml:"insecure,omitempty"`
-	// 		Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	// 		Timeout     string            `json:"timeout,omitempty" yaml:"timeout,omitempty"`
-	// 	}{
-	// 		ServiceName: c.GetTracingServiceName(),
-	// 		Endpoint:    c.Tracing.Endpoint,
-	// 		Insecure:    c.Tracing.Insecure,
-	// 		Headers:     c.Tracing.Headers,
-	// 		Timeout:     c.Tracing.Timeout.String(),
-	// 	}
-	// }
 
 	return c
 }

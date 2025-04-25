@@ -1,6 +1,0 @@
-database:
-  provider: sqlite
-
-upstream:
-  url: https://prometheus.demo.prometheus.io
-  include_query_stats: true

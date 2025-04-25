@@ -54,7 +54,7 @@ func main() {
 	flagset.Uint64("series-limit", 0, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	flagset.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
-	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", false, "Request query stats from the upstream prometheus API.")
+	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", true, "Request query stats from the upstream prometheus API.")
 	flagset.IntVar(&config.DefaultConfig.Insert.BufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
 	flagset.IntVar(&config.DefaultConfig.Insert.BatchSize, "insert-batch-size", 10, "Batch size for inserting queries into the database.")
 	flagset.DurationVar(&config.DefaultConfig.Insert.Timeout, "insert-timeout", 1*time.Second, "Timeout to insert a query into the database.")
@@ -162,11 +162,11 @@ func main() {
 			routes.WithDBProvider(dbProvider),
 			routes.WithQueryIngester(queryIngester),
 			routes.WithHandlers(uiFS, reg, config.DefaultConfig.IsTracingEnabled()),
+			routes.WithConfig(config.DefaultConfig),
 			routes.WithLimits(routes.LimitsConfig{
 				SeriesLimit:   config.DefaultConfig.SeriesLimit,
 				MetadataLimit: config.DefaultConfig.MetadataLimit,
 			}),
-			routes.WithConfig(config.DefaultConfig),
 		)
 
 		if err != nil {

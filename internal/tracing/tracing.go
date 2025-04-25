@@ -9,7 +9,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v3"
 )
 
 type kitLogger struct {
