@@ -8,6 +8,8 @@ jobs:
   check-golang:
     runs-on: ubuntu-latest
     name: Golang and UI Linting
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +23,7 @@ jobs:
           check-latest: true
           cache: "npm"
           cache-dependency-path: "**/package-lock.json"
+          registry-url: "https://registry.npmjs.org"
 
       - uses: actions/setup-go@v5
         with:
@@ -49,6 +52,8 @@ jobs:
   format:
     runs-on: ubuntu-latest
     name: Documentation Formatting Check
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +67,7 @@ jobs:
           check-latest: true
           cache: "npm"
           cache-dependency-path: "**/package-lock.json"
+          registry-url: "https://registry.npmjs.org"
 
       - uses: actions/setup-go@v5
         with:
@@ -95,6 +101,8 @@ jobs:
           - macos-latest
           - ubuntu-latest
     name: Build API and UI
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +116,7 @@ jobs:
           check-latest: true
           cache: "npm"
           cache-dependency-path: "**/package-lock.json"
+          registry-url: "https://registry.npmjs.org"
 
       - uses: actions/setup-go@v5
         with:

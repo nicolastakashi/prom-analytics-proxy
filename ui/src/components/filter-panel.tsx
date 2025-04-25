@@ -269,12 +269,12 @@ export function FilterPanel() {
                                 onDayClick={handleDayClick}
                                 numberOfMonths={2}
                                 modifiers={{
-                                    selected: (date) => {
+                                    selected: (date: Date) => {
                                         if (!calendarState?.from || !calendarState?.to) return false;
                                         return date >= calendarState.from && date <= calendarState.to;
                                     },
-                                    start: (date) => calendarState?.from ? date.getTime() === calendarState.from.getTime() : false,
-                                    end: (date) => calendarState?.to ? date.getTime() === calendarState.to.getTime() : false
+                                    start: (date: Date) => calendarState?.from ? date.getTime() === calendarState.from.getTime() : false,
+                                    end: (date: Date) => calendarState?.to ? date.getTime() === calendarState.to.getTime() : false
                                 }}
                             />
                         </div>
@@ -331,7 +331,7 @@ function TimeInput({ label, value, onChange }: {
             <input
                 type="time"
                 value={value}
-                onChange={(e) => onChange(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
                 className="rounded-md border border-input px-3 py-2 text-sm"
             />
         </div>
