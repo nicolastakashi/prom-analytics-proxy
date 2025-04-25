@@ -2,7 +2,7 @@ module github.com/nicolastakashi/prom-analytics-proxy
 
 go 1.23.1
 
-toolchain go1.23.3
+toolchain go1.24.2
 
 require (
 	github.com/lib/pq v1.10.9
