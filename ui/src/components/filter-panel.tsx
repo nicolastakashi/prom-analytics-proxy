@@ -6,7 +6,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, RefreshCw } from "lucide-react"
 import type { DateRange, DayClickEventHandler } from "react-day-picker"
-import { format, subDays, subHours, startOfDay, endOfDay, differenceInMilliseconds } from "date-fns"
+import { format, subDays, startOfDay, endOfDay, differenceInMilliseconds } from "date-fns"
 import { useSearchParams } from "wouter"
 import { useDateRange } from "@/contexts/date-range-context"
 import { fromUTC } from "@/lib/utils/date-utils"
@@ -22,41 +22,44 @@ function generateQuickRanges(): TimeRange[] {
     const now = new Date()
     const startOfToday = startOfDay(now)
     
+    // Ensure we have precise time handling by setting milliseconds to 0
+    const preciseNow = new Date(now.setMilliseconds(0))
+    
     return [
         {
             label: "Last 15 minutes",
-            from: subHours(now, 0.25),
-            to: now,
+            from: new Date(preciseNow.getTime() - 15 * 60 * 1000),
+            to: preciseNow,
         },
         {
             label: "Last hour",
-            from: subHours(now, 1),
-            to: now,
+            from: new Date(preciseNow.getTime() - 60 * 60 * 1000),
+            to: preciseNow,
         },
         {
             label: "Last 6 hours",
-            from: subHours(now, 6),
-            to: now,
+            from: new Date(preciseNow.getTime() - 6 * 60 * 60 * 1000),
+            to: preciseNow,
         },
         {
             label: "Last 24 hours",
-            from: subHours(now, 24),
-            to: now,
+            from: new Date(preciseNow.getTime() - 24 * 60 * 60 * 1000),
+            to: preciseNow,
         },
         {
             label: "Last 7 days",
             from: startOfDay(subDays(startOfToday, 7)),
-            to: now,
+            to: preciseNow,
         },
         {
             label: "Last 30 days",
             from: startOfDay(subDays(startOfToday, 30)),
-            to: now,
+            to: preciseNow,
         },
         {
             label: "Last 90 days",
             from: startOfDay(subDays(startOfToday, 90)),
-            to: now,
+            to: preciseNow,
         },
     ]
 }
@@ -141,12 +144,24 @@ export function FilterPanel() {
     }
 
     const handleQuickRange = useCallback((range: TimeRange) => {
-        setFromTime(format(range.from, "HH:mm"))
-        setToTime(format(range.to, "HH:mm"))
+        // Get the current time for the rolling window
+        const now = new Date()
+        now.setMilliseconds(0)
         
-        // DateRange context handles UTC conversion
-        setDateRange({ from: range.from, to: range.to })
-        setCalendarState({ from: range.from, to: range.to })
+        // Calculate the time difference to maintain the range duration
+        const rangeDuration = differenceInMilliseconds(range.to, range.from)
+        
+        // Create new range with same duration but updated to current time
+        const to = now
+        const from = new Date(now.getTime() - rangeDuration)
+        
+        // Format times for display
+        setFromTime(format(from, "HH:mm"))
+        setToTime(format(to, "HH:mm"))
+        
+        // Update both states with the precise times
+        setDateRange({ from, to })
+        setCalendarState({ from, to })
         setIsOpen(false)
     }, [setDateRange])
 
