@@ -160,7 +160,7 @@ const getRecordingColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] =>
 
 const getDashboardColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   {
-    accessorKey: "name",
+    accessorKey: "title",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Name" />
     ),
@@ -363,7 +363,7 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
               data={dashboardData}
               columns={dashboardColumns}
               state={dashboardsState}
-              searchColumn="name"
+              searchColumn="title"
               pageSize={pageSize}
               onSortingChange={dashboardsState.setSorting}
               onFilterChange={dashboardsState.setFilter}

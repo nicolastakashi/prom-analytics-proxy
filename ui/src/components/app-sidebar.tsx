@@ -1,14 +1,11 @@
 import * as React from "react"
 import {
-  AudioWaveform,
-  Command,
-  GalleryVerticalEnd,
   Settings,
 } from "lucide-react"
 import { Link, useLocation } from "wouter"
+import logo from "@/assets/logo.png"
 
 import { Navigation } from "@/components/navigation"
-import { TeamSwitcher } from "@/components/team-switcher"
 import {
   Sidebar,
   SidebarContent,
@@ -22,25 +19,8 @@ import {
 } from "@/components/ui/sidebar"
 import { routeConfigs } from "@/lib/routes"
 
-// This is sample data.
-const data = {
-  teams: [
-    {
-      name: "Acme Inc",
-      logo: GalleryVerticalEnd,
-      plan: "Enterprise",
-    },
-    {
-      name: "Acme Corp.",
-      logo: AudioWaveform,
-      plan: "Startup",
-    },
-    {
-      name: "Evil Corp.",
-      logo: Command,
-      plan: "Free",
-    },
-  ],
+const Logo: React.FC<{ className?: string }> = ({ className }) => {
+  return <img src={logo} alt="Prom Analytics Logo" className={`w-8 h-8 ${className || ''}`} />
 }
 
 // Get navigation items from routes configuration
@@ -60,8 +40,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className={`flex h-16 min-h-[4rem] items-center justify-${isCollapsed ? "center" : "start"} border-b border-sidebar-border`}>
-        <TeamSwitcher teams={data.teams} />
+      <SidebarHeader className="flex h-16 min-h-[4rem] items-center justify-center border-b border-sidebar-border">
+        <div className="flex items-center gap-3">
+          <Logo />
+          {!isCollapsed && <span className="font-semibold">Prom Analytics</span>}
+        </div>
       </SidebarHeader>
       <SidebarContent className="flex-grow">
         <Navigation 
