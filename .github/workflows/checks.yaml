@@ -4,18 +4,17 @@ on:
   push:
     branches:
       - "main"
+
+env:
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
 jobs:
-  check-golang:
+  setup:
     runs-on: ubuntu-latest
-    name: Golang and UI Linting
-    env:
-      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
-
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -24,76 +23,71 @@ jobs:
           cache: "npm"
           cache-dependency-path: "**/package-lock.json"
           registry-url: "https://registry.npmjs.org"
+      - name: Install UI Dependencies
+        run: make uidependencies
+      - name: Build UI
+        run: make uibuild
+      - name: Upload UI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 1
 
+  check-golang:
+    needs: setup
+    runs-on: ubuntu-latest
+    name: Go Code Quality Checks
+    if: ${{ github.event_name == 'push' || !contains(github.event.pull_request.changed_files, 'ui/') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
       - uses: actions/setup-go@v5
         with:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
-
-      - name: Install UI Dependencies
-        run: make uidependencies
-
-      - name: Build UI
-        run: make uibuild
-
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
       - name: Tidy Go modules and check for changes
         run: make tidy && git diff --exit-code
-
       - name: Run GolangCI Lint
-        uses: golangci/golangci-lint-action@v6.4.0
+        uses: golangci/golangci-lint-action@v6.5.2
         with:
-          version: v1.60.3
+          version: v1.64.8
           args: --timeout 10m0s --go ${{ env.golang-version }}
-
       - name: Test Golang Code
         run: make tests
 
   format:
+    needs: setup
     runs-on: ubuntu-latest
     name: Documentation Formatting Check
-    env:
-      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
-
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "${{ env.node-version }}"
-          check-latest: true
-          cache: "npm"
-          cache-dependency-path: "**/package-lock.json"
-          registry-url: "https://registry.npmjs.org"
-
       - uses: actions/setup-go@v5
         with:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
-
-      - name: Install UI Dependencies
-        run: make uidependencies
-
-      - name: Build UI
-        run: make uibuild
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
         with:
-          go-version: "${{ env.golang-version }}"
-          check-latest: true
-
+          name: ui-dist
+          path: ui/dist
       - name: Tidy Go modules
         run: make tidy
-
       - name: Check Documentation
         run: make check-docs
 
   build:
+    needs: setup
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -101,34 +95,19 @@ jobs:
           - macos-latest
           - ubuntu-latest
     name: Build API and UI
-    env:
-      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - uses: actions/checkout@v4
-
       - name: Import environment variables from file
         run: cat ".github/env" >> $GITHUB_ENV
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "${{ env.node-version }}"
-          check-latest: true
-          cache: "npm"
-          cache-dependency-path: "**/package-lock.json"
-          registry-url: "https://registry.npmjs.org"
-
       - uses: actions/setup-go@v5
         with:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
-
-      - name: Install UI Dependencies
-        run: make uidependencies
-
-      - name: Build UI
-        run: make uibuild
-
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
       - name: Build API
         run: make build
