@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.1.0
-	github.com/perses/metrics-usage v0.5.1-0.20250322203639-1b178e64b18c
+	github.com/perses/metrics-usage v0.6.0
 	github.com/prometheus/prometheus v0.303.0
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
@@ -33,7 +33,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
-	github.com/perses/perses v0.50.1 // indirect
+	github.com/perses/perses v0.50.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -74,7 +74,7 @@ require (
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.62.0 // indirect
+	github.com/prometheus/common v0.63.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rs/cors v1.11.1
 	github.com/thanos-io/thanos v0.37.2
