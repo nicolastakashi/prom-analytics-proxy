@@ -47,7 +47,17 @@ const columns: ExtendedColumnDef<RecentQuery>[] = [
   },
   {
     accessorKey: "status",
-    header: "Status",
+    header: ({ column }) => {
+      return (
+        <div
+          className="flex items-center cursor-pointer"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </div>
+      )
+    },
     cell: ({ row }) => {
       const status = row.getValue("status") as number
       return (
