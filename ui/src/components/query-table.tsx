@@ -8,6 +8,7 @@ import { useTable } from "@/contexts/table-context"
 import { RecentQuery, PagedResult } from "@/lib/types"
 import { formatUTCtoLocal } from "@/lib/utils/date-utils"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import { ArrowUpDown } from "lucide-react"
 
 // Define our extended column type with maxWidth
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number };
