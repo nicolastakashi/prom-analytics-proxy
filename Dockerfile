@@ -9,7 +9,7 @@ COPY ./ui .
 RUN npm install
 RUN NODE_ENV=production npm run build
 
-FROM golang:1.24.2 AS gobuild
+FROM golang:1.24.3 AS gobuild
 
 WORKDIR /go/src/github.com/nicolastakashi/prom-analytics-proxy
 
