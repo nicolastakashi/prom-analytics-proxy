@@ -561,6 +561,8 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
+	// TODO: Eventually we should cache this data
+
 	name := req.PathValue("name")
 	if name == "" {
 		slog.Error("missing name parameter")
@@ -592,8 +594,22 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	jobSeriesCount := make(map[string]int)
+	for _, serie := range series {
+		if job, ok := serie["job"]; ok {
+			jobSeriesCount[string(job)]++
+		}
+	}
+
 	statistics.SerieCount = len(series)
 	statistics.LabelCount = len(labels)
+	statistics.Producers = make([]db.MetricProducersResult, 0, len(jobSeriesCount))
+	for job, count := range jobSeriesCount {
+		statistics.Producers = append(statistics.Producers, db.MetricProducersResult{
+			Job:    job,
+			Series: count,
+		})
+	}
 
 	writeJSONResponse(req, w, statistics)
 }

@@ -15,6 +15,7 @@ import { useMetricQueryPerformanceStatistics, useMetricStatistics, useQueryLaten
 import { useDateRange } from "@/contexts/date-range-context"
 import { MetricPerformance } from "@/components/metrics-explorer/metric-performance"
 import { formatUnit } from "@/lib/utils"
+import { MetricProducers } from "@/components/metrics-explorer/metric-producer"
 
 interface InfoTooltipProps {
     content: string
@@ -141,12 +142,18 @@ export default function MetricsDetails() {
             <TabsTrigger value="performance" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
               Performance
             </TabsTrigger>
+            <TabsTrigger value="producers" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
+              Producers
+            </TabsTrigger>
             <TabsTrigger value="usage" className="flex-1 py-3 px-5 text-center cursor-pointer transition-colors duration-300 hover:bg-white data-[state=active]:bg-white font-semibold">
               Usage
             </TabsTrigger>
           </TabsList>
           <TabsContent value="performance" className=" bg-white rounded-lg mt-2">
               <MetricPerformance queryPerformanceData={queryPerformanceData} queryLatencyTrendsData={queryLatencyTrends} />
+          </TabsContent>
+          <TabsContent value="producers" className=" bg-white rounded-lg mt-2">
+            <MetricProducers producers={data.statistics?.producers || []} />
           </TabsContent>
           <TabsContent value="usage" className=" bg-white rounded-lg mt-2">
             <MetricUsage metricName={metric || ""} dateRange={dateRange} />
