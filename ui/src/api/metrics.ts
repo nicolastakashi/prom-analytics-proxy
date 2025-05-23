@@ -77,6 +77,7 @@ const DEFAULT_ERROR_VALUES = {
     totalAlerts: 0,
     totalRecords: 0,
     totalDashboards: 0,
+    producers: [],
   },
   metricQueryPerformanceStatistics: {
     queryRate: {
