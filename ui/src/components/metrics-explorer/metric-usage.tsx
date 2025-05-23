@@ -89,10 +89,11 @@ function useTabState(initialPage = 1, initialSortBy = 'avgDuration', initialSort
 const getQueriesColumns = (): ExtendedColumnDef<ExpressionDataItem, unknown>[] => [
   {
     accessorKey: "query",
+    maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Query" />
     ),
-    cell: ({ row }) => <span className="font-mono text-sm">{row.getValue("query")}</span>,
+    cell: ({ row }) => String(row.getValue("query")),
   },
   {
     accessorKey: "avgDuration",
@@ -135,10 +136,11 @@ const getAlertsColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   },
   {
     accessorKey: "expression",
+    maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Expression" />
     ),
-    cell: ({ row }) => <span className="font-mono text-sm">{row.getValue("expression")}</span>,
+    cell: ({ row }) => String(row.getValue("expression")),
   },
 ];
 
@@ -151,10 +153,11 @@ const getRecordingColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] =>
   },
   {
     accessorKey: "expression",
+    maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Expression" />
     ),
-    cell: ({ row }) => <span className="font-mono text-sm">{row.getValue("expression")}</span>,
+    cell: ({ row }) => String(row.getValue("expression")),
   },
 ];
 
