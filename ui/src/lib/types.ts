@@ -90,6 +90,11 @@ export interface MetricMetadata {
 	unit: string;
 }
 
+export interface Producer {
+	job: string;
+	series: number;
+}
+
 export interface MetricStatistics {
 	serieCount: number;
 	labelCount: number;
@@ -99,6 +104,7 @@ export interface MetricStatistics {
 	totalAlerts: number;
 	totalRecords: number;
 	totalDashboards: number;
+	producers: Producer[];
 }
 
 export interface MetricQueryPerformanceStatistics {

@@ -88,15 +88,21 @@ type QueryErrorAnalysisResult struct {
 	Value float64 `json:"value"`
 }
 
+type MetricProducersResult struct {
+	Job    string `json:"job"`
+	Series int    `json:"series"`
+}
+
 type MetricUsageStatics struct {
-	SerieCount      int `json:"serieCount"`
-	LabelCount      int `json:"labelCount"`
-	AlertCount      int `json:"alertCount"`
-	RecordCount     int `json:"recordCount"`
-	DashboardCount  int `json:"dashboardCount"`
-	TotalAlerts     int `json:"totalAlerts"`
-	TotalRecords    int `json:"totalRecords"`
-	TotalDashboards int `json:"totalDashboards"`
+	SerieCount      int                     `json:"serieCount"`
+	LabelCount      int                     `json:"labelCount"`
+	AlertCount      int                     `json:"alertCount"`
+	RecordCount     int                     `json:"recordCount"`
+	DashboardCount  int                     `json:"dashboardCount"`
+	TotalAlerts     int                     `json:"totalAlerts"`
+	TotalRecords    int                     `json:"totalRecords"`
+	TotalDashboards int                     `json:"totalDashboards"`
+	Producers       []MetricProducersResult `json:"producers"`
 }
 
 type RuleUsageKind string
