@@ -123,7 +123,11 @@ func main() {
 		slog.Error("unable to create db provider", "err", err)
 		os.Exit(1)
 	}
-	defer dbProvider.Close()
+	defer func() {
+		if err := dbProvider.Close(); err != nil {
+			slog.Error("error closing database provider", "err", err)
+		}
+	}()
 
 	queryIngester := ingester.NewQueryIngester(
 		dbProvider,

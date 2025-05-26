@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"time"
 )
 
@@ -110,9 +112,17 @@ func ExecuteQuery(ctx context.Context, db *sql.DB, query string, args ...interfa
 	return rows, nil
 }
 
+// CloseResource safely closes a resource and logs any errors
+func CloseResource(closer io.Closer) {
+	if err := closer.Close(); err != nil {
+		// Log the error but don't panic
+		slog.Error("Error closing resource", "error", err)
+	}
+}
+
 // ScanSingleRow scans a single row with proper error handling
 func ScanSingleRow(rows *sql.Rows, dest ...interface{}) error {
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	if !rows.Next() {
 		return ErrNoResults

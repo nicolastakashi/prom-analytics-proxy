@@ -249,7 +249,7 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueriesBySerieNameResult
 	var totalCount int
@@ -300,7 +300,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer CloseResource(stmt)
 
 	createdAt := time.Now().UTC()
 
@@ -448,7 +448,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rules usage: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	results := []RulesUsage{}
 	for rows.Next() {
@@ -514,7 +514,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer CloseResource(stmt)
 
 	createdAt := time.Now().UTC()
 
@@ -643,7 +643,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	results := []DashboardUsage{}
 	for rows.Next() {
@@ -709,6 +709,7 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 	if err != nil {
 		return nil, err
 	}
+	defer CloseResource(rows)
 
 	var result QueryTypesResult
 	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
@@ -754,7 +755,7 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 	if err != nil {
 		return nil, fmt.Errorf("failed to query average duration: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := &AverageDurationResult{}
 
@@ -801,7 +802,7 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := &QueryRateResult{}
 
@@ -859,7 +860,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryStatusDistributionResult
 	for rows.Next() {
@@ -916,7 +917,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryLatencyTrendsResult
 	for rows.Next() {
@@ -968,7 +969,7 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryThroughputAnalysisResult
 	for rows.Next() {
@@ -1021,7 +1022,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryErrorAnalysisResult
 	for rows.Next() {
@@ -1134,7 +1135,7 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []RecentQueriesResult
 	var totalCount int
@@ -1206,7 +1207,7 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := MetricUsageStatics{}
 	if !rows.Next() {
@@ -1248,7 +1249,7 @@ func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Con
 	if err != nil {
 		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := MetricQueryPerformanceStatistics{}
 	if !rows.Next() {

@@ -50,10 +50,10 @@ func NewLogger() (*slog.Logger, error) {
 	handlerOptions := &slog.HandlerOptions{
 		Level: *level,
 	}
-	switch {
-	case logFormat == "text":
+	switch logFormat {
+	case "text":
 		handler = slog.NewTextHandler(os.Stdout, handlerOptions)
-	case logFormat == "json":
+	case "json":
 		handler = slog.NewJSONHandler(os.Stdout, handlerOptions)
 	default:
 		return nil, errors.New("unknown log format")

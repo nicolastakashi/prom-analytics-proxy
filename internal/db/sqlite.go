@@ -237,6 +237,12 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		(params.Page - 1) * params.PageSize,
 	}
 
+	stmt, err := p.db.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer CloseResource(stmt)
+
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return nil, err

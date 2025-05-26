@@ -18,17 +18,17 @@ type MockDBProvider struct {
 var _ db.Provider = (*MockDBProvider)(nil)
 
 func (m *MockDBProvider) Insert(ctx context.Context, queries []db.Query) error {
-	args := m.Mock.Called(ctx, queries)
+	args := m.Called(ctx, queries)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) Close() error {
-	args := m.Mock.Called()
+	args := m.Called()
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) WithDB(f func(db *sql.DB)) {
-	m.Mock.Called(f)
+	m.Called(f)
 }
 
 func (m *MockDBProvider) GetQueriesBySerieName(
