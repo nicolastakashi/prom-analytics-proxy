@@ -64,17 +64,17 @@ func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange) (*d
 }
 
 func (m *MockDBProvider) GetAverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.AverageDurationResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metricName string) (*db.QueryRateResult, error) {
-	args := m.Mock.Called(ctx, tr, metricName)
+	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).(*db.QueryRateResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryStatusDistributionResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryStatusDistributionResult), args.Error(1)
 }
 
