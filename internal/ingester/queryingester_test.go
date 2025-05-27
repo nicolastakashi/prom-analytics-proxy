@@ -49,17 +49,17 @@ func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsage
 }
 
 func (m *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []db.DashboardUsage) error {
-	args := m.Mock.Called(ctx, dashboardUsage)
+	args := m.Called(ctx, dashboardUsage)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.DashboardUsageParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.QueryTypesResult), args.Error(1)
 }
 
