@@ -9,7 +9,7 @@ import { ArrowUpDown } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Producer } from "@/lib/types"
 import { DataTable } from "@/components/data-table"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 
 interface ProducersTableProps {
   producers: Producer[]
@@ -78,7 +78,12 @@ export function MetricProducers({ producers }: ProducersTableProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Metric Producers</CardTitle>
+        <CardTitle>Producers</CardTitle>
+        <CardDescription>
+          Metric producers (also called Jobs) are services or applications that generate and expose Prometheus metrics.
+          <br />
+          Each producer contributes to the total number of time series in your monitoring system.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <DataTable
