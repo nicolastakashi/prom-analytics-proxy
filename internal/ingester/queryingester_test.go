@@ -135,7 +135,7 @@ func TestQueryIngester_Run(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }
 
 func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
@@ -167,7 +167,7 @@ func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }
 
 func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
@@ -195,5 +195,5 @@ func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }
