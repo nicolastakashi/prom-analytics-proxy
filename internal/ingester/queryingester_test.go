@@ -18,93 +18,93 @@ type MockDBProvider struct {
 var _ db.Provider = (*MockDBProvider)(nil)
 
 func (m *MockDBProvider) Insert(ctx context.Context, queries []db.Query) error {
-	args := m.Mock.Called(ctx, queries)
+	args := m.Called(ctx, queries)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) Close() error {
-	args := m.Mock.Called()
+	args := m.Called()
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) WithDB(f func(db *sql.DB)) {
-	m.Mock.Called(f)
+	m.Called(f)
 }
 
 func (m *MockDBProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params db.QueriesBySerieNameParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.RulesUsage) error {
-	args := m.Mock.Called(ctx, rulesUsage)
+	args := m.Called(ctx, rulesUsage)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsageParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []db.DashboardUsage) error {
-	args := m.Mock.Called(ctx, dashboardUsage)
+	args := m.Called(ctx, dashboardUsage)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.DashboardUsageParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.QueryTypesResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetAverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.AverageDurationResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metricName string) (*db.QueryRateResult, error) {
-	args := m.Mock.Called(ctx, tr, metricName)
+	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).(*db.QueryRateResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryStatusDistributionResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryStatusDistributionResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange, metricName string) ([]db.QueryLatencyTrendsResult, error) {
-	args := m.Mock.Called(ctx, tr, metricName)
+	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).([]db.QueryLatencyTrendsResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryThroughputAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryThroughputAnalysisResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryThroughputAnalysisResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryErrorAnalysisResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryErrorAnalysisResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricUsageStatics, error) {
-	args := m.Mock.Called(ctx, metricName, tr)
+	args := m.Called(ctx, metricName, tr)
 	return args.Get(0).(db.MetricUsageStatics), args.Error(1)
 }
 
 func (m *MockDBProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
-	args := m.Mock.Called(ctx, metricName, tr)
+	args := m.Called(ctx, metricName, tr)
 	return args.Get(0).(db.MetricQueryPerformanceStatistics), args.Error(1)
 }
 
@@ -135,7 +135,7 @@ func TestQueryIngester_Run(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }
 
 func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
@@ -167,7 +167,7 @@ func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }
 
 func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
@@ -195,5 +195,5 @@ func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	mockDB.Mock.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
 }

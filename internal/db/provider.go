@@ -130,7 +130,7 @@ func CalculateTotalPages(totalCount, pageSize int) int {
 }
 
 func ProcessRows(rows *sql.Rows, scanFunc func(*sql.Rows) error) error {
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	for rows.Next() {
 		if err := scanFunc(rows); err != nil {

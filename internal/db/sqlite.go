@@ -237,11 +237,17 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		(params.Page - 1) * params.PageSize,
 	}
 
+	stmt, err := p.db.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer CloseResource(stmt)
+
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	results := []QueriesBySerieNameResult{}
 	var totalCount int
@@ -292,7 +298,7 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer CloseResource(stmt)
 
 	createdAt := time.Now().UTC()
 
@@ -441,7 +447,7 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rules usage: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	results := []RulesUsage{}
 	for rows.Next() {
@@ -510,7 +516,7 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer CloseResource(stmt)
 
 	for _, dashboard := range dashboardUsage {
 		_, err = stmt.ExecContext(ctx,
@@ -642,7 +648,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	results := []DashboardUsage{}
 	for rows.Next() {
@@ -709,6 +715,7 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*Quer
 	if err != nil {
 		return nil, err
 	}
+	defer CloseResource(rows)
 
 	var result QueryTypesResult
 	err = ScanSingleRow(rows, &result.TotalQueries, &result.InstantPercent, &result.RangePercent)
@@ -757,7 +764,7 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to query average duration: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := &AverageDurationResult{}
 
@@ -804,7 +811,7 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := &QueryRateResult{}
 	if !rows.Next() {
@@ -857,7 +864,7 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryStatusDistributionResult
 	for rows.Next() {
@@ -924,7 +931,7 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryLatencyTrendsResult
 	for rows.Next() {
@@ -974,7 +981,7 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryThroughputAnalysisResult
 	for rows.Next() {
@@ -1027,7 +1034,7 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []QueryErrorAnalysisResult
 	for rows.Next() {
@@ -1136,7 +1143,7 @@ func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQuer
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	var results []RecentQueriesResult
 	var totalCount int
@@ -1194,7 +1201,7 @@ func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName str
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := MetricUsageStatics{}
 	if !rows.Next() {
@@ -1229,7 +1236,7 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 	if err != nil {
 		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseResource(rows)
 
 	result := MetricQueryPerformanceStatistics{}
 	if !rows.Next() {
