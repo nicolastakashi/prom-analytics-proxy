@@ -1,6 +1,6 @@
 # prom-analytics-proxy
 
-[![Build](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml/badge.svg)](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/ci.yaml)
+[![Build and Push Container Image](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/container-image.yaml/badge.svg?branch=main)](https://github.com/nicolastakashi/prom-analytics-proxy/actions/workflows/container-image.yaml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/nicolastakashi/prom-analytics-proxy)](https://goreportcard.com/report/github.com/nicolastakashi/prom-analytics-proxy)
 
