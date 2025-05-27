@@ -34,17 +34,17 @@ func (m *MockDBProvider) WithDB(f func(db *sql.DB)) {
 func (m *MockDBProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params db.QueriesBySerieNameParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.RulesUsage) error {
-	args := m.Mock.Called(ctx, rulesUsage)
+	args := m.Called(ctx, rulesUsage)
 	return args.Error(0)
 }
 
 func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsageParams) (*db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
