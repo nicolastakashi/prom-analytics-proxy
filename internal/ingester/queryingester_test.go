@@ -79,32 +79,32 @@ func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.T
 }
 
 func (m *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange, metricName string) ([]db.QueryLatencyTrendsResult, error) {
-	args := m.Mock.Called(ctx, tr, metricName)
+	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).([]db.QueryLatencyTrendsResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryThroughputAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryThroughputAnalysisResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryThroughputAnalysisResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryErrorAnalysisResult, error) {
-	args := m.Mock.Called(ctx, tr)
+	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryErrorAnalysisResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
-	args := m.Mock.Called(ctx, params)
+	args := m.Called(ctx, params)
 	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricUsageStatics, error) {
-	args := m.Mock.Called(ctx, metricName, tr)
+	args := m.Called(ctx, metricName, tr)
 	return args.Get(0).(db.MetricUsageStatics), args.Error(1)
 }
 
 func (m *MockDBProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
-	args := m.Mock.Called(ctx, metricName, tr)
+	args := m.Called(ctx, metricName, tr)
 	return args.Get(0).(db.MetricQueryPerformanceStatistics), args.Error(1)
 }
 
