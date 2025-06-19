@@ -3,6 +3,81 @@
   "extends": [
     "config:recommended"
   ],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "Go dependencies",
+      "groupSlug": "go-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "go"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "Go dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchPaths": ["ui/package.json"],
+      "groupName": "UI dependencies",
+      "groupSlug": "ui-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "ui"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "UI dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchPaths": ["ui/package.json"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "UI dev dependencies",
+      "groupSlug": "ui-dev-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "ui", "dev"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "UI dev dependencies",
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchPaths": ["ui/package.json"],
+      "matchPackagePatterns": ["^@types/", "^eslint", "^prettier", "^typescript", "^vite", "^vitest"],
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackagePatterns": ["^golang.org/x/", "^github.com/stretchr/testify"],
+      "automerge": true,
+      "automergeType": "branch"
+    }
+  ],
+  "rangeStrategy": "bump",
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 10,
+  "branchPrefix": "renovate/",
+  "repositories": ["."],
+  "onboarding": false,
+  "requireConfig": "ignored",
+  "enabledManagers": ["gomod", "npm"],
+  "ignoreDeps": [],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "commitMessagePrefix": "fix(security):",
+    "commitMessageAction": "update",
+    "commitMessageTopic": "vulnerable dependencies"
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "automergeType": "branch",
+    "schedule": ["before 3am on monday"]
+  },
   "postUpdateOptions": [
     "gomodTidy",
     "gomodUpdateImportPaths"
