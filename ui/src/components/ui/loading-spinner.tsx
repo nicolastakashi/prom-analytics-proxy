@@ -1,8 +1,6 @@
 import { cn } from "@/lib/utils"
 
-interface LoadingSpinnerProps extends React.HTMLAttributes<HTMLDivElement> {}
-
-export function LoadingSpinner({ className, ...props }: LoadingSpinnerProps) {
+export function LoadingSpinner({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn("animate-spin", className)}
