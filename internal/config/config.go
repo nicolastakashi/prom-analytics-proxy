@@ -92,12 +92,18 @@ func LoadConfig(path string) error {
 }
 
 func (c *Config) IsTracingEnabled() bool {
+	if c == nil {
+		return false
+	}
 	return c.Tracing != nil
 }
 
 func (c *Config) GetTracingServiceName() string {
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
 	if serviceName == "" {
+		if c == nil || c.Tracing == nil {
+			return ""
+		}
 		return c.Tracing.ServiceName
 	}
 	return serviceName

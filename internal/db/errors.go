@@ -25,6 +25,9 @@ var (
 
 // ErrorWithOperation wraps an error with operation context
 func ErrorWithOperation(err error, operation string) error {
+	if err == nil {
+		return fmt.Errorf("%s: <nil>", operation)
+	}
 	return fmt.Errorf("%s: %w", operation, err)
 }
 

@@ -114,6 +114,9 @@ func ExecuteQuery(ctx context.Context, db *sql.DB, query string, args ...interfa
 
 // CloseResource safely closes a resource and logs any errors
 func CloseResource(closer io.Closer) {
+	if closer == nil {
+		return
+	}
 	if err := closer.Close(); err != nil {
 		// Log the error but don't panic
 		slog.Error("Error closing resource", "error", err)
