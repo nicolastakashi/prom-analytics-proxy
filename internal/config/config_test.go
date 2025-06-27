@@ -11,6 +11,9 @@ import (
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
+	// Save original default config
+	originalConfig := DefaultConfig
+
 	// Create a temporary config file
 	configContent := `
 upstream:
@@ -40,11 +43,17 @@ cors:
 
 	tmpfile, err := os.CreateTemp("", "config-*.yaml")
 	require.NoError(t, err)
-	defer os.Remove(tmpfile.Name())
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("failed to remove temp file: %v", err)
+		}
+	}()
 
 	_, err = tmpfile.Write([]byte(configContent))
 	require.NoError(t, err)
-	tmpfile.Close()
+	if err := tmpfile.Close(); err != nil {
+		t.Logf("failed to close temp file: %v", err)
+	}
 
 	// Reset default config
 	DefaultConfig = &Config{
@@ -59,6 +68,11 @@ cors:
 			IncludeQueryStats: true,
 		},
 	}
+
+	// Restore original config after test
+	defer func() {
+		DefaultConfig = originalConfig
+	}()
 
 	err = LoadConfig(tmpfile.Name())
 	require.NoError(t, err)
@@ -101,11 +115,17 @@ insert:
 
 	tmpfile, err := os.CreateTemp("", "config-*.yaml")
 	require.NoError(t, err)
-	defer os.Remove(tmpfile.Name())
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("failed to remove temp file: %v", err)
+		}
+	}()
 
 	_, err = tmpfile.Write([]byte(configContent))
 	require.NoError(t, err)
-	tmpfile.Close()
+	if err := tmpfile.Close(); err != nil {
+		t.Logf("failed to close temp file: %v", err)
+	}
 
 	err = LoadConfig(tmpfile.Name())
 	assert.Error(t, err)
@@ -186,8 +206,14 @@ func TestConfig_GetTracingServiceName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.envServiceName != "" {
-				os.Setenv("OTEL_SERVICE_NAME", tt.envServiceName)
-				defer os.Unsetenv("OTEL_SERVICE_NAME")
+				if err := os.Setenv("OTEL_SERVICE_NAME", tt.envServiceName); err != nil {
+					t.Logf("failed to set environment variable: %v", err)
+				}
+				defer func() {
+					if err := os.Unsetenv("OTEL_SERVICE_NAME"); err != nil {
+						t.Logf("failed to unset environment variable: %v", err)
+					}
+				}()
 			}
 
 			result := tt.config.GetTracingServiceName()

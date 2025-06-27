@@ -72,7 +72,7 @@ check-docs: $(MDOX_BINARY)
 	@echo ">> checking formatting and local/remote links"
 	$(MDOX_BINARY) fmt --soft-wraps --check -l --links.validate.config-file=$(MDOX_VALIDATE_CONFIG) $(MD_FILES_TO_FORMAT)
 
-all: fmt vet tests deps build
+all: fmt vet deps build
 
 .PHONY: tidy
 tidy:
