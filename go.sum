@@ -206,8 +206,8 @@ github.com/stretchr/testify v1.5.1/go.mod h1:5W2xD1RspED5o8YsWQXVCued0rvSQ+mT+I5
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/thanos-io/thanos v0.39.0 h1:FPCW5IxliEPWyviau5EOOzr/G96p21mQsP2+6hKNRrk=
-github.com/thanos-io/thanos v0.39.0/go.mod h1:bvUPJNIx2LBXme6yBinRiGqQinxlGikLlK7PGeFQPkQ=
+github.com/thanos-io/thanos v0.39.1 h1:JXFKPgvmf7XohV8ylasxERkRLgxqwbhuu6JkrWIgrio=
+github.com/thanos-io/thanos v0.39.1/go.mod h1:bvUPJNIx2LBXme6yBinRiGqQinxlGikLlK7PGeFQPkQ=
 github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 h1:ZjUj9BLYf9PEqBn8W/OapxhPjVRdC6CsXTdULHsyk5c=
 github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2/go.mod h1:O8bHQfyinKwTXKkiKNGmLQS7vRsqRxIQTFZpYpHK3IQ=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=
