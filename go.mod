@@ -1,12 +1,12 @@
 module github.com/nicolastakashi/prom-analytics-proxy
 
-go 1.24.4
+go 1.24.5
 
 require (
 	github.com/lib/pq v1.10.9
 	github.com/oklog/run v1.2.0
 	github.com/perses/metrics-usage v0.6.0
-	github.com/prometheus/prometheus v0.304.2
+	github.com/prometheus/prometheus v0.305.0
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
 	go.opentelemetry.io/otel v1.37.0
@@ -74,7 +74,7 @@ require (
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.63.0 // indirect
+	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rs/cors v1.11.1
 	github.com/thanos-io/thanos v0.39.1
