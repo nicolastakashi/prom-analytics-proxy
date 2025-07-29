@@ -176,7 +176,7 @@ func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
 		if err != nil {
-			slog.Error("unable to parse time parameter", "err", err)
+			return time.Now().UTC()
 		}
 		return timeParamNormalized.UTC()
 	}
