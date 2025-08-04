@@ -174,13 +174,21 @@ func (r *routes) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
-		timeParamNormalized, err := time.Parse(time.RFC3339, timeParam)
-		if err != nil {
-			slog.Error("failed to parse time parameter", "param", param, "value", timeParam, "err", err)
-			return time.Now().UTC()
+		// Attempt RFC3339 parsing first.
+		if t, err := time.Parse(time.RFC3339, timeParam); err == nil {
+			return t.UTC()
 		}
-		return timeParamNormalized.UTC()
+
+		// Fallback: attempt to parse as Unix timestamp (seconds).
+		if ts, err := strconv.ParseInt(timeParam, 10, 64); err == nil {
+			return time.Unix(ts, 0).UTC()
+		}
+
+		// All parsing attempts failed – log and fallback.
+		slog.Error("failed to parse time parameter", "param", param, "value", timeParam)
 	}
+
+	// Default/fallback to current UTC time.
 	return time.Now().UTC()
 }
 
