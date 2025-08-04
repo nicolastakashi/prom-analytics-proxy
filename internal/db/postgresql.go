@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -183,7 +184,7 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
 	SetDefaultTimeRange(&params.TimeRange)
 
-	query := `
+	baseQuery := `
 	WITH filtered_queries AS (
 		SELECT
 			queryParam,
@@ -214,33 +215,16 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	FROM 
 		filtered_queries q,
 		counted_queries cq
-	ORDER BY
-		CASE WHEN $5 = 'asc' THEN
-			CASE $6
-				WHEN 'queryParam' THEN q.queryParam
-				WHEN 'avgDuration' THEN q.avgDuration
-				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
-				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
-			END
-		END ASC NULLS LAST,
-		CASE WHEN $5 = 'desc' THEN
-			CASE $6
-				WHEN 'queryParam' THEN q.queryParam
-				WHEN 'avgDuration' THEN q.avgDuration
-				WHEN 'avgPeakySamples' THEN q.avgPeakySamples
-				WHEN 'maxPeakSamples' THEN q.maxPeakSamples
-			END
-		END DESC NULLS LAST
-	LIMIT $7 OFFSET $8;
 	`
+	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
+	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
+	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
 	args := []interface{}{
 		fmt.Sprintf(`[{"__name__": "%s"}]`, params.SerieName),
 		params.TimeRange.From,
 		params.TimeRange.To,
 		params.Filter,
-		params.SortOrder,
-		params.SortBy,
 		params.PageSize,
 		(params.Page - 1) * params.PageSize,
 	}
@@ -385,7 +369,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	query := `
+	baseQuery := `
 		WITH latest_rules AS (
 			SELECT 
 				serie,
@@ -416,30 +400,14 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			created_at
 		FROM latest_rules
 		WHERE rank = 1
-		ORDER BY
-			CASE WHEN $6 = 'asc' THEN
-				CASE $7
-					WHEN 'name' THEN name
-					WHEN 'group_name' THEN group_name
-					WHEN 'expression' THEN expression
-					WHEN 'created_at' THEN created_at
-				END
-			END ASC,
-			CASE WHEN $6 = 'desc' THEN
-				CASE $7
-					WHEN 'name' THEN name
-					WHEN 'group_name' THEN group_name
-					WHEN 'expression' THEN expression
-					WHEN 'created_at' THEN created_at
-				END
-			END DESC
-		LIMIT $8 OFFSET $9;
 	`
+	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
+	orderClause := fmt.Sprintf(" ORDER BY %s %s", params.SortBy, strings.ToUpper(params.SortOrder))
+	query := baseQuery + orderClause + " LIMIT $6 OFFSET $7;"
 
 	args := []interface{}{
 		params.Serie, params.Kind, startTime, endTime,
 		params.Filter,
-		params.SortOrder, params.SortBy,
 		params.PageSize,
 		(params.Page - 1) * params.PageSize,
 	}
@@ -590,7 +558,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
-	query := `
+	baseQuery := `
 		WITH latest_dashboards AS (
 			SELECT 
 				id,
@@ -617,28 +585,14 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 			created_at
 		FROM latest_dashboards
 		WHERE rank = 1
-		ORDER BY
-			CASE WHEN $5 = 'asc' THEN
-				CASE $6
-					WHEN 'name' THEN name
-					WHEN 'url' THEN url
-					WHEN 'created_at' THEN created_at
-				END
-			END ASC,
-			CASE WHEN $5 = 'desc' THEN
-				CASE $6
-					WHEN 'name' THEN name
-					WHEN 'url' THEN url
-					WHEN 'created_at' THEN created_at
-				END
-			END DESC
-		LIMIT $7 OFFSET $8;
 	`
+	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
+	orderClause := fmt.Sprintf(" ORDER BY %s %s", params.SortBy, strings.ToUpper(params.SortOrder))
+	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
 	offset := (params.Page - 1) * params.PageSize
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Serie, from, to, params.Filter,
-		params.SortOrder, params.SortBy,
 		params.PageSize, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
