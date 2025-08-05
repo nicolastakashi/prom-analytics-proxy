@@ -1124,39 +1124,43 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
-		WITH metric_stats AS (
-			SELECT 
-				COALESCE(SUM(CASE WHEN r.kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
-				COALESCE(SUM(CASE WHEN r.kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
-				COALESCE(COUNT(DISTINCT CASE WHEN d.created_at BETWEEN $1 AND $2 THEN d.name END), 0) as dashboard_count
-			FROM RulesUsage r
-			LEFT JOIN DashboardUsage d ON r.serie = d.serie
-			WHERE r.serie = $3 
-			AND r.created_at BETWEEN $4 AND $5
-		),
-		total_stats AS (
-			SELECT 
-				COALESCE(SUM(CASE WHEN kind = 'alert' THEN 1 ELSE 0 END), 0) as total_alerts,
-				COALESCE(SUM(CASE WHEN kind = 'record' THEN 1 ELSE 0 END), 0) as total_records,
-				COALESCE(COUNT(DISTINCT name), 0) as total_dashboards
-			FROM RulesUsage
-			WHERE created_at BETWEEN $6 AND $7
-		)
-		SELECT 
-			ms.alert_count,
-			ms.record_count,
-			ms.dashboard_count,
-			ts.total_alerts,
-			ts.total_records,
-			ts.total_dashboards
-		FROM metric_stats ms, total_stats ts;
+		WITH metric_rule_stats AS
+		(
+			SELECT Count(DISTINCT NAME) filter (WHERE kind = 'alert')  AS alert_count ,
+					count(DISTINCT NAME) filter (WHERE kind = 'record') AS record_count
+			FROM   rulesusage
+			WHERE  serie = $3
+			AND    created_at BETWEEN $1 AND    $2 ), metric_dash_stats AS
+		(
+			SELECT count(DISTINCT NAME) AS dashboard_count
+			FROM   dashboardusage
+			WHERE  serie = $3
+			AND    created_at BETWEEN $1 AND    $2 ), total_rule_stats AS
+		(
+			SELECT count(DISTINCT NAME) filter (WHERE kind = 'alert')  AS total_alerts ,
+					count(DISTINCT NAME) filter (WHERE kind = 'record') AS total_records
+			FROM   rulesusage
+			WHERE  created_at BETWEEN $1 AND    $2 ), total_dash_stats AS
+		(
+			SELECT count(DISTINCT NAME) AS total_dashboards
+			FROM   dashboardusage
+			WHERE  created_at BETWEEN $1 AND    $2 )
+		SELECT     mrs.alert_count,
+				mrs.record_count,
+				mds.dashboard_count,
+				trs.total_alerts,
+				trs.total_records,
+				tds.total_dashboards
+		FROM       metric_rule_stats AS mrs
+		CROSS JOIN metric_dash_stats AS mds
+		CROSS JOIN total_rule_stats  AS trs
+		CROSS JOIN total_dash_stats  AS tds;
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query,
 		from, to,
-		metricName, from, to,
-		from, to,
+		metricName,
 	)
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
