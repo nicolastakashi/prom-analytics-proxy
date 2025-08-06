@@ -5,7 +5,38 @@ import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 
 
-export function QueryErrorAnalysis({ data, from, to }: { data: QueryErrorAnalysisResult[], from: Date, to: Date }) {
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getQueryErrorAnalysis } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
+
+export function QueryErrorAnalysis() {
+  const { dateRange } = useDateRange()
+  const fromISO = dateRange?.from?.toISOString()
+  const toISO = dateRange?.to?.toISOString()
+  const fromDate = dateRange?.from ?? new Date()
+  const toDate = dateRange?.to ?? new Date()
+
+  const { data, isLoading } = useQuery<QueryErrorAnalysisResult[]>({
+    queryKey: ["queryErrorAnalysis", fromISO, toISO],
+    queryFn: () => getQueryErrorAnalysis(fromISO, toISO),
+    enabled: Boolean(fromISO && toISO),
+  })
+
+  if (isLoading || !data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-32" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card>
       <CardHeader>
@@ -25,7 +56,7 @@ export function QueryErrorAnalysis({ data, from, to }: { data: QueryErrorAnalysi
                 angle={-45}
                 textAnchor="end"
                 height={60}
-                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, fromDate, toDate)}
               />
               <YAxis
                 stroke="#888888"
@@ -42,7 +73,7 @@ export function QueryErrorAnalysis({ data, from, to }: { data: QueryErrorAnalysi
                         <div className="grid gap-2">
                           <div className="flex flex-col">
                             <span className="text-[0.70rem] uppercase text-muted-foreground">Time</span>
-                            <span className="font-bold text-muted-foreground">{formatTimestampByGranularity(payload[0].payload.time, from, to)}</span>
+                            <span className="font-bold text-muted-foreground">{formatTimestampByGranularity(payload[0].payload.time, fromDate, toDate)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[0.70rem] uppercase text-muted-foreground">Error Count</span>

@@ -2,19 +2,58 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Database, CheckCircle, XCircle, BarChart2, LineChart, Clock } from "lucide-react"
-import { MetricQueryPerformanceStatistics, QueryLatencyTrendsResult } from "@/lib/types"
 import { formatDuration, formatUnit } from "@/lib/utils"
 import { QueryLatencyTrends } from "@/components/query-latency-trends"
 import { StatCard } from "@/components/ui/stat-card"
 
+import { useMetricQueryPerformanceStatistics, useQueryLatencyTrends } from "@/app/metrics/use-metrics-data";
+import { useDateRange } from "@/contexts/date-range-context";
+import { Skeleton } from "@/components/ui/skeleton";
+
 interface MetricPerformanceProps {
-  queryPerformanceData: MetricQueryPerformanceStatistics | undefined
-  queryLatencyTrendsData: QueryLatencyTrendsResult[] | undefined
+  metricName: string;
 }
 
-export function MetricPerformance({ queryPerformanceData, queryLatencyTrendsData }: MetricPerformanceProps) {
-  const from = new Date(queryLatencyTrendsData?.[0]?.time || new Date())
-  const to = new Date(queryLatencyTrendsData?.[queryLatencyTrendsData.length - 1]?.time || new Date())
+export function MetricPerformance({ metricName }: MetricPerformanceProps) {
+  const { dateRange } = useDateRange();
+  const { data: queryPerformanceData, isLoading: perfLoading } = useMetricQueryPerformanceStatistics(metricName, dateRange);
+  const { isLoading: latencyLoading } = useQueryLatencyTrends(metricName, dateRange);
+
+  const isLoading = perfLoading || latencyLoading;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {/* stats skeleton */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <Skeleton className="h-4 w-32" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        {/* chart skeleton */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <Skeleton className="h-4 w-32" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[300px] w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+    
 
   const getSuccessRateColor = (rate: number) => {
     if (rate > 95) return "bg-green-500"
@@ -79,12 +118,7 @@ export function MetricPerformance({ queryPerformanceData, queryLatencyTrendsData
           </div>
 
           <div className="relative">
-            <QueryLatencyTrends
-              latencyTrendsData={queryLatencyTrendsData || []}
-              from={from}
-              to={to}
-              title="Query Latency Trends"
-            />
+            <QueryLatencyTrends metricName={metricName} title="Query Latency Trends" />
           </div>
         </div>
       </CardContent>

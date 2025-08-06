@@ -2,6 +2,7 @@ import React from "react";
 import { useMetricUsage, useSerieExpressions } from "@/app/metrics/use-metrics-data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DateRange } from "@/lib/types";
@@ -213,7 +214,18 @@ function TabContent<T>({
   onPaginationChange
 }: TabContentProps<T>) {
   if (isLoading) {
-    return <div className="text-center py-4">Loading...</div>;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-24" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
   }
   
   if (error) {

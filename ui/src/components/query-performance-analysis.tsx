@@ -4,17 +4,45 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { QueryThroughputAnalysisResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 
-export function QueryThroughputAnalysis({ 
-    throughputData, 
-    from,
-    to,
-}: { 
-    throughputData: QueryThroughputAnalysisResult[]
-    from: Date
-    to: Date
-}) {
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getQueryThroughputAnalysis } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
+
+interface QueryThroughputAnalysisProps {
+  className?: string
+}
+
+export function QueryThroughputAnalysis({ className }: QueryThroughputAnalysisProps) {
+  const { dateRange } = useDateRange()
+  const fromISO = dateRange?.from?.toISOString()
+  const toISO = dateRange?.to?.toISOString()
+  const fromDate = dateRange?.from ?? new Date()
+  const toDate = dateRange?.to ?? new Date()
+
+  const { data: throughputData, isLoading } = useQuery<QueryThroughputAnalysisResult[]>({
+    queryKey: ["queryThroughputAnalysis", fromISO, toISO],
+    queryFn: () => getQueryThroughputAnalysis(fromISO, toISO),
+    enabled: Boolean(fromISO && toISO),
+  })
+
+  if (isLoading || !throughputData) {
+    return (
+      <Card className={className}>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-32" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>Query Throughput Analysis</CardTitle>
       </CardHeader>
@@ -32,7 +60,7 @@ export function QueryThroughputAnalysis({
                 angle={-45}
                 textAnchor="end"
                 height={60}
-                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, fromDate, toDate)}
               />
               <YAxis
                 stroke="#888888"

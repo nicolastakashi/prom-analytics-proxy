@@ -8,14 +8,91 @@ import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts"
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--primary) / 0.3)"]
 
-interface KeyMetricsProps {
-    queryTypes?: QueryTypesResponse
-    averageDuration?: AverageDurationResponse
-    queryRate?: QueryRateResponse
-}
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getQueryTypes, getAverageDuration, getQueryRate } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
 
-export function KeyMetrics(props: KeyMetricsProps) {
-    const { queryTypes, averageDuration, queryRate } = props
+
+export function KeyMetrics() {
+    const { dateRange } = useDateRange()
+    const from = dateRange?.from?.toISOString()
+    const to = dateRange?.to?.toISOString()
+
+    const {
+      data: queryTypes,
+      isLoading: isLoadingTypes,
+    } = useQuery<QueryTypesResponse>({
+      queryKey: ["queryTypes", from, to],
+      queryFn: () => getQueryTypes(from, to),
+      enabled: Boolean(from && to),
+    })
+
+    const {
+      data: averageDuration,
+      isLoading: isLoadingAvg,
+    } = useQuery<AverageDurationResponse>({
+      queryKey: ["averageDuration", from, to],
+      queryFn: () => getAverageDuration(from, to),
+      enabled: Boolean(from && to),
+    })
+
+    const {
+      data: queryRate,
+      isLoading: isLoadingRate,
+    } = useQuery<QueryRateResponse>({
+      queryKey: ["queryRate", from, to],
+      queryFn: () => getQueryRate(from, to),
+      enabled: Boolean(from && to),
+    })
+
+    const loading = isLoadingTypes || isLoadingAvg || isLoadingRate
+
+    if (loading || !queryTypes || !averageDuration || !queryRate) {
+      return (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                    {/* Large card placeholder */}
+          <Card className="lg:col-span-2 relative">
+            {/* title & icon */}
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+              <CardTitle className="text-sm font-medium">
+                <Skeleton className="h-4 w-24" />
+              </CardTitle>
+              {/* icon circle */}
+              <Skeleton className="h-4 w-4 rounded" />
+            </CardHeader>
+            <CardContent className="flex items-center gap-3 pb-3">
+              {/* circular chart placeholder */}
+              <Skeleton className="h-[70px] w-[70px] rounded-full" />
+              <div className="space-y-1 flex-1">
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-3 w-32" />
+                <div className="flex gap-2 mt-2">
+                  <Skeleton className="h-2 w-12" />
+                  <Skeleton className="h-2 w-12" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+                    {/* Three small metric cards */}
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="relative">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+                <CardTitle className="text-sm font-medium">
+                  <Skeleton className="h-4 w-20" />
+                </CardTitle>
+                <Skeleton className="h-4 w-4 rounded" />
+              </CardHeader>
+              <CardContent className="space-y-2 pb-3">
+                <Skeleton className="h-7 w-20" />
+                <Skeleton className="h-3 w-24" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )
+    }
 
     let queryTypeData: { name: string, value: number }[] = []
     if (queryTypes) {
