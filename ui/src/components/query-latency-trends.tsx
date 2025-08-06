@@ -4,15 +4,44 @@ import { QueryLatencyTrendsResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getQueryLatencyTrends } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
+
 interface QueryLatencyTrendsProps {
-  latencyTrendsData: QueryLatencyTrendsResult[]
-  from: Date
-  to: Date
   className?: string
   title?: React.ReactNode
+  metricName?: string
 }
 
-export function QueryLatencyTrends({ latencyTrendsData, from, to, className, title }: QueryLatencyTrendsProps) {
+export function QueryLatencyTrends({ className, title, metricName }: QueryLatencyTrendsProps) {
+  const { dateRange } = useDateRange()
+  const fromISO = dateRange?.from?.toISOString()
+  const toISO = dateRange?.to?.toISOString()
+  const fromDate = dateRange?.from ?? new Date()
+  const toDate = dateRange?.to ?? new Date()
+
+  const { data: latencyTrendsData, isLoading } = useQuery<QueryLatencyTrendsResult[]>({
+    queryKey: ["queryLatencyTrends", fromISO, toISO, metricName],
+    queryFn: () => getQueryLatencyTrends(fromISO, toISO, metricName),
+    enabled: Boolean(fromISO && toISO),
+  })
+
+  if (isLoading || !latencyTrendsData) {
+    return (
+      <Card className={className}>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-32" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card className={className}>
       <CardHeader>
@@ -32,7 +61,7 @@ export function QueryLatencyTrends({ latencyTrendsData, from, to, className, tit
                 angle={-45}
                 textAnchor="end"
                 height={60}
-                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, fromDate, toDate)}
               />
               <YAxis
                 stroke="#888888"

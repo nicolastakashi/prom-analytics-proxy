@@ -11,18 +11,24 @@ import { Producer } from "@/lib/types"
 import { DataTable } from "@/components/data-table"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 
-interface ProducersTableProps {
-  producers: Producer[]
+import { useMetricStatistics } from "@/app/metrics/use-metrics-data";
+import { useDateRange } from "@/contexts/date-range-context";
+import { Skeleton } from "@/components/ui/skeleton";
+
+interface MetricProducersProps {
+  metricName: string;
 }
 
-export function MetricProducers({ producers }: ProducersTableProps) {
-  // Sorting state (like metric-usage)
+export function MetricProducers({ metricName }: MetricProducersProps) {
+  const { dateRange } = useDateRange();
+  const { data, isLoading } = useMetricStatistics(metricName, dateRange);
+  const producers: Producer[] = data.statistics?.producers || [];
+  // Local sorting state must be declared unconditionally to respect Hooks rules
   const [sorting, setSorting] = React.useState<SortingState>([])
 
-  // Calculate total series for percentage calculations
-  const totalSeries = producers.reduce((sum, producer) => sum + producer.series, 0)
+  // Calculate total series for percentage calculations (empty while loading)
+  const totalSeries = producers.reduce((sum, producer) => sum + producer.series, 0);
 
-  // Memoize columns (like metric-usage)
   const columns = React.useMemo<ColumnDef<Producer>[]>(() => [
     {
       accessorKey: "job",
@@ -73,7 +79,25 @@ export function MetricProducers({ producers }: ProducersTableProps) {
         )
       },
     },
-  ], [totalSeries])
+  ], [totalSeries]);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-32" />
+          </CardTitle>
+          <CardDescription>
+            <Skeleton className="h-3 w-full" />
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

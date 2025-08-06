@@ -9,13 +9,13 @@ import { RecentQuery, PagedResult } from "@/lib/types"
 import { formatUTCtoLocal } from "@/lib/utils/date-utils"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { ArrowUpDown } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getRecentQueries } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
 
 // Define our extended column type with maxWidth
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number };
-
-interface QueryTableProps {
-  data?: PagedResult<RecentQuery>
-}
 
 const columns: ExtendedColumnDef<RecentQuery>[] = [
   {
@@ -88,7 +88,7 @@ const columns: ExtendedColumnDef<RecentQuery>[] = [
   },
 ]
 
-export function QueryTable({ data }: QueryTableProps) {
+export function QueryTable() {
   const { tableState, setTableState } = useTable()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "timestamp", desc: true }])
 
@@ -126,6 +126,28 @@ export function QueryTable({ data }: QueryTableProps) {
       ...tableState,
       page
     })
+  }
+
+  const { dateRange } = useDateRange()
+  const fromISO = dateRange?.from?.toISOString()
+  const toISO = dateRange?.to?.toISOString()
+
+  const { data, isLoading } = useQuery<PagedResult<RecentQuery>>({
+    queryKey: ["recentQueries", fromISO, toISO, tableState],
+    queryFn: () => getRecentQueries(
+      fromISO,
+      toISO,
+      tableState.page,
+      tableState.pageSize,
+      tableState.sortBy,
+      tableState.sortOrder,
+      tableState.filter
+    ),
+    enabled: Boolean(fromISO && toISO),
+  })
+
+  if (isLoading || !data) {
+    return <Skeleton className="h-[500px] w-full" />
   }
 
   return (

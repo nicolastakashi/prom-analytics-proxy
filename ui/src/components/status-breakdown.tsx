@@ -5,13 +5,39 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, Cart
 import { QueryStatusDistributionResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 
-interface StatusBreakdownProps {
-  statusData: QueryStatusDistributionResult[]
-  from: Date
-  to: Date
-}
+import { useQuery } from "@tanstack/react-query"
+import { useDateRange } from "@/contexts/date-range-context"
+import { getQueryStatusDistribution } from "@/api/queries"
+import { Skeleton } from "@/components/ui/skeleton"
 
-export function StatusBreakdown({ statusData, from, to }: StatusBreakdownProps) {
+export function StatusBreakdown() {
+  const { dateRange } = useDateRange()
+  const from = dateRange?.from?.toISOString()
+  const to = dateRange?.to?.toISOString()
+  const fromDate = dateRange?.from ?? new Date()
+  const toDate = dateRange?.to ?? new Date()
+
+  const { data: statusData, isLoading } = useQuery<QueryStatusDistributionResult[]>({
+    queryKey: ["queryStatusDistribution", from, to],
+    queryFn: () => getQueryStatusDistribution(from, to),
+    enabled: Boolean(from && to),
+  })
+
+  if (isLoading || !statusData) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Skeleton className="h-4 w-32" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -28,7 +54,7 @@ export function StatusBreakdown({ statusData, from, to }: StatusBreakdownProps) 
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => formatTimestampByGranularity(value, from, to)}
+                tickFormatter={(value) => formatTimestampByGranularity(value, fromDate, toDate)}
                 angle={-45}
                 textAnchor="end"
                 height={60}

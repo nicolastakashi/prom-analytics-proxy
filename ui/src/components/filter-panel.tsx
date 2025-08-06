@@ -6,7 +6,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, RefreshCw } from "lucide-react"
 import type { DateRange, DayClickEventHandler } from "react-day-picker"
-import { format, subDays, startOfDay, endOfDay, differenceInMilliseconds } from "date-fns"
+import { format, subDays, startOfDay, differenceInMilliseconds } from "date-fns"
 import { useSearchParams } from "wouter"
 import { useDateRange } from "@/contexts/date-range-context"
 import { fromUTC } from "@/lib/utils/date-utils"
@@ -93,15 +93,19 @@ export function FilterPanel() {
             setFromTime(format(from, "HH:mm"))
             setToTime(format(to, "HH:mm"))
         } else {
-            // Default to last 7 days
+            // Default to last 15 minutes
             const now = new Date()
-            const sevenDaysAgo = subDays(now, 7)
+            // Zero milliseconds for consistency
+            now.setMilliseconds(0)
+            const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000)
             const range = { 
-                from: startOfDay(sevenDaysAgo), 
-                to: endOfDay(now) 
+                from: fifteenMinutesAgo, 
+                to: now 
             }
             setCalendarState(range)
             setDateRange(range)
+            setFromTime(format(range.from, "HH:mm"))
+            setToTime(format(range.to, "HH:mm"))
         }
     }, [])
 
