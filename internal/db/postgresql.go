@@ -64,7 +64,6 @@ const (
 )
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
-
 	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.DialTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to dial postgresql.")
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Addr, "postgresql-addr", "localhost", "Address of the postgresql server.")
 	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.Port, "postgresql-port", 5432, "Port of the postgresql server.")
@@ -322,9 +321,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	if params.PageSize <= 0 {
 		params.PageSize = 10
 	}
-	if params.SortBy == "" {
-		params.SortBy = "created_at"
-	}
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
 	}
@@ -451,7 +447,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			CreatedAt:  createdAt,
 		})
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
@@ -638,28 +633,22 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 	startTime, endTime := PrepareTimeRange(tr, "postgresql")
 
 	query := `
-		WITH total AS (
-			SELECT COUNT(*) AS count
-			FROM queries
-			WHERE ts BETWEEN $1 AND $2
-		),
-		types AS (
-			SELECT 
-				COUNT(CASE WHEN type = 'instant' THEN 1 END) AS instant_count,
-				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
-			FROM queries
-			WHERE ts BETWEEN $3 AND $4
+		WITH stats AS (
+			SELECT
+				COUNT(*)                                   AS total,
+				COUNT(*) FILTER (WHERE type = 'instant')   AS instant_cnt,
+				COUNT(*) FILTER (WHERE type = 'range')     AS range_cnt
+			FROM   queries
+			WHERE  ts BETWEEN $1 AND $2
 		)
-		SELECT 
-			t.count,
-			CASE WHEN t.count > 0 THEN ROUND(ty.instant_count * 100.0 / t.count, 2) ELSE 0 END,
-			CASE WHEN t.count > 0 THEN ROUND(ty.range_count * 100.0 / t.count, 2) ELSE 0 END
-		FROM 
-			total t, 
-			types ty;
+		SELECT
+			total,
+			ROUND(instant_cnt * 100.0 / NULLIF(total,0), 2) AS instant_pct,
+			ROUND(range_cnt  * 100.0 / NULLIF(total,0), 2)  AS range_pct
+		FROM   stats;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, startTime, endTime)
+	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime)
 	if err != nil {
 		return nil, err
 	}
@@ -683,23 +672,21 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 
 func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
 	query := `
-		WITH current AS (
-			SELECT AVG(duration) AS avg_current
+		WITH win AS (
+			SELECT
+				AVG(duration) FILTER (WHERE ts BETWEEN $1 AND $2) AS avg_current,
+				AVG(duration) FILTER (WHERE ts BETWEEN $3 AND $4) AS avg_previous
 			FROM queries
-			WHERE ts BETWEEN $1 AND $2
-		),
-		previous AS (
-			SELECT AVG(duration) AS avg_previous 
-			FROM queries
-			WHERE ts BETWEEN $3 AND $4
+			WHERE ts BETWEEN LEAST($1,$3) AND GREATEST($2,$4)
 		)
 		SELECT
-			ROUND(COALESCE(avg_current, 0)::numeric, 2),
-			CASE 
+			ROUND(COALESCE(avg_current, 0)::numeric, 2)                            AS avg_current,
+			CASE
 				WHEN avg_previous IS NULL OR avg_previous = 0 THEN 0
 				ELSE ROUND(((avg_current - avg_previous) * 100.0 / avg_previous)::numeric, 2)
-			END AS delta_percent
-		FROM current, previous;
+			END                                                                   AS delta_percent
+		FROM win;
+
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
@@ -730,25 +717,21 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 
 func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
 	query := `
+		WITH s AS (
+			SELECT
+				COUNT(*)                                                     AS total_rows,
+				COUNT(*) FILTER (WHERE statusCode BETWEEN 200 AND 299)       AS success_rows,
+				COUNT(*) FILTER (WHERE statusCode >= 400)                    AS fail_rows
+			FROM   queries
+			WHERE  ts BETWEEN $1 AND $2
+			AND  ( $3 = '' OR labelMatchers @> $4::jsonb )
+		)
 		SELECT
-			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
-			ROUND(
-				SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-				2
-			) AS success_rate_percent,
-			SUM(CASE WHEN statusCode >= 400 THEN 1 ELSE 0 END) AS failed_queries,
-			ROUND(
-				SUM(CASE WHEN statusCode >= 400 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
-				2
-			) AS error_rate_percent
-		FROM queries
-		WHERE ts BETWEEN $1 AND $2
-		AND CASE 
-			WHEN $3 != '' THEN 
-				labelMatchers @> $4::jsonb
-			ELSE 
-				TRUE
-			END;
+			success_rows                                                          AS successful_queries,
+			ROUND(success_rows * 100.0 / NULLIF(total_rows,0), 2)                 AS success_rate_percent,
+			fail_rows                                                             AS failed_queries,
+			ROUND(fail_rows * 100.0 / NULLIF(total_rows,0), 2)                    AS error_rate_percent
+		FROM s;
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
@@ -786,28 +769,33 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
-	WITH RECURSIVE time_buckets AS (
-		SELECT 
-			date_trunc('minute', $1::timestamp) as bucket_start,
-			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
-		UNION ALL
-		SELECT 
-			bucket_end,
-			date_trunc('minute', bucket_end + $2::interval)
-		FROM time_buckets 
-		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	WITH
+	buckets AS (
+		SELECT generate_series(
+				date_trunc('minute', $1::timestamp),
+				date_trunc('minute', $3::timestamp),
+				$2::interval
+			) AS bucket
+	),
+	agg AS (
+		SELECT
+			date_trunc('minute', ts)                                AS bucket,
+			COUNT(*) FILTER (WHERE statusCode BETWEEN 200 AND 299)  AS status2xx,
+			COUNT(*) FILTER (WHERE statusCode BETWEEN 400 AND 499)  AS status4xx,
+			COUNT(*) FILTER (WHERE statusCode BETWEEN 500 AND 599)  AS status5xx
+		FROM   queries
+		WHERE  ts >= $1
+		AND  ts <  $3
+		GROUP  BY bucket
 	)
-	SELECT 
-		bucket_start as time,
-		COALESCE(SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END), 0) as status2xx,
-		COALESCE(SUM(CASE WHEN statusCode >= 400 AND statusCode < 500 THEN 1 ELSE 0 END), 0) as status4xx,
-		COALESCE(SUM(CASE WHEN statusCode >= 500 AND statusCode < 600 THEN 1 ELSE 0 END), 0) as status5xx
-	FROM time_buckets b
-	LEFT JOIN queries q ON 
-		q.ts >= b.bucket_start AND 
-		q.ts < b.bucket_end
-	GROUP BY bucket_start
-	ORDER BY bucket_start;
+	SELECT
+		b.bucket                                            AS time,
+		COALESCE(a.status2xx, 0)                            AS status2xx,
+		COALESCE(a.status4xx, 0)                            AS status4xx,
+		COALESCE(a.status5xx, 0)                            AS status5xx
+	FROM   buckets b
+	LEFT   JOIN agg a USING (bucket)
+	ORDER  BY b.bucket;
 	`
 
 	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
@@ -838,33 +826,35 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
-	WITH RECURSIVE time_buckets AS (
-		SELECT 
-			date_trunc('minute', $1::timestamp) as bucket_start,
-			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
-		UNION ALL
-		SELECT 
-			bucket_end,
-			date_trunc('minute', bucket_end + $2::interval)
-		FROM time_buckets 
-		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	WITH
+	buckets AS (
+		SELECT generate_series(
+				date_trunc('minute', $1::timestamp),
+				date_trunc('minute', $3::timestamp),
+				$2::interval
+			) AS bucket
+	),
+	agg AS (
+		SELECT
+			date_trunc('minute', ts)                         AS bucket,
+			ROUND(AVG(duration)::numeric, 2)                 AS avg_duration,
+			ROUND(
+				percentile_cont(0.95) WITHIN GROUP (ORDER BY duration)
+				::numeric, 2
+			)                                                AS p95
+		FROM   queries
+		WHERE  ts >= $1
+		AND  ts <  $3
+		AND  ( $4 = '' OR labelMatchers @> $5::jsonb )
+		GROUP  BY bucket
 	)
-	SELECT 
-		b.bucket_start as time,
-		COALESCE(ROUND(AVG(q.duration)::numeric, 2), 0) as value,
-		COALESCE(ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY q.duration)::numeric, 2), 0) as p95
-	FROM time_buckets b
-	LEFT JOIN queries q ON 
-		q.ts >= b.bucket_start AND 
-		q.ts < b.bucket_end
-		AND CASE 
-			WHEN $4 != '' THEN 
-				q.labelMatchers @> $5::jsonb
-			ELSE 
-				TRUE
-			END
-	GROUP BY b.bucket_start
-	ORDER BY b.bucket_start;
+	SELECT
+		b.bucket                               AS time,
+		COALESCE(a.avg_duration, 0)            AS value,
+		COALESCE(a.p95,         0)            AS p95
+	FROM   buckets b
+	LEFT   JOIN agg a USING (bucket)
+	ORDER  BY b.bucket;
 	`
 
 	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
@@ -897,26 +887,29 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
-	WITH RECURSIVE time_buckets AS (
-		SELECT 
-			date_trunc('minute', $1::timestamp) as bucket_start,
-			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
-		UNION ALL
-		SELECT 
-			bucket_end,
-			date_trunc('minute', bucket_end + $2::interval)
-		FROM time_buckets 
-		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	WITH
+	buckets AS (
+		SELECT generate_series(
+				date_trunc('minute', $1::timestamp),
+				date_trunc('minute', $3::timestamp),
+				$2::interval
+			) AS bucket
+	),
+	agg AS (
+		SELECT
+			date_trunc('minute', ts) AS bucket,
+			COUNT(*)                 AS value
+		FROM   queries
+		WHERE  ts >= $1
+		AND  ts <  $3
+		GROUP  BY bucket
 	)
-	SELECT 
-		b.bucket_start as time,
-		COALESCE(COUNT(q.ts), 0) as value
-	FROM time_buckets b
-	LEFT JOIN queries q ON 
-		q.ts >= b.bucket_start AND 
-		q.ts < b.bucket_end
-	GROUP BY b.bucket_start
-	ORDER BY b.bucket_start;
+	SELECT
+		b.bucket         AS time,
+		COALESCE(a.value, 0) AS value
+	FROM   buckets b
+	LEFT   JOIN agg a USING (bucket)
+	ORDER  BY b.bucket;
 	`
 
 	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
@@ -947,29 +940,30 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
-	WITH RECURSIVE time_buckets AS (
-		SELECT 
-			date_trunc('minute', $1::timestamp) as bucket_start,
-			date_trunc('minute', $1::timestamp + $2::interval) as bucket_end
-		UNION ALL
-		SELECT 
-			bucket_end,
-			date_trunc('minute', bucket_end + $2::interval)
-		FROM time_buckets 
-		WHERE bucket_start < date_trunc('minute', $3::timestamp)
+	WITH
+	buckets AS (
+		SELECT generate_series(
+				date_trunc('minute', $1::timestamp),
+				date_trunc('minute', $3::timestamp),
+				$2::interval
+			) AS bucket
+	),
+	agg AS (
+		SELECT
+			date_trunc('minute', ts)                  AS bucket,
+			COUNT(*) FILTER (WHERE statusCode >= 400) AS value
+		FROM   queries
+		WHERE  ts >= $1
+		AND  ts <  $3
+		GROUP  BY bucket
 	)
-	SELECT 
-		b.bucket_start as time,
-		COALESCE(SUM(CASE 
-			WHEN q.statusCode >= 400 THEN 1 
-			ELSE 0 
-		END), 0) as value
-	FROM time_buckets b
-	LEFT JOIN queries q ON 
-		q.ts >= b.bucket_start AND 
-		q.ts < b.bucket_end
-	GROUP BY b.bucket_start
-	ORDER BY b.bucket_start;
+
+	SELECT
+		b.bucket                 AS time,
+		COALESCE(a.value, 0)     AS value
+	FROM   buckets b
+	LEFT   JOIN agg a USING (bucket)
+	ORDER  BY b.bucket;
 	`
 
 	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
@@ -1001,160 +995,125 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 	if params.PageSize <= 0 {
 		params.PageSize = 10
 	}
-	if params.SortBy == "" {
+
+	switch params.SortBy {
+	case "queryParam", "duration", "samples", "status", "timestamp":
+	default:
 		params.SortBy = "timestamp"
-	}
-	if params.SortOrder == "" {
-		params.SortOrder = "desc"
 	}
 
-	validSortFields := map[string]bool{
-		"queryParam": true,
-		"duration":   true,
-		"samples":    true,
-		"status":     true,
-		"timestamp":  true,
+	dir := "DESC"
+	if strings.ToLower(params.SortOrder) == "asc" {
+		dir = "ASC"
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "timestamp"
-	}
+
+	orderCol := map[string]string{
+		"queryParam": "queryParam",
+		"duration":   "duration",
+		"samples":    "peak_samples",
+		"status":     "statusCode",
+		"timestamp":  "ts",
+	}[params.SortBy]
+
+	sql := fmt.Sprintf(`
+	WITH aggregated AS (
+		SELECT
+			queryParam,
+			statusCode,
+			MAX(duration)    AS duration,
+			MAX(peakSamples) AS peak_samples,
+			MAX(ts)          AS ts
+		FROM   queries
+		WHERE  ts BETWEEN $1 AND $2
+		AND  ($3 = '' OR queryParam ILIKE '%%' || $3 || '%%')
+		GROUP  BY queryParam, statusCode
+	)
+	SELECT
+		queryParam,
+		statusCode,
+		duration,
+		peak_samples,
+		ts,
+		COUNT(*) OVER () AS total_count
+	FROM   aggregated
+	ORDER  BY %s %s
+	LIMIT  $4 OFFSET $5;`, orderCol, dir)
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
-	query := `
-	WITH filtered_queries AS (
-		SELECT 
-			queryParam,
-			statusCode,
-			MAX(duration) as duration,
-			MAX(peakSamples) as peakSamples,
-			MAX(ts) as ts
-		FROM queries
-		WHERE 
-			ts BETWEEN $1::timestamp AND $2::timestamp
-			AND CASE 
-				WHEN $3 != '' THEN 
-					queryParam ILIKE '%' || $3 || '%'
-				ELSE 
-					TRUE
-				END
-		GROUP BY queryParam, statusCode
-	),
-	counted_queries AS (
-		SELECT COUNT(*) as total_count 
-		FROM filtered_queries
-	)
-	SELECT 
-		q.queryParam,
-		q.statusCode,
-		q.duration,
-		q.peakSamples,
-		q.ts,
-		cq.total_count
-	FROM 
-		filtered_queries q,
-		counted_queries cq
-	ORDER BY
-		CASE WHEN $4 = 'asc' THEN
-			CASE $5
-				WHEN 'queryParam' THEN q.queryParam::text
-				WHEN 'duration' THEN q.duration::text
-				WHEN 'samples' THEN q.peakSamples::text
-				WHEN 'status' THEN q.statusCode::text
-				WHEN 'timestamp' THEN q.ts::text
-			END
-		END ASC,
-		CASE WHEN $4 = 'desc' THEN
-			CASE $5
-				WHEN 'queryParam' THEN q.queryParam::text
-				WHEN 'duration' THEN q.duration::text
-				WHEN 'samples' THEN q.peakSamples::text
-				WHEN 'status' THEN q.statusCode::text
-				WHEN 'timestamp' THEN q.ts::text
-			END
-		END DESC
-	LIMIT $6 OFFSET $7;
-	`
-
-	args := []interface{}{
-		from, to,
+	rows, err := p.db.QueryContext(
+		ctx,
+		sql,
+		from,
+		to,
 		params.Filter,
-		params.SortOrder,
-		params.SortBy,
 		params.PageSize,
-		(params.Page - 1) * params.PageSize,
-	}
-
-	rows, err := p.db.QueryContext(ctx, query, args...)
+		(params.Page-1)*params.PageSize,
+	)
 	if err != nil {
-		return PagedResult{}, fmt.Errorf("failed to execute query: %w", err)
+		return PagedResult{}, fmt.Errorf("query exec: %w", err)
 	}
 	defer CloseResource(rows)
 
-	var results []RecentQueriesResult
-	var totalCount int
+	var (
+		out        []RecentQueriesResult
+		totalCount int
+	)
 
 	for rows.Next() {
-		var result RecentQueriesResult
+		var r RecentQueriesResult
 		if err := rows.Scan(
-			&result.QueryParam,
-			&result.Status,
-			&result.Duration,
-			&result.Samples,
-			&result.Timestamp,
+			&r.QueryParam,
+			&r.Status,
+			&r.Duration,
+			&r.Samples,
+			&r.Timestamp,
 			&totalCount,
 		); err != nil {
-			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
+			return PagedResult{}, fmt.Errorf("scan: %w", err)
 		}
-		results = append(results, result)
+		out = append(out, r)
 	}
-
 	if err := rows.Err(); err != nil {
-		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+		return PagedResult{}, fmt.Errorf("row iter: %w", err)
 	}
 
-	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
+	pages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	return PagedResult{
 		Total:      totalCount,
-		TotalPages: totalPages,
-		Data:       results,
+		TotalPages: pages,
+		Data:       out,
 	}, nil
 }
 
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
-		WITH metric_rule_stats AS
-		(
-			SELECT Count(DISTINCT NAME) filter (WHERE kind = 'alert')  AS alert_count ,
-					count(DISTINCT NAME) filter (WHERE kind = 'record') AS record_count
-			FROM   rulesusage
-			WHERE  serie = $3
-			AND    created_at BETWEEN $1 AND    $2 ), metric_dash_stats AS
-		(
-			SELECT count(DISTINCT NAME) AS dashboard_count
-			FROM   dashboardusage
-			WHERE  serie = $3
-			AND    created_at BETWEEN $1 AND    $2 ), total_rule_stats AS
-		(
-			SELECT count(DISTINCT NAME) filter (WHERE kind = 'alert')  AS total_alerts ,
-					count(DISTINCT NAME) filter (WHERE kind = 'record') AS total_records
-			FROM   rulesusage
-			WHERE  created_at BETWEEN $1 AND    $2 ), total_dash_stats AS
-		(
-			SELECT count(DISTINCT NAME) AS total_dashboards
-			FROM   dashboardusage
-			WHERE  created_at BETWEEN $1 AND    $2 )
-		SELECT     mrs.alert_count,
-				mrs.record_count,
-				mds.dashboard_count,
-				trs.total_alerts,
-				trs.total_records,
-				tds.total_dashboards
-		FROM       metric_rule_stats AS mrs
-		CROSS JOIN metric_dash_stats AS mds
-		CROSS JOIN total_rule_stats  AS trs
-		CROSS JOIN total_dash_stats  AS tds;
+	WITH rule_stats AS (
+		SELECT
+			COUNT(DISTINCT name) FILTER (WHERE serie = $3 AND kind = 'alert')  AS alert_count,
+			COUNT(DISTINCT name) FILTER (WHERE serie = $3 AND kind = 'record') AS record_count,
+			COUNT(DISTINCT name) FILTER (WHERE kind = 'alert')                AS total_alerts,
+			COUNT(DISTINCT name) FILTER (WHERE kind = 'record')               AS total_records
+		FROM   rulesusage
+		WHERE  created_at BETWEEN $1 AND $2
+	),
+	dash_stats AS (
+		SELECT
+			COUNT(DISTINCT name) FILTER (WHERE serie = $3) AS dashboard_count,
+			COUNT(DISTINCT name)                           AS total_dashboards
+		FROM   dashboardusage
+		WHERE  created_at BETWEEN $1 AND $2
+	)
+	SELECT
+		rs.alert_count,
+		rs.record_count,
+		ds.dashboard_count,
+		rs.total_alerts,
+		rs.total_records,
+		ds.total_dashboards
+	FROM   rule_stats rs
+	CROSS  JOIN dash_stats ds;
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
