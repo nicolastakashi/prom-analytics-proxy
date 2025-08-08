@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
-	_ "github.com/lib/pq"
+	pq "github.com/lib/pq"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 
 	"github.com/uptrace/opentelemetry-go-extra/otelsql"
@@ -19,49 +18,22 @@ import (
 )
 
 type PostGreSQLProvider struct {
-	mu sync.RWMutex
 	db *sql.DB
 }
 
-const (
-	createPostgresTableStmt = `
-		CREATE TABLE IF NOT EXISTS queries (
-			ts TIMESTAMP,
-			queryParam TEXT,
-			timeParam TIMESTAMP,
-			duration BIGINT,
-			statusCode SMALLINT,
-			bodySize INTEGER,
-			fingerprint TEXT,
-			labelMatchers JSONB,
-			type TEXT,
-			step DOUBLE PRECISION,
-			start TIMESTAMP,
-			"end" TIMESTAMP,
-			totalQueryableSamples INTEGER,
-			peakSamples INTEGER
-		);`
+// Non-breaking alias for future rename migration
+type PostgreSQLProvider = PostGreSQLProvider
 
-	createPostgresRulesUsageTableStmt = `
-		CREATE TABLE IF NOT EXISTS RulesUsage (
-			serie TEXT NOT NULL,
-			group_name TEXT NOT NULL,
-			name TEXT NOT NULL,
-			expression TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			labels JSONB,
-			created_at TIMESTAMP NOT NULL
-		);`
+func (p *PostGreSQLProvider) WithDB(f func(db *sql.DB)) {
+	f(p.db)
+}
 
-	createPostgresDashboardUsageTableStmt = `
-		CREATE TABLE IF NOT EXISTS DashboardUsage (
-			id TEXT NOT NULL,
-			serie TEXT NOT NULL,
-			name TEXT NOT NULL,
-			url TEXT NOT NULL,
-			created_at TIMESTAMP NOT NULL
-		);`
-)
+// metricMatcherJSON builds the JSONB matcher used in labelMatchers @> predicates
+func metricMatcherJSON(metric string) string {
+	return fmt.Sprintf(`[{"__name__": "%s"}]`, metric)
+}
+
+// DDL creation moved to embedded Goose migrations.
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.DialTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to dial postgresql.")
@@ -76,28 +48,46 @@ func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	postgresConfig := config.DefaultConfig.Database.PostgreSQL
 
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable",
-		postgresConfig.Addr, postgresConfig.Port, postgresConfig.User, postgresConfig.Password, postgresConfig.Database)
+	psqlInfo := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d application_name=prom-analytics-proxy",
+		postgresConfig.Addr,
+		postgresConfig.Port,
+		postgresConfig.User,
+		postgresConfig.Password,
+		postgresConfig.Database,
+		postgresConfig.SSLMode,
+		int(postgresConfig.DialTimeout.Seconds()),
+	)
 
 	db, err := otelsql.Open("postgres", psqlInfo, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
 	if err != nil {
 		return nil, ConnectionError(err, "PostgreSQL", "failed to open connection")
 	}
 
+	// Apply pool settings from config when provided; keep safe defaults otherwise
+	if postgresConfig.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(postgresConfig.MaxOpenConns)
+	} else {
+		db.SetMaxOpenConns(20)
+	}
+	if postgresConfig.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(postgresConfig.MaxIdleConns)
+	} else {
+		db.SetMaxIdleConns(10)
+	}
+	if postgresConfig.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(postgresConfig.ConnMaxLifetime)
+	} else {
+		db.SetConnMaxLifetime(30 * time.Minute)
+	}
+
 	if err := db.PingContext(ctx); err != nil {
 		return nil, ConnectionError(err, "PostgreSQL", "failed to ping database")
 	}
 
-	if _, err := db.ExecContext(ctx, createPostgresTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "queries")
-	}
-
-	if _, err := db.ExecContext(ctx, createPostgresRulesUsageTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "RulesUsage")
-	}
-
-	if _, err := db.ExecContext(ctx, createPostgresDashboardUsageTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "DashboardUsage")
+	// Run embedded migrations (PostgreSQL dialect)
+	if err := runMigrations(ctx, db, "postgres"); err != nil {
+		return nil, SchemaError(err, "migration", "postgres")
 	}
 
 	return &PostGreSQLProvider{
@@ -105,43 +95,41 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	}, nil
 }
 
-func (p *PostGreSQLProvider) WithDB(f func(db *sql.DB)) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	f(p.db)
-}
-
 func (p *PostGreSQLProvider) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.db.Close()
 }
 
 func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
 	if len(queries) == 0 {
 		return nil
 	}
 
-	query := `
-		INSERT INTO queries (
-			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
-		) VALUES `
+	// Always use COPY for throughput and fewer round-trips
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return QueryError(err, "begin copy tx", "")
+	}
+	stmt, err := tx.PrepareContext(ctx, pq.CopyIn(
+		"queries",
+		// Use lower-case identifiers because pq.CopyIn will quote them
+		"ts", "queryparam", "timeparam", "duration", "statuscode", "bodysize",
+		"fingerprint", "labelmatchers", "type", "step", "start", "end",
+		"totalqueryablesamples", "peaksamples",
+	))
+	if err != nil {
+		_ = tx.Rollback()
+		return QueryError(err, "prepare copyin", "")
+	}
 
-	qc := NewPostgreSQLQueryContext()
-	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
-	query += placeholders
-
-	values := make([]interface{}, 0, len(queries)*14)
 	for _, q := range queries {
 		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
-			return QueryError(err, "marshaling label matchers", "")
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return QueryError(err, "marshal label matchers", "")
 		}
-
-		values = append(values,
+		if _, err := stmt.ExecContext(
+			ctx,
 			q.TS,
 			q.QueryParam,
 			q.TimeParam,
@@ -149,21 +137,32 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			q.StatusCode,
 			q.BodySize,
 			q.Fingerprint,
-			labelMatchersJSON,
+			string(labelMatchersJSON),
 			q.Type,
 			q.Step,
 			q.Start,
 			q.End,
 			q.TotalQueryableSamples,
 			q.PeakSamples,
-		)
+		); err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return QueryError(err, "copyin exec", "")
+		}
 	}
 
-	_, err := p.db.ExecContext(ctx, query, values...)
-	if err != nil {
-		return QueryError(err, "executing insert query", "")
+	if _, err := stmt.ExecContext(ctx); err != nil { // flush
+		_ = stmt.Close()
+		_ = tx.Rollback()
+		return QueryError(err, "copyin flush", "")
 	}
-
+	if err := stmt.Close(); err != nil {
+		_ = tx.Rollback()
+		return QueryError(err, "copyin close", "")
+	}
+	if err := tx.Commit(); err != nil {
+		return QueryError(err, "copyin commit", "")
+	}
 	return nil
 }
 
@@ -197,7 +196,7 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 			AND ts BETWEEN $2 AND $3
 			AND CASE 
 				WHEN $4 != '' THEN 
-					queryParam LIKE '%' || $4 || '%'
+					queryParam ILIKE '%' || $4 || '%'
 				ELSE 
 					TRUE
 				END
@@ -220,7 +219,7 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
 	args := []interface{}{
-		fmt.Sprintf(`[{"__name__": "%s"}]`, params.SerieName),
+		metricMatcherJSON(params.SerieName),
 		params.TimeRange.From,
 		params.TimeRange.To,
 		params.Filter,
@@ -351,7 +350,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		AND created_at BETWEEN $3 AND $4
 		AND CASE 
 			WHEN $5 != '' THEN 
-				(name LIKE '%' || $5 || '%' OR expression LIKE '%' || $5 || '%')
+				(name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
 			ELSE 
 				TRUE
 			END;
@@ -381,7 +380,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			AND created_at BETWEEN $3 AND $4
 			AND CASE 
 				WHEN $5 != '' THEN 
-					(name LIKE '%' || $5 || '%' OR expression LIKE '%' || $5 || '%')
+					(name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
 				ELSE 
 					TRUE
 				END
@@ -398,7 +397,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		WHERE rank = 1
 	`
 	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
-	orderClause := fmt.Sprintf(" ORDER BY %s %s", params.SortBy, strings.ToUpper(params.SortOrder))
+	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $6 OFFSET $7;"
 
 	args := []interface{}{
@@ -408,9 +407,9 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		(params.Page - 1) * params.PageSize,
 	}
 
-	rows, err := p.db.QueryContext(ctx, query, args...)
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+		return nil, err
 	}
 	defer CloseResource(rows)
 
@@ -422,7 +421,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 			name       string
 			expression string
 			kind       string
-			labelsJSON string
+			labelsJSON json.RawMessage
 			createdAt  time.Time
 		)
 
@@ -431,8 +430,8 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		}
 
 		var labels []string
-		if labelsJSON != "" {
-			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+		if len(labelsJSON) > 0 {
+			if err := json.Unmarshal(labelsJSON, &labels); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
 			}
 		}
@@ -582,15 +581,15 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		WHERE rank = 1
 	`
 	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
-	orderClause := fmt.Sprintf(" ORDER BY %s %s", params.SortBy, strings.ToUpper(params.SortOrder))
+	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
 	offset := (params.Page - 1) * params.PageSize
-	rows, err := p.db.QueryContext(ctx, query,
+	rows, err := ExecuteQuery(ctx, p.db, query,
 		params.Serie, from, to, params.Filter,
 		params.PageSize, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
+		return nil, err
 	}
 	defer CloseResource(rows)
 
@@ -692,9 +691,9 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 	from, to := tr.Format(ISOTimeFormat)
 	previousFrom, previousTo := tr.Previous().Format(ISOTimeFormat)
 
-	rows, err := p.db.QueryContext(ctx, query, from, to, previousFrom, previousTo)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, previousFrom, previousTo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query average duration: %w", err)
+		return nil, err
 	}
 	defer CloseResource(rows)
 
@@ -735,9 +734,9 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, metricName, metricMatcherJSON(metricName))
 	if err != nil {
-		return nil, fmt.Errorf("failed to query query rate: %w", err)
+		return nil, err
 	}
 	defer CloseResource(rows)
 
@@ -857,7 +856,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	ORDER  BY b.bucket;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName))
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, metricMatcherJSON(metricName))
 	if err != nil {
 		return nil, err
 	}
@@ -1015,7 +1014,7 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 		"timestamp":  "ts",
 	}[params.SortBy]
 
-	sql := fmt.Sprintf(`
+	querySQL := fmt.Sprintf(`
 	WITH aggregated AS (
 		SELECT
 			queryParam,
@@ -1036,14 +1035,14 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 		ts,
 		COUNT(*) OVER () AS total_count
 	FROM   aggregated
-	ORDER  BY %s %s
+	ORDER  BY %s %s NULLS LAST
 	LIMIT  $4 OFFSET $5;`, orderCol, dir)
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
 	rows, err := p.db.QueryContext(
 		ctx,
-		sql,
+		querySQL,
 		from,
 		to,
 		params.Filter,
@@ -1117,12 +1116,12 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query,
+	rows, err := ExecuteQuery(ctx, p.db, query,
 		from, to,
 		metricName,
 	)
 	if err != nil {
-		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
+		return MetricUsageStatics{}, err
 	}
 	defer CloseResource(rows)
 
@@ -1162,9 +1161,9 @@ func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Con
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := p.db.QueryContext(ctx, query, fmt.Sprintf(`[{"__name__": "%s"}]`, metricName), from, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, metricMatcherJSON(metricName), from, to)
 	if err != nil {
-		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
+		return MetricQueryPerformanceStatistics{}, err
 	}
 	defer CloseResource(rows)
 

@@ -20,52 +20,7 @@ type SQLiteProvider struct {
 	db *sql.DB
 }
 
-const (
-	createSqliteTableStmt = `
-		CREATE TABLE IF NOT EXISTS queries (
-			ts TIMESTAMP,
-			queryParam TEXT,
-			timeParam TIMESTAMP,
-			duration INTEGER,
-			statusCode INTEGER,
-			bodySize INTEGER,
-			fingerprint TEXT,
-			labelMatchers TEXT,
-			type TEXT,
-			step REAL,
-			start TIMESTAMP,
-			"end" TIMESTAMP,
-			totalQueryableSamples INTEGER,
-			peakSamples INTEGER
-		);
-	`
-	configureSqliteStmt = `
-		PRAGMA journal_mode = WAL;
-		PRAGMA synchronous = normal;
-		PRAGMA journal_size_limit = 6144000;
-	`
-
-	createSqliteRulesUsageTableStmt = `
-		CREATE TABLE IF NOT EXISTS RulesUsage (
-			serie TEXT NOT NULL,
-			group_name TEXT NOT NULL,
-			name TEXT NOT NULL,
-			expression TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			labels TEXT,
-			created_at DATETIME NOT NULL
-		);
-	`
-	createSqliteDashboardUsageTableStmt = `
-		CREATE TABLE IF NOT EXISTS DashboardUsage (
-			id TEXT NOT NULL,
-			serie TEXT NOT NULL,
-			name TEXT NOT NULL,
-			url TEXT NOT NULL,
-			created_at DATETIME NOT NULL
-		);
-	`
-)
+// DDL creation moved to embedded Goose migrations.
 
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&config.DefaultConfig.Database.SQLite.DatabasePath, "sqlite-database-path", "prom-analytics-proxy.db", "Path to the sqlite database.")
@@ -81,20 +36,9 @@ func newSqliteProvider(ctx context.Context) (Provider, error) {
 		return nil, ConnectionError(err, "SQLite", "failed to ping database")
 	}
 
-	if _, err := db.ExecContext(ctx, createSqliteTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "queries")
-	}
-
-	if _, err := db.Exec(configureSqliteStmt); err != nil {
-		return nil, SchemaError(err, "configuration", "SQLite settings")
-	}
-
-	if _, err := db.ExecContext(ctx, createSqliteRulesUsageTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "RulesUsage")
-	}
-
-	if _, err := db.ExecContext(ctx, createSqliteDashboardUsageTableStmt); err != nil {
-		return nil, SchemaError(err, "creation", "DashboardUsage")
+	// Run embedded migrations (SQLite dialect)
+	if err := runMigrations(ctx, db, "sqlite"); err != nil {
+		return nil, SchemaError(err, "migration", "sqlite")
 	}
 
 	return &SQLiteProvider{
