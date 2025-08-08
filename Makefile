@@ -79,6 +79,28 @@ tidy:
 	go mod tidy -v
 	cd scripts && go mod tidy -v -modfile=go.mod -compat=1.18
 
+.PHONY: migrate.create.pg migrate.create.sqlite migrate.up.pg migrate.up.sqlite
+
+# Create a new timestamped migration for PostgreSQL
+migrate.create.pg:
+	@[ -n "$$name" ] || (echo "Usage: make migrate.create.pg name=add_users"; exit 1)
+	@go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/db/migrations/postgresql create $$name sql
+
+# Create a new timestamped migration for SQLite
+migrate.create.sqlite:
+	@[ -n "$$name" ] || (echo "Usage: make migrate.create.sqlite name=add_users"; exit 1)
+	@go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/db/migrations/sqlite create $$name sql
+
+# Run migrations up for Postgres using DSN env POSTGRES_DSN
+migrate.up.pg:
+	@[ -n "$$POSTGRES_DSN" ] || (echo "Set POSTGRES_DSN, e.g. 'postgres://user:pass@localhost:5432/db?sslmode=disable'"; exit 1)
+	@go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/db/migrations/postgresql postgres "$$POSTGRES_DSN" up
+
+# Run migrations up for SQLite using DB path env SQLITE_DB
+migrate.up.sqlite:
+	@[ -n "$$SQLITE_DB" ] || (echo "Set SQLITE_DB, e.g. './prom-analytics-proxy.db'"; exit 1)
+	@go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/db/migrations/sqlite sqlite3 "$$SQLITE_DB" up
+
 .PHONY: uibuild
 uibuild:
 	cd ui && npm run build

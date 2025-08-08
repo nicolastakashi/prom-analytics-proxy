@@ -55,6 +55,11 @@ make build
 - Flexible storage options
 - Efficient data management
 
+### Database migrations
+
+- Uses Goose with embedded SQL migrations per dialect (PostgreSQL and SQLite)
+- Migrations run automatically at startup; prefer a single init step in production
+
 ### User Interface
 
 - Intuitive web-based dashboard
