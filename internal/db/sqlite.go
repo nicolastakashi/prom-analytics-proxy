@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -224,6 +225,39 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 }
 
 func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
+	// In-memory de-duplication and labels normalization
+	type ruleKey struct {
+		Serie      string
+		Kind       string
+		Group      string
+		Name       string
+		Expression string
+		Labels     string
+	}
+
+	dedup := make(map[ruleKey]struct{})
+	normalized := make([]RulesUsage, 0, len(rulesUsage))
+	for _, r := range rulesUsage {
+		labels := make([]string, len(r.Labels))
+		copy(labels, r.Labels)
+		sort.Strings(labels)
+		labelsJSON, err := json.Marshal(labels)
+		if err != nil {
+			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		}
+		k := ruleKey{Serie: r.Serie, Kind: r.Kind, Group: r.GroupName, Name: r.Name, Expression: r.Expression, Labels: string(labelsJSON)}
+		if _, ok := dedup[k]; ok {
+			continue
+		}
+		dedup[k] = struct{}{}
+		r.Labels = labels
+		normalized = append(normalized, r)
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -235,34 +269,35 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO RulesUsage (
-			serie, group_name, name, expression, kind, labels, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
+        INSERT INTO RulesUsage (
+            serie, group_name, name, expression, kind, labels, created_at, first_seen_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(serie, kind, group_name, name, expression, labels)
+        DO UPDATE SET last_seen_at = excluded.last_seen_at
+    `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer CloseResource(stmt)
 
-	createdAt := time.Now().UTC()
-
-	for _, rule := range rulesUsage {
+	now := time.Now().UTC()
+	for _, rule := range normalized {
 		labelsJSON, err := json.Marshal(rule.Labels)
 		if err != nil {
 			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
 		}
-
-		_, err = stmt.ExecContext(ctx,
+		if _, err = stmt.ExecContext(ctx,
 			rule.Serie,
 			rule.GroupName,
 			rule.Name,
 			rule.Expression,
 			rule.Kind,
 			string(labelsJSON),
-			createdAt,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute insert statement: %w", err)
+			now,
+			now,
+			now,
+		); err != nil {
+			return fmt.Errorf("failed to execute upsert: %w", err)
 		}
 	}
 
@@ -306,20 +341,20 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
 	countQuery := `
-		SELECT COUNT(DISTINCT name || group_name)
-		FROM RulesUsage
-		WHERE serie = ? 
-		AND kind = ?
-		AND created_at BETWEEN ? AND ?
-		AND CASE 
-			WHEN ? != '' THEN 
-				(name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
-			ELSE 
-				1=1
-			END;
-	`
+        SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
+        FROM RulesUsage
+        WHERE serie = ? 
+        AND kind = ?
+        AND first_seen_at <= ? AND last_seen_at >= ?
+        AND CASE 
+            WHEN ? != '' THEN 
+                (name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
+            ELSE 
+                1=1
+            END;
+    `
 	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, startTime, endTime,
+	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, endTime, startTime,
 		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
@@ -328,58 +363,62 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	query := `
-		WITH latest_rules AS (
-			SELECT 
-				serie,
-				group_name,
-				name,
-				expression,
-				kind,
-				labels,
-				created_at,
-				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
-			FROM RulesUsage
-			WHERE serie = ? AND kind = ? 
-			AND created_at BETWEEN ? AND ?
-			AND CASE 
-				WHEN ? != '' THEN 
-					(name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
-				ELSE 
-					1=1
-				END
-		)
-		SELECT 
-			serie,
-			group_name,
-			name,
-			expression,
-			kind,
-			labels,
-			created_at
-		FROM latest_rules
-		WHERE rank = 1
-		ORDER BY
-			CASE WHEN ? = 'asc' THEN
-				CASE ?
-					WHEN 'name' THEN name
-					WHEN 'group_name' THEN group_name
-					WHEN 'expression' THEN expression
-					WHEN 'created_at' THEN created_at
-				END
-			END ASC,
-			CASE WHEN ? = 'desc' THEN
-				CASE ?
-					WHEN 'name' THEN name
-					WHEN 'group_name' THEN group_name
-					WHEN 'expression' THEN expression
-					WHEN 'created_at' THEN created_at
-				END
-			END DESC
-		LIMIT ? OFFSET ?;
-	`
+        WITH overlapped AS (
+            SELECT 
+                serie,
+                group_name,
+                name,
+                expression,
+                kind,
+                labels,
+                created_at,
+                last_seen_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY serie, kind, group_name, name 
+                    ORDER BY last_seen_at DESC
+                ) AS rank
+            FROM RulesUsage
+            WHERE serie = ? AND kind = ? 
+            AND first_seen_at <= ? AND last_seen_at >= ?
+            AND CASE 
+                WHEN ? != '' THEN 
+                    (name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
+                ELSE 
+                    1=1
+                END
+        )
+        SELECT 
+            serie,
+            group_name,
+            name,
+            expression,
+            kind,
+            labels,
+            created_at
+        FROM overlapped
+        WHERE rank = 1
+        ORDER BY
+            CASE WHEN ? = 'asc' THEN
+                CASE ?
+                    WHEN 'name' THEN name
+                    WHEN 'group_name' THEN group_name
+                    WHEN 'expression' THEN expression
+                    WHEN 'created_at' THEN created_at
+                END
+            END ASC,
+            CASE WHEN ? = 'desc' THEN
+                CASE ?
+                    WHEN 'name' THEN name
+                    WHEN 'group_name' THEN group_name
+                    WHEN 'expression' THEN expression
+                    WHEN 'created_at' THEN created_at
+                END
+            END DESC
+        LIMIT ? OFFSET ?;
+    `
 
 	args := []interface{}{
-		params.Serie, params.Kind, startTime, endTime,
+		params.Serie, params.Kind, endTime, startTime,
 		params.Filter, params.Filter, params.Filter,
 		params.SortOrder, params.SortBy,
 		params.SortOrder, params.SortBy,
@@ -1123,25 +1162,25 @@ func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQuer
 func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
 		SELECT 
-			COALESCE(SUM(CASE WHEN r.Kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
-			COALESCE(SUM(CASE WHEN r.Kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
+            COALESCE(SUM(CASE WHEN r.Kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
+            COALESCE(SUM(CASE WHEN r.Kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
 			COALESCE(COUNT(DISTINCT CASE WHEN d.created_at BETWEEN datetime(?) AND datetime(?) THEN d.Name END), 0) as dashboard_count,
-			(SELECT COALESCE(SUM(CASE WHEN Kind = 'alert' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_alerts,
-			(SELECT COALESCE(SUM(CASE WHEN Kind = 'record' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_records,
+            (SELECT COALESCE(SUM(CASE WHEN Kind = 'alert' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)) as total_alerts,
+            (SELECT COALESCE(SUM(CASE WHEN Kind = 'record' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)) as total_records,
 			(SELECT COALESCE(COUNT(DISTINCT Name), 0) FROM DashboardUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_dashboards
 		FROM RulesUsage r
 		LEFT JOIN DashboardUsage d ON r.Serie = d.Serie
 		WHERE r.Serie = ? 
-		AND r.created_at BETWEEN datetime(?) AND datetime(?);
+        AND r.first_seen_at <= datetime(?) AND r.last_seen_at >= datetime(?);
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
 	rows, err := p.db.QueryContext(ctx, query,
-		from, to, // For dashboard_count
-		from, to, // For total_alerts
-		from, to, // For total_records
-		from, to, // For total_dashboards
-		metricName, from, to) // For the main query
+		from, to, // For dashboard_count (created_at BETWEEN from AND to)
+		to, from, // For total_alerts (first_seen_at <= to AND last_seen_at >= from)
+		to, from, // For total_records (first_seen_at <= to AND last_seen_at >= from)
+		from, to, // For total_dashboards (created_at BETWEEN from AND to)
+		metricName, to, from) // Main WHERE (first_seen_at <= to AND last_seen_at >= from)
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
 	}

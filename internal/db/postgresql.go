@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -264,6 +265,40 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 }
 
 func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
+	// In-memory de-dup in case payload contains duplicates
+	type ruleKey struct {
+		Serie      string
+		Kind       string
+		Group      string
+		Name       string
+		Expression string
+		Labels     string
+	}
+
+	dedup := make(map[ruleKey]struct{})
+	normalized := make([]RulesUsage, 0, len(rulesUsage))
+	for _, r := range rulesUsage {
+		// Normalize labels order for stable JSON equality
+		labels := make([]string, len(r.Labels))
+		copy(labels, r.Labels)
+		sort.Strings(labels)
+		labelsJSON, err := json.Marshal(labels)
+		if err != nil {
+			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		}
+		k := ruleKey{Serie: r.Serie, Kind: r.Kind, Group: r.GroupName, Name: r.Name, Expression: r.Expression, Labels: string(labelsJSON)}
+		if _, ok := dedup[k]; ok {
+			continue
+		}
+		dedup[k] = struct{}{}
+		r.Labels = labels
+		normalized = append(normalized, r)
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -274,42 +309,41 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 		}
 	}()
 
+	// Upsert to avoid duplicates and track presence window
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO RulesUsage (
-			serie, group_name, name, expression, kind, labels, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-	`)
+        INSERT INTO RulesUsage (
+            serie, group_name, name, expression, kind, labels, created_at, first_seen_at, last_seen_at
+        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $7, $7)
+        ON CONFLICT (serie, kind, group_name, name, expression, labels)
+        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+    `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer CloseResource(stmt)
 
-	createdAt := time.Now().UTC()
-
-	for _, rule := range rulesUsage {
+	now := time.Now().UTC()
+	for _, rule := range normalized {
 		labelsJSON, err := json.Marshal(rule.Labels)
 		if err != nil {
 			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
 		}
-
-		_, err = stmt.ExecContext(ctx,
+		if _, err = stmt.ExecContext(ctx,
 			rule.Serie,
 			rule.GroupName,
 			rule.Name,
 			rule.Expression,
 			rule.Kind,
 			string(labelsJSON),
-			createdAt,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute insert statement: %w", err)
+			now,
+		); err != nil {
+			return fmt.Errorf("failed to execute upsert: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-
 	return nil
 }
 
@@ -343,18 +377,18 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
 
 	countQuery := `
-		SELECT COUNT(DISTINCT name || group_name)
-		FROM RulesUsage
-		WHERE serie = $1 
-		AND kind = $2
-		AND created_at BETWEEN $3 AND $4
-		AND CASE 
-			WHEN $5 != '' THEN 
-				(name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
-			ELSE 
-				TRUE
-			END;
-	`
+        SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
+        FROM RulesUsage
+        WHERE serie = $1 
+        AND kind = $2
+        AND first_seen_at <= $4 AND last_seen_at >= $3
+        AND CASE 
+            WHEN $5 != '' THEN 
+                (name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
+            ELSE 
+                TRUE
+            END;
+    `
 	var totalCount int
 	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, startTime, endTime,
 		params.Filter).Scan(&totalCount)
@@ -365,37 +399,41 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	baseQuery := `
-		WITH latest_rules AS (
-			SELECT 
-				serie,
-				group_name,
-				name,
-				expression,
-				kind,
-				labels,
-				created_at,
-				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
-			FROM RulesUsage
-			WHERE serie = $1 AND kind = $2 
-			AND created_at BETWEEN $3 AND $4
-			AND CASE 
-				WHEN $5 != '' THEN 
-					(name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
-				ELSE 
-					TRUE
-				END
-		)
-		SELECT 
-			serie,
-			group_name,
-			name,
-			expression,
-			kind,
-			labels,
-			created_at
-		FROM latest_rules
-		WHERE rank = 1
-	`
+        WITH overlapped AS (
+            SELECT 
+                serie,
+                group_name,
+                name,
+                expression,
+                kind,
+                labels,
+                created_at,
+                last_seen_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY serie, kind, group_name, name 
+                    ORDER BY last_seen_at DESC
+                ) AS rank
+            FROM RulesUsage
+            WHERE serie = $1 AND kind = $2 
+            AND first_seen_at <= $4 AND last_seen_at >= $3
+            AND CASE 
+                WHEN $5 != '' THEN 
+                    (name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
+                ELSE 
+                    TRUE
+                END
+        )
+        SELECT 
+            serie,
+            group_name,
+            name,
+            expression,
+            kind,
+            labels,
+            created_at
+        FROM overlapped
+        WHERE rank = 1
+    `
 	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $6 OFFSET $7;"
@@ -1090,12 +1128,12 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	query := `
 	WITH rule_stats AS (
 		SELECT
-			COUNT(DISTINCT name) FILTER (WHERE serie = $3 AND kind = 'alert')  AS alert_count,
-			COUNT(DISTINCT name) FILTER (WHERE serie = $3 AND kind = 'record') AS record_count,
-			COUNT(DISTINCT name) FILTER (WHERE kind = 'alert')                AS total_alerts,
-			COUNT(DISTINCT name) FILTER (WHERE kind = 'record')               AS total_records
+            COUNT(*) FILTER (WHERE serie = $3 AND kind = 'alert')  AS alert_count,
+            COUNT(*) FILTER (WHERE serie = $3 AND kind = 'record') AS record_count,
+            COUNT(*) FILTER (WHERE kind = 'alert')                 AS total_alerts,
+            COUNT(*) FILTER (WHERE kind = 'record')                AS total_records
 		FROM   rulesusage
-		WHERE  created_at BETWEEN $1 AND $2
+        WHERE  first_seen_at <= $2 AND last_seen_at >= $1
 	),
 	dash_stats AS (
 		SELECT
@@ -1115,11 +1153,11 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	CROSS  JOIN dash_stats ds;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
-	rows, err := ExecuteQuery(ctx, p.db, query,
-		from, to,
-		metricName,
-	)
+    from, to := PrepareTimeRange(tr, "postgresql")
+    rows, err := ExecuteQuery(ctx, p.db, query,
+        from, to,
+        metricName,
+    )
 	if err != nil {
 		return MetricUsageStatics{}, err
 	}
