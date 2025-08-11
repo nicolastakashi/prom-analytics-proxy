@@ -479,6 +479,16 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 }
 
 func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	// Dedup by (id, serie)
+	type dashKey struct{ Id, Serie string }
+	dedup := make(map[dashKey]DashboardUsage)
+	for _, d := range dashboardUsage {
+		dedup[dashKey{Id: d.Id, Serie: d.Serie}] = d
+	}
+	if len(dedup) == 0 {
+		return nil
+	}
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -489,28 +499,21 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 		}
 	}()
 
-	createdAt := time.Now().UTC()
-
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO DashboardUsage (
-			id, serie, name, url, created_at
-		) VALUES (?, ?, ?, ?, ?)
-	`)
+        INSERT INTO DashboardUsage (
+            id, serie, name, url, created_at, first_seen_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id, serie) DO UPDATE SET last_seen_at = excluded.last_seen_at, name = excluded.name, url = excluded.url
+    `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer CloseResource(stmt)
 
-	for _, dashboard := range dashboardUsage {
-		_, err = stmt.ExecContext(ctx,
-			dashboard.Id,
-			dashboard.Serie,
-			dashboard.Name,
-			dashboard.URL,
-			createdAt,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute insert statement: %w", err)
+	now := time.Now().UTC()
+	for _, d := range dedup {
+		if _, err := stmt.ExecContext(ctx, d.Id, d.Serie, d.Name, d.URL, now, now, now); err != nil {
+			return fmt.Errorf("failed to execute upsert: %w", err)
 		}
 	}
 
@@ -552,17 +555,17 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
 	countQuery := `
-		SELECT COUNT(DISTINCT name)
-		FROM DashboardUsage
-		WHERE serie = ? 
-		AND created_at BETWEEN ? AND ?
-		AND CASE 
-			WHEN ? != '' THEN 
-				(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
-			ELSE 
-				1=1
-			END;
-	`
+        SELECT COUNT(DISTINCT id)
+        FROM DashboardUsage
+        WHERE serie = ? 
+        AND first_seen_at <= ? AND last_seen_at >= ?
+        AND CASE 
+            WHEN ? != '' THEN 
+                (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+            ELSE 
+                1=1
+            END;
+    `
 	var totalCount int
 	err := p.db.QueryRowContext(ctx, countQuery,
 		params.Serie, startTime, endTime,
@@ -574,49 +577,52 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	query := `
-		WITH latest_dashboards AS (
-			SELECT 
-				id,
-				serie,
-				name,
-				url,
-				created_at,
-				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
-			FROM DashboardUsage
-			WHERE serie = ? 
-			AND created_at BETWEEN ? AND ?
-			AND CASE 
-				WHEN ? != '' THEN 
-					(name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
-				ELSE 
-					1=1
-				END
-		)
-		SELECT 
-			id,
-			serie,
-			name,
-			url,
-			created_at
-		FROM latest_dashboards
-		WHERE rank = 1
-		ORDER BY
-			CASE WHEN ? = 'asc' THEN
-				CASE ?
-					WHEN 'name' THEN name
-					WHEN 'url' THEN url
-					WHEN 'created_at' THEN created_at
-				END
-			END ASC,
-			CASE WHEN ? = 'desc' THEN
-				CASE ?
-					WHEN 'name' THEN name
-					WHEN 'url' THEN url
-					WHEN 'created_at' THEN created_at
-				END
-			END DESC
-		LIMIT ? OFFSET ?;
-	`
+        WITH overlapped AS (
+            SELECT 
+                id,
+                serie,
+                name,
+                url,
+                created_at,
+                last_seen_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY serie, id ORDER BY last_seen_at DESC
+                ) AS rank
+            FROM DashboardUsage
+            WHERE serie = ? 
+            AND first_seen_at <= ? AND last_seen_at >= ?
+            AND CASE 
+                WHEN ? != '' THEN 
+                    (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+                ELSE 
+                    1=1
+                END
+        )
+        SELECT 
+            id,
+            serie,
+            name,
+            url,
+            created_at
+        FROM overlapped
+        WHERE rank = 1
+        ORDER BY
+            CASE WHEN ? = 'asc' THEN
+                CASE ?
+                    WHEN 'name' THEN name
+                    WHEN 'url' THEN url
+                    WHEN 'created_at' THEN created_at
+                END
+            END ASC,
+            CASE WHEN ? = 'desc' THEN
+                CASE ?
+                    WHEN 'name' THEN name
+                    WHEN 'url' THEN url
+                    WHEN 'created_at' THEN created_at
+                END
+            END DESC
+        LIMIT ? OFFSET ?;
+    `
 
 	args := []interface{}{
 		params.Serie, startTime, endTime,

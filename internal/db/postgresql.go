@@ -496,6 +496,17 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 }
 
 func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	// In-memory dedup by (id, serie) keeping last name/url
+	type dashKey struct{ Id, Serie string }
+	dedup := make(map[dashKey]DashboardUsage)
+	for _, d := range dashboardUsage {
+		k := dashKey{Id: d.Id, Serie: d.Serie}
+		dedup[k] = d
+	}
+	if len(dedup) == 0 {
+		return nil
+	}
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -507,34 +518,27 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO DashboardUsage (
-			id, serie, name, url, created_at
-		) VALUES ($1, $2, $3, $4, $5)
-	`)
+        INSERT INTO DashboardUsage (
+            id, serie, name, url, created_at, first_seen_at, last_seen_at
+        ) VALUES ($1, $2, $3, $4, $5, $5, $5)
+        ON CONFLICT (id, serie)
+        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at, name = EXCLUDED.name, url = EXCLUDED.url
+    `)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer CloseResource(stmt)
 
-	createdAt := time.Now().UTC()
-
-	for _, dashboard := range dashboardUsage {
-		_, err = stmt.ExecContext(ctx,
-			dashboard.Id,
-			dashboard.Serie,
-			dashboard.Name,
-			dashboard.URL,
-			createdAt,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to execute insert statement: %w", err)
+	now := time.Now().UTC()
+	for _, d := range dedup {
+		if _, err := stmt.ExecContext(ctx, d.Id, d.Serie, d.Name, d.URL, now); err != nil {
+			return fmt.Errorf("failed to execute upsert: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-
 	return nil
 }
 
@@ -570,17 +574,17 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
 	countQuery := `
-		SELECT COUNT(DISTINCT name)
-		FROM DashboardUsage
-		WHERE serie = $1
-		AND created_at BETWEEN $2 AND $3
-		AND CASE 
-			WHEN $4 != '' THEN 
-				(name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
-			ELSE 
-				TRUE
-			END;
-	`
+        SELECT COUNT(DISTINCT id)
+        FROM DashboardUsage
+        WHERE serie = $1
+        AND first_seen_at <= $3 AND last_seen_at >= $2
+        AND CASE 
+            WHEN $4 != '' THEN 
+                (name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
+            ELSE 
+                TRUE
+            END;
+    `
 	var totalCount int
 	err := p.db.QueryRowContext(ctx, countQuery,
 		params.Serie, from, to, params.Filter).Scan(&totalCount)
@@ -591,33 +595,36 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
 
 	baseQuery := `
-		WITH latest_dashboards AS (
-			SELECT 
-				id,
-				serie,
-				name,
-				url,
-				created_at,
-				ROW_NUMBER() OVER (PARTITION BY serie, name ORDER BY created_at DESC) AS rank
-			FROM DashboardUsage
-			WHERE serie = $1 
-			AND created_at BETWEEN $2 AND $3
-			AND CASE 
-				WHEN $4 != '' THEN 
-					(name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
-				ELSE 
-					TRUE
-				END
-		)
-		SELECT 
-			id,
-			serie,
-			name,
-			url,
-			created_at
-		FROM latest_dashboards
-		WHERE rank = 1
-	`
+        WITH overlapped AS (
+            SELECT 
+                id,
+                serie,
+                name,
+                url,
+                created_at,
+                last_seen_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY serie, id ORDER BY last_seen_at DESC
+                ) AS rank
+            FROM DashboardUsage
+            WHERE serie = $1 
+            AND first_seen_at <= $3 AND last_seen_at >= $2
+            AND CASE 
+                WHEN $4 != '' THEN 
+                    (name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
+                ELSE 
+                    TRUE
+                END
+        )
+        SELECT 
+            id,
+            serie,
+            name,
+            url,
+            created_at
+        FROM overlapped
+        WHERE rank = 1
+    `
 	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
@@ -1153,11 +1160,11 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	CROSS  JOIN dash_stats ds;
 	`
 
-    from, to := PrepareTimeRange(tr, "postgresql")
-    rows, err := ExecuteQuery(ctx, p.db, query,
-        from, to,
-        metricName,
-    )
+	from, to := PrepareTimeRange(tr, "postgresql")
+	rows, err := ExecuteQuery(ctx, p.db, query,
+		from, to,
+		metricName,
+	)
 	if err != nil {
 		return MetricUsageStatics{}, err
 	}
