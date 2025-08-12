@@ -33,6 +33,10 @@ func newSqliteProvider(ctx context.Context) (Provider, error) {
 		return nil, ConnectionError(err, "SQLite", "failed to open connection")
 	}
 
+	// SQLite benefits from a single writer connection
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
 	if err := db.PingContext(ctx); err != nil {
 		return nil, ConnectionError(err, "SQLite", "failed to ping database")
 	}
@@ -40,6 +44,11 @@ func newSqliteProvider(ctx context.Context) (Provider, error) {
 	// Run embedded migrations (SQLite dialect)
 	if err := runMigrations(ctx, db, "sqlite"); err != nil {
 		return nil, SchemaError(err, "migration", "sqlite")
+	}
+
+	// Increase busy timeout to reduce SQLITE_BUSY during concurrent reads
+	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
+		return nil, SchemaError(err, "pragma", "busy_timeout")
 	}
 
 	return &SQLiteProvider{
@@ -225,6 +234,9 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 }
 
 func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error {
+	// Serialize writes to avoid SQLITE_BUSY
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// In-memory de-duplication and labels normalization
 	type ruleKey struct {
 		Serie      string
@@ -479,6 +491,9 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 }
 
 func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error {
+	// Serialize writes to avoid SQLITE_BUSY
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Dedup by (id, serie)
 	type dashKey struct{ Id, Serie string }
 	dedup := make(map[dashKey]DashboardUsage)
