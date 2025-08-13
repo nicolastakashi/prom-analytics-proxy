@@ -23,20 +23,21 @@ interface MetricUsageResponse {
   }>;
 }
 
-export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: string) {
+export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: string, unused?: boolean) {
   const {
     data: metrics,
     isLoading,
     error
   } = useQuery<PagedResult<MetricMetadata>>({
-    queryKey: ['metrics', tableState, searchQuery],
+    queryKey: ['metrics', tableState, searchQuery, unused],
     queryFn: () => getSeriesMetadata(
       tableState?.page || 1,
       tableState?.pageSize || 10,
       tableState?.sortBy || 'name',
       tableState?.sortOrder || 'asc',
       searchQuery || '',
-      tableState?.type || 'all'
+      tableState?.type || 'all',
+      unused || false,
     ),
   });
 

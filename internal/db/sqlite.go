@@ -7,14 +7,23 @@ import (
 	"flag"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/uptrace/opentelemetry-go-extra/otelsql"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	_ "modernc.org/sqlite"
 )
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 type SQLiteProvider struct {
 	mu sync.RWMutex
@@ -686,6 +695,200 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
+}
+
+func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "name"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "asc"
+	}
+
+	validSortFields := map[string]bool{"name": true, "type": true}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "name"
+	}
+
+	orderDir := "ASC"
+	if strings.ToLower(params.SortOrder) == "desc" {
+		orderDir = "DESC"
+	}
+
+	// Count
+	countQuery := `
+        SELECT COUNT(*)
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR c.type = ?)
+          AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
+          AND (CASE WHEN ? = 1 THEN NOT EXISTS (
+                SELECT 1 FROM queries q
+                WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
+              ) ELSE 1 END)
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), boolToInt(params.Unused)).Scan(&total); err != nil {
+		return nil, fmt.Errorf("failed to count catalog: %w", err)
+	}
+
+	if total == 0 {
+		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+	}
+
+	// Query page with left join to usage summary
+	query := fmt.Sprintf(`
+        SELECT c.name, c.type, c.help, c.unit,
+               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
+        FROM metrics_catalog AS c
+        LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
+        WHERE (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
+          AND (? = 'all' OR c.type = ?)
+          AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
+          AND (CASE WHEN ? = 1 THEN NOT EXISTS (
+                SELECT 1 FROM queries q
+                WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
+              ) ELSE 1 END)
+        ORDER BY c.%s %s
+        LIMIT ? OFFSET ?
+    `, params.SortBy, orderDir)
+
+	rows, err := p.db.QueryContext(ctx, query,
+		params.Filter, params.Filter, params.Filter,
+		params.Type, params.Type,
+		boolToInt(params.Unused), boolToInt(params.Unused),
+		params.PageSize, (params.Page-1)*params.PageSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query series metadata: %w", err)
+	}
+	defer CloseResource(rows)
+
+	type row struct {
+		name, mtype, help, unit     string
+		alert, record, dash, qcount int
+		last                        sql.NullTime
+	}
+	results := make([]models.MetricMetadata, 0, params.PageSize)
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		mm := models.MetricMetadata{
+			Name:           r.name,
+			Type:           r.mtype,
+			Help:           r.help,
+			Unit:           r.unit,
+			AlertCount:     r.alert,
+			RecordCount:    r.record,
+			DashboardCount: r.dash,
+			QueryCount:     r.qcount,
+		}
+		if r.last.Valid {
+			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
+		}
+		results = append(results, mm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	pages := (total + params.PageSize - 1) / params.PageSize
+	return &PagedResult{Total: total, TotalPages: pages, Data: results}, nil
+}
+
+func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+        INSERT INTO metrics_catalog(name, type, help, unit, last_synced_at)
+        VALUES(?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(name) DO UPDATE SET
+            type=excluded.type,
+            help=excluded.help,
+            unit=excluded.unit,
+            last_synced_at=excluded.last_synced_at
+    `)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer CloseResource(stmt)
+	for _, it := range items {
+		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	from, to := PrepareTimeRange(tr, "sqlite")
+	query := `
+    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at)
+    SELECT c.name,
+           COALESCE(ra.alert_count, 0),
+           COALESCE(ra.record_count, 0),
+           COALESCE(da.dashboard_count, 0),
+           COALESCE(qa.query_count, 0),
+           qa.last_queried_at,
+           datetime('now')
+    FROM metrics_catalog c
+    LEFT JOIN (
+        SELECT serie AS name,
+               SUM(CASE WHEN kind = 'alert' THEN 1 ELSE 0 END) AS alert_count,
+               SUM(CASE WHEN kind = 'record' THEN 1 ELSE 0 END) AS record_count
+        FROM RulesUsage
+        WHERE first_seen_at <= ? AND last_seen_at >= ?
+        GROUP BY serie
+    ) ra USING(name)
+    LEFT JOIN (
+        SELECT serie AS name,
+               COUNT(DISTINCT id) AS dashboard_count
+        FROM DashboardUsage
+        WHERE first_seen_at <= ? AND last_seen_at >= ?
+        GROUP BY serie
+    ) da USING(name)
+    LEFT JOIN (
+        SELECT json_extract(labelMatchers, '$[0].__name__') AS name,
+               COUNT(*) AS query_count,
+               MAX(ts) AS last_queried_at
+        FROM queries
+        WHERE ts BETWEEN ? AND ?
+        GROUP BY name
+    ) qa USING(name)
+    ON CONFLICT(name) DO UPDATE SET
+        alert_count=excluded.alert_count,
+        record_count=excluded.record_count,
+        dashboard_count=excluded.dashboard_count,
+        query_count=excluded.query_count,
+        last_queried_at=excluded.last_queried_at,
+        updated_at=excluded.updated_at;
+    `
+	_, err := p.db.ExecContext(ctx, query, to, from, to, from, from, to)
+	if err != nil {
+		return fmt.Errorf("refresh summary: %w", err)
+	}
+	return nil
 }
 
 // GetQueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.

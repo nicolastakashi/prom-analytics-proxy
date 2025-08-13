@@ -31,6 +31,9 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
+	GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error)
+	UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error
+	RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error
 
 	GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
@@ -171,6 +174,14 @@ type SeriesMetadataParams struct {
 	SortOrder string
 	Filter    string
 	Type      string
+	Unused    bool
+}
+
+type MetricCatalogItem struct {
+	Name string
+	Type string
+	Help string
+	Unit string
 }
 
 type TimeRange struct {

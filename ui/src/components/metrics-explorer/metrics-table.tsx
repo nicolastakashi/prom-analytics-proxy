@@ -5,6 +5,7 @@ import { type ColumnDef, SortingState } from "@tanstack/react-table"
 import { MetricTypeTag } from "@/components/metrics-explorer/metric-type-tag"
 import { useLocation } from "wouter"
 import { MetricMetadata, PagedResult, TableState } from "@/lib/types"
+import { fromUTC } from "@/lib/utils/date-utils"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { ROUTES } from "@/lib/routes"
 
@@ -114,6 +115,51 @@ export function MetricsTable({
           {row.getValue("help")}
         </div>
       ),
+    },
+    {
+      accessorKey: "alertCount",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Alerts" />
+      ),
+      cell: ({ row }) => <span className="tabular-nums">{row.getValue("alertCount") ?? 0}</span>,
+      enableSorting: false,
+    },
+    {
+      accessorKey: "recordCount",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Records" />
+      ),
+      cell: ({ row }) => <span className="tabular-nums">{row.getValue("recordCount") ?? 0}</span>,
+      enableSorting: false,
+    },
+    {
+      accessorKey: "dashboardCount",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Dashboards" />
+      ),
+      cell: ({ row }) => <span className="tabular-nums">{row.getValue("dashboardCount") ?? 0}</span>,
+      enableSorting: false,
+    },
+    {
+      accessorKey: "queryCount",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Queries (30d)" />
+      ),
+      cell: ({ row }) => {
+        const count = row.getValue<number>("queryCount") ?? 0
+        const last = row.original.lastQueriedAt
+        return (
+          <div className="flex items-center gap-2">
+            <span className="tabular-nums">{count}</span>
+            {last && (
+              <span className="text-xs text-muted-foreground" title={`Last queried at ${fromUTC(last).toLocaleString()}`}>
+                •
+              </span>
+            )}
+          </div>
+        )
+      },
+      enableSorting: false,
     },
   ]
 

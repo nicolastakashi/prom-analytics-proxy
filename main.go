@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/inventory"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/log"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/tracing"
 )
@@ -222,6 +224,31 @@ func main() {
 				slog.Error("error shutting down server", "err", err)
 			}
 		})
+	}
+
+	// Inventory Syncer
+	if config.DefaultConfig.Inventory.Enabled {
+		inv, err := inventory.NewSyncer(dbProvider, config.DefaultConfig.Upstream.URL, config.DefaultConfig, reg)
+		if err != nil {
+			slog.Error("unable to create inventory syncer", "err", err)
+		} else {
+			// Start syncer depending on DB provider
+			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
+			case db.PostGreSQL:
+				// Leader election via advisory lock
+				dbProvider.WithDB(func(d *sql.DB) {
+					ctx, cancel := context.WithCancel(context.Background())
+					g.Add(func() error {
+						inventory.WithPGAdvisoryLeadership(ctx, d, 0x6d657472696373, inv.RunLeaderless)
+						return nil
+					}, func(err error) { cancel() })
+				})
+			default:
+				// SQLite: leaderless
+				ctx, cancel := context.WithCancel(context.Background())
+				g.Add(func() error { inv.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
+			}
+		}
 	}
 
 	// Register Signal Handler

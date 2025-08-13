@@ -12,6 +12,7 @@ import (
 	"time"
 
 	pq "github.com/lib/pq"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 
 	"github.com/uptrace/opentelemetry-go-extra/otelsql"
@@ -670,6 +671,181 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
+}
+
+func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+	if params.Page <= 0 {
+		params.Page = 1
+	}
+	if params.PageSize <= 0 {
+		params.PageSize = 10
+	}
+	if params.SortBy == "" {
+		params.SortBy = "name"
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "asc"
+	}
+
+	validSortFields := map[string]bool{"name": true, "type": true}
+	if !validSortFields[params.SortBy] {
+		params.SortBy = "name"
+	}
+	dir := "ASC"
+	if strings.ToLower(params.SortOrder) == "desc" {
+		dir = "DESC"
+	}
+
+	// Count
+	countSQL := `
+        SELECT COUNT(*)
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
+          AND ($2 = 'all' OR c.type = $2)
+          AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
+          AND (CASE WHEN $3 THEN NOT EXISTS (
+                SELECT 1 FROM queries q
+                WHERE (q.labelMatchers->0->>'__name__') = c.name
+              ) ELSE TRUE END)
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Unused).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count: %w", err)
+	}
+	if total == 0 {
+		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+	}
+
+	query := fmt.Sprintf(`
+        SELECT c.name, c.type, c.help, c.unit,
+               COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
+          AND ($2 = 'all' OR c.type = $2)
+          AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
+          AND (CASE WHEN $3 THEN NOT EXISTS (
+                SELECT 1 FROM queries q
+                WHERE (q.labelMatchers->0->>'__name__') = c.name
+              ) ELSE TRUE END)
+        ORDER BY %s %s NULLS LAST
+        LIMIT $4 OFFSET $5
+    `, params.SortBy, dir)
+
+	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.PageSize, (params.Page-1)*params.PageSize)
+	if err != nil {
+		return nil, fmt.Errorf("select: %w", err)
+	}
+	defer CloseResource(rows)
+
+	type row struct {
+		name, mtype, help, unit     string
+		alert, record, dash, qcount int
+		last                        sql.NullTime
+	}
+	out := make([]models.MetricMetadata, 0, params.PageSize)
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount}
+		if r.last.Valid {
+			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
+		}
+		out = append(out, mm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter: %w", err)
+	}
+
+	pages := (total + params.PageSize - 1) / params.PageSize
+	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+}
+
+func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+        INSERT INTO metrics_catalog(name, type, help, unit, last_synced_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT(name) DO UPDATE SET
+          type=EXCLUDED.type,
+          help=EXCLUDED.help,
+          unit=EXCLUDED.unit,
+          last_synced_at=EXCLUDED.last_synced_at
+    `)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer CloseResource(stmt)
+	for _, it := range items {
+		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	from, to := PrepareTimeRange(tr, "postgresql")
+	query := `
+    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at)
+    SELECT c.name,
+           COALESCE(ra.alert_count, 0),
+           COALESCE(ra.record_count, 0),
+           COALESCE(da.dashboard_count, 0),
+           COALESCE(qa.query_count, 0),
+           qa.last_queried_at,
+           NOW()
+    FROM metrics_catalog c
+    LEFT JOIN (
+        SELECT serie AS name,
+               COUNT(*) FILTER (WHERE kind='alert') AS alert_count,
+               COUNT(*) FILTER (WHERE kind='record') AS record_count
+        FROM RulesUsage
+        WHERE first_seen_at <= $2 AND last_seen_at >= $1
+        GROUP BY serie
+    ) ra USING(name)
+    LEFT JOIN (
+        SELECT serie AS name,
+               COUNT(DISTINCT id) AS dashboard_count
+        FROM DashboardUsage
+        WHERE first_seen_at <= $2 AND last_seen_at >= $1
+        GROUP BY serie
+    ) da USING(name)
+    LEFT JOIN (
+        SELECT (labelMatchers->0->>'__name__') AS name,
+               COUNT(*) AS query_count,
+               MAX(ts)  AS last_queried_at
+        FROM queries
+        WHERE ts BETWEEN $1 AND $2
+        GROUP BY 1
+    ) qa USING(name)
+    ON CONFLICT(name) DO UPDATE SET
+        alert_count=EXCLUDED.alert_count,
+        record_count=EXCLUDED.record_count,
+        dashboard_count=EXCLUDED.dashboard_count,
+        query_count=EXCLUDED.query_count,
+        last_queried_at=EXCLUDED.last_queried_at,
+        updated_at=EXCLUDED.updated_at;
+    `
+	_, err := p.db.ExecContext(ctx, query, from, to)
+	if err != nil {
+		return fmt.Errorf("refresh summary: %w", err)
+	}
+	return nil
 }
 
 func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {

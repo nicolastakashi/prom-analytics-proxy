@@ -7,13 +7,17 @@ interface MetricsExplorerHeaderProps {
   onSearchChange: (value: string) => void
   typeFilter: string
   onTypeFilterChange: (value: string) => void
+  usageFilter?: "all" | "unused"
+  onUsageFilterChange?: (value: "all" | "unused") => void
 }
 
 export function MetricsExplorerHeader({ 
   searchQuery, 
   onSearchChange,
   typeFilter,
-  onTypeFilterChange
+  onTypeFilterChange,
+  usageFilter = "all",
+  onUsageFilterChange,
 }: MetricsExplorerHeaderProps) {
   return (
     <div className="flex flex-col gap-2">
@@ -43,6 +47,18 @@ export function MetricsExplorerHeader({
             <SelectItem value="gauge">Gauge</SelectItem>
             <SelectItem value="histogram">Histogram</SelectItem>
             <SelectItem value="summary">Summary</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={usageFilter} onValueChange={(v) => onUsageFilterChange?.(v as "all" | "unused") }>
+          <SelectTrigger className="sm:max-w-[160px]">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              <SelectValue placeholder="All Metrics" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Metrics</SelectItem>
+            <SelectItem value="unused">Unused Only</SelectItem>
           </SelectContent>
         </Select>
       </div>
