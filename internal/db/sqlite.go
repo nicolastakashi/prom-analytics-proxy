@@ -712,9 +712,6 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.SortOrder = "asc"
 	}
 
-	// Build safe ORDER BY clause to prevent SQL injection
-	orderByClause := BuildSafeOrderByClause(params.SortBy, params.SortOrder, "c", ValidSeriesMetadataSortFields, "name")
-
 	// Count
 	countQuery := `
         SELECT COUNT(*)
@@ -751,7 +748,8 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                 WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
               ) ELSE 1 END)
     `
-	query := baseQuery + orderByClause + " LIMIT ? OFFSET ?"
+	// Build complete query with safe ORDER BY clause to prevent SQL injection
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
 
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,

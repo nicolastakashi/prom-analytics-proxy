@@ -180,6 +180,25 @@ func BuildSafeOrderByClause(sortBy, sortOrder, tableAlias string, validSortField
 	return orderByClause
 }
 
+// BuildSafeQueryWithOrderBy constructs a complete query with validated ORDER BY clause
+// This function minimizes string concatenation for better static analysis compatibility
+func BuildSafeQueryWithOrderBy(baseQuery, tableAlias, limitClause string, sortBy, sortOrder string, validSortFields map[string]bool, defaultSort string) string {
+	// Validate parameters first
+	ValidateSortField(&sortBy, &sortOrder, validSortFields, defaultSort)
+
+	// Build complete query with validated components
+	var completeQuery string
+	if tableAlias != "" {
+		completeQuery = fmt.Sprintf("%s ORDER BY %s.%s %s NULLS LAST%s",
+			baseQuery, tableAlias, sortBy, strings.ToUpper(sortOrder), limitClause)
+	} else {
+		completeQuery = fmt.Sprintf("%s ORDER BY %s %s NULLS LAST%s",
+			baseQuery, sortBy, strings.ToUpper(sortOrder), limitClause)
+	}
+
+	return completeQuery
+}
+
 func CalculateTotalPages(totalCount, pageSize int) int {
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
 }

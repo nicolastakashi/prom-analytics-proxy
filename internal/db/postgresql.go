@@ -689,9 +689,6 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		params.SortOrder = "asc"
 	}
 
-	// Build safe ORDER BY clause to prevent SQL injection
-	orderByClause := BuildSafeOrderByClause(params.SortBy, params.SortOrder, "c", ValidSeriesMetadataSortFields, "name")
-
 	// Count
 	countSQL := `
         SELECT COUNT(*)
@@ -726,7 +723,8 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 WHERE (q.labelMatchers->0->>'__name__') = c.name
               ) ELSE TRUE END)
     `
-	query := baseQuery + orderByClause + " LIMIT $4 OFFSET $5"
+	// Build complete query with safe ORDER BY clause to prevent SQL injection
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $4 OFFSET $5", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
 
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
