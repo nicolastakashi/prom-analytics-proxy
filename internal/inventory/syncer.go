@@ -126,19 +126,70 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	}
 
 	// 2) Upsert catalog
-	items := make([]db.MetricCatalogItem, 0, len(meta))
+	items := make([]db.MetricCatalogItem, 0, len(meta)*2) // Pre-allocate more space for histogram/summary sub-metrics
 	for name, infos := range meta {
 		if len(infos) == 0 {
 			continue
 		}
 		// Prom returns slice; use the first entry's type/help/unit
 		info := infos[0]
-		items = append(items, db.MetricCatalogItem{
-			Name: name,
-			Type: string(info.Type),
-			Help: info.Help,
-			Unit: info.Unit,
-		})
+		metricType := string(info.Type)
+
+		// Handle histogram and summary metrics by generating their sub-metrics
+		switch metricType {
+		case "histogram":
+			// For histograms, replace base name with _bucket, _count, _sum variants
+			items = append(items,
+				db.MetricCatalogItem{
+					Name: name + "_bucket",
+					Type: "histogram_bucket",
+					Help: info.Help + " (histogram buckets)",
+					Unit: info.Unit,
+				},
+				db.MetricCatalogItem{
+					Name: name + "_count",
+					Type: "histogram_count",
+					Help: info.Help + " (histogram count)",
+					Unit: "",
+				},
+				db.MetricCatalogItem{
+					Name: name + "_sum",
+					Type: "histogram_sum",
+					Help: info.Help + " (histogram sum)",
+					Unit: info.Unit,
+				},
+			)
+		case "summary":
+			// For summaries, keep base name (for quantiles) and add _count, _sum variants
+			items = append(items,
+				db.MetricCatalogItem{
+					Name: name,
+					Type: metricType,
+					Help: info.Help,
+					Unit: info.Unit,
+				},
+				db.MetricCatalogItem{
+					Name: name + "_count",
+					Type: "summary_count",
+					Help: info.Help + " (summary count)",
+					Unit: "",
+				},
+				db.MetricCatalogItem{
+					Name: name + "_sum",
+					Type: "summary_sum",
+					Help: info.Help + " (summary sum)",
+					Unit: info.Unit,
+				},
+			)
+		default:
+			// For counter, gauge, and other types, keep as-is
+			items = append(items, db.MetricCatalogItem{
+				Name: name,
+				Type: metricType,
+				Help: info.Help,
+				Unit: info.Unit,
+			})
+		}
 	}
 	if err := s.dbProvider.UpsertMetricsCatalog(deadline, items); err != nil {
 		slog.Error("inventory: upsert catalog", "err", err)

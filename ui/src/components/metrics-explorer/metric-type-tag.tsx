@@ -1,4 +1,4 @@
-import { ArrowUpRight, BarChart3, ChevronUp, Timer, HelpCircle } from "lucide-react"
+import { ArrowUpRight, BarChart3, ChevronUp, Timer, HelpCircle, Hash, Plus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LucideIcon } from "lucide-react"
 
@@ -35,6 +35,31 @@ const typeConfig: TypeConfigs = {
   summary: {
     label: "Summary",
     icon: Timer,
+    variant: "outline",
+  },
+  histogram_bucket: {
+    label: "Histogram Bucket",
+    icon: BarChart3,
+    variant: "outline",
+  },
+  histogram_count: {
+    label: "Histogram Count",
+    icon: Hash,
+    variant: "outline",
+  },
+  histogram_sum: {
+    label: "Histogram Sum",
+    icon: Plus,
+    variant: "outline",
+  },
+  summary_count: {
+    label: "Summary Count",
+    icon: Hash,
+    variant: "outline",
+  },
+  summary_sum: {
+    label: "Summary Sum", 
+    icon: Plus,
     variant: "outline",
   },
 }
