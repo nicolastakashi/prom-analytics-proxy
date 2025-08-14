@@ -18,7 +18,7 @@
 
 [![Prometheus Analytics Proxy Introduction](https://img.youtube.com/vi/8PX4FwgxUd8/0.jpg)](https://www.youtube.com/watch?v=8PX4FwgxUd8)
 
-_Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup._
+*Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup.*
 
 ## Quick Start
 
