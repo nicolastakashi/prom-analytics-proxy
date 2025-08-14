@@ -113,7 +113,6 @@ func (s *Syncer) runLoop(ctx context.Context) {
 
 func (s *Syncer) runOnce(ctx context.Context) {
 	start := time.Now()
-	failed := false
 	deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -121,7 +120,6 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	meta, err := s.promAPI.Metadata(deadline, "", s.metadataLim)
 	if err != nil {
 		slog.Error("inventory: fetch metadata", "err", err)
-		failed = true
 		s.syncFailure.Inc()
 		s.syncDuration.Observe(time.Since(start).Seconds())
 		return
@@ -144,7 +142,6 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	}
 	if err := s.dbProvider.UpsertMetricsCatalog(deadline, items); err != nil {
 		slog.Error("inventory: upsert catalog", "err", err)
-		failed = true
 		s.syncFailure.Inc()
 		s.syncDuration.Observe(time.Since(start).Seconds())
 		return
@@ -154,15 +151,12 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
 	if err := s.dbProvider.RefreshMetricsUsageSummary(deadline, tr); err != nil {
 		slog.Error("inventory: refresh summary", "err", err)
-		failed = true
 		s.syncFailure.Inc()
 		s.syncDuration.Observe(time.Since(start).Seconds())
 		return
 	}
 
 	slog.Info("inventory: sync complete")
-	if !failed {
-		s.syncSuccess.Inc()
-		s.syncDuration.Observe(time.Since(start).Seconds())
-	}
+	s.syncSuccess.Inc()
+	s.syncDuration.Observe(time.Since(start).Seconds())
 }

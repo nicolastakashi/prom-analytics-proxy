@@ -13,7 +13,7 @@ func TestSQLite_MetricsInventoryAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSqliteProvider: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	// Upsert catalog
 	items := []MetricCatalogItem{{Name: "up", Type: "gauge", Help: "up metric", Unit: ""}}

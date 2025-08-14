@@ -477,7 +477,13 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		params.Page = page
 	}
 	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
-		params.PageSize = pageSize
+		if pageSize < 1 {
+			params.PageSize = 1
+		} else if pageSize > db.MaxPageSize {
+			params.PageSize = db.MaxPageSize
+		} else {
+			params.PageSize = pageSize
+		}
 	}
 	if sortBy := req.FormValue("sortBy"); sortBy != "" {
 		params.SortBy = sortBy

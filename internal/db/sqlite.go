@@ -335,6 +335,8 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	}
 	if params.PageSize <= 0 {
 		params.PageSize = 10
+	} else if params.PageSize > MaxPageSize {
+		params.PageSize = MaxPageSize
 	}
 	if params.SortBy == "" {
 		params.SortBy = "created_at"
@@ -711,15 +713,8 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.SortOrder = "asc"
 	}
 
-	validSortFields := map[string]bool{"name": true, "type": true}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "name"
-	}
-
-	orderDir := "ASC"
-	if strings.ToLower(params.SortOrder) == "desc" {
-		orderDir = "DESC"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, ValidSeriesMetadataSortFields, "name")
+	orderDir := strings.ToUpper(params.SortOrder)
 
 	// Count
 	countQuery := `

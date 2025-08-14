@@ -354,6 +354,8 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	}
 	if params.PageSize <= 0 {
 		params.PageSize = 10
+	} else if params.PageSize > MaxPageSize {
+		params.PageSize = MaxPageSize
 	}
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
@@ -687,14 +689,8 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		params.SortOrder = "asc"
 	}
 
-	validSortFields := map[string]bool{"name": true, "type": true}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "name"
-	}
-	dir := "ASC"
-	if strings.ToLower(params.SortOrder) == "desc" {
-		dir = "DESC"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, ValidSeriesMetadataSortFields, "name")
+	dir := strings.ToUpper(params.SortOrder)
 
 	// Count
 	countSQL := `
@@ -729,7 +725,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 SELECT 1 FROM queries q
                 WHERE (q.labelMatchers->0->>'__name__') = c.name
               ) ELSE TRUE END)
-        ORDER BY %s %s NULLS LAST
+        ORDER BY c.%s %s NULLS LAST
         LIMIT $4 OFFSET $5
     `, params.SortBy, dir)
 

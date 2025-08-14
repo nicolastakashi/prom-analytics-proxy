@@ -52,6 +52,17 @@ type Provider interface {
 	Close() error
 }
 
+// MaxPageSize limits page sizes to avoid unbounded memory allocations
+const MaxPageSize = 100
+
+// ValidSeriesMetadataSortFields centralizes sortable fields for series metadata
+var ValidSeriesMetadataSortFields = map[string]bool{
+	"name": true,
+	"type": true,
+	"help": true,
+	"unit": true,
+}
+
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
 	switch dbProvider {
 	case PostGreSQL:
@@ -114,6 +125,15 @@ func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[st
 	if *sortOrder == "" {
 		*sortOrder = "desc"
 	}
+	// Normalize and validate sort order strictly to prevent SQL injection via ORDER BY
+	switch strings.ToLower(*sortOrder) {
+	case "asc":
+		*sortOrder = "asc"
+	case "desc":
+		*sortOrder = "desc"
+	default:
+		*sortOrder = "desc"
+	}
 	if !validSortFields[*sortBy] {
 		*sortBy = defaultSort
 	}
@@ -125,6 +145,9 @@ func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
 	}
 	if *pageSize <= 0 {
 		*pageSize = defaultPageSize
+	}
+	if *pageSize > MaxPageSize {
+		*pageSize = MaxPageSize
 	}
 }
 

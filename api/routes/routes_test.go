@@ -17,7 +17,7 @@ func TestSeriesMetadata_DBBacked(t *testing.T) {
 	if err != nil {
 		t.Skipf("sqlite provider unavailable: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	// Seed catalog directly
 	_ = provider.UpsertMetricsCatalog(context.Background(), []db.MetricCatalogItem{{Name: "up", Type: "gauge"}})
