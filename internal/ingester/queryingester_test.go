@@ -18,6 +18,24 @@ type MockDBProvider struct {
 // Ensure MockDBProvider implements db.Provider
 var _ db.Provider = (*MockDBProvider)(nil)
 
+func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
+	args := m.Called(ctx, params)
+	if v := args.Get(0); v != nil {
+		return v.(*db.PagedResult), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockDBProvider) UpsertMetricsCatalog(ctx context.Context, items []db.MetricCatalogItem) error {
+	args := m.Called(ctx, items)
+	return args.Error(0)
+}
+
+func (m *MockDBProvider) RefreshMetricsUsageSummary(ctx context.Context, tr db.TimeRange) error {
+	args := m.Called(ctx, tr)
+	return args.Error(0)
+}
+
 func (m *MockDBProvider) Insert(ctx context.Context, queries []db.Query) error {
 	args := m.Called(ctx, queries)
 	return args.Error(0)

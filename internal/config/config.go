@@ -10,14 +10,15 @@ import (
 )
 
 type Config struct {
-	Upstream      UpstreamConfig `yaml:"upstream,omitempty"`
-	Server        ServerConfig   `yaml:"server,omitempty"`
-	Database      DatabaseConfig `yaml:"database,omitempty"`
-	Insert        InsertConfig   `yaml:"insert,omitempty"`
-	Tracing       *otlp.Config   `yaml:"tracing,omitempty"`
-	MetadataLimit uint64         `yaml:"metadata_limit,omitempty"`
-	SeriesLimit   uint64         `yaml:"series_limit,omitempty"`
-	CORS          CORSConfig     `yaml:"cors,omitempty"`
+	Upstream      UpstreamConfig  `yaml:"upstream,omitempty"`
+	Server        ServerConfig    `yaml:"server,omitempty"`
+	Database      DatabaseConfig  `yaml:"database,omitempty"`
+	Insert        InsertConfig    `yaml:"insert,omitempty"`
+	Tracing       *otlp.Config    `yaml:"tracing,omitempty"`
+	MetadataLimit uint64          `yaml:"metadata_limit,omitempty"`
+	SeriesLimit   uint64          `yaml:"series_limit,omitempty"`
+	CORS          CORSConfig      `yaml:"cors,omitempty"`
+	Inventory     InventoryConfig `yaml:"inventory,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -68,6 +69,12 @@ type CORSConfig struct {
 	MaxAge           int      `yaml:"max_age,omitempty"`
 }
 
+type InventoryConfig struct {
+	Enabled      bool          `yaml:"enabled,omitempty"`
+	SyncInterval time.Duration `yaml:"sync_interval,omitempty"`
+	TimeWindow   time.Duration `yaml:"time_window,omitempty"`
+}
+
 var DefaultConfig = &Config{
 	CORS: CORSConfig{
 		AllowedOrigins:   []string{"*"},
@@ -78,6 +85,11 @@ var DefaultConfig = &Config{
 	},
 	Upstream: UpstreamConfig{
 		IncludeQueryStats: true,
+	},
+	Inventory: InventoryConfig{
+		Enabled:      true,
+		SyncInterval: 10 * time.Minute,
+		TimeWindow:   30 * 24 * time.Hour,
 	},
 }
 

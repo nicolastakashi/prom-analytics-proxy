@@ -9,6 +9,7 @@ import { useDebounce } from "@/hooks/use-debounce"
 export default function MetricsExplorer() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [usageFilter, setUsageFilter] = useState<"all" | "unused">("all")
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
     pageSize: 10,
@@ -21,7 +22,7 @@ export default function MetricsExplorer() {
   // Increase debounce delay to 750ms for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 750)
 
-  const { data, isLoading, error } = useSeriesMetadataTable(tableState, debouncedSearchQuery)
+  const { data, isLoading, error } = useSeriesMetadataTable(tableState, debouncedSearchQuery, usageFilter === "unused")
 
   if (isLoading) {
     return <LoadingState />
@@ -47,6 +48,8 @@ export default function MetricsExplorer() {
         onSearchChange={setSearchQuery}
         typeFilter={typeFilter}
         onTypeFilterChange={handleTypeFilterChange}
+        usageFilter={usageFilter}
+        onUsageFilterChange={setUsageFilter}
       />
       <MetricsTable 
         metrics={data.metrics}

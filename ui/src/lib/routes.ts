@@ -51,10 +51,10 @@ export const routeConfigs: readonly RouteConfig[] = [
     path: ROUTES.METRICS_EXPLORER,
     component: MetricsExplorer,
     breadcrumb: {
-      current: "Metrics Explorer"
+      current: "Metrics Catalog"
     },
     navigation: {
-      name: "Metrics Explorer",
+      name: "Metrics Catalog",
       icon: Map,
       showInSidebar: true
     }
@@ -66,7 +66,7 @@ export const routeConfigs: readonly RouteConfig[] = [
       current: "Metric Details"
     },
     navigation: {
-      name: "Metrics Explorer",
+      name: "Metrics Catalog",
       icon: Map,
       showInSidebar: false
     }

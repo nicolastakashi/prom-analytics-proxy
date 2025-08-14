@@ -31,6 +31,9 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
+	GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error)
+	UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error
+	RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error
 
 	GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
@@ -47,6 +50,24 @@ type Provider interface {
 	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
 
 	Close() error
+}
+
+// MaxPageSize limits page sizes to avoid unbounded memory allocations
+const MaxPageSize = 100
+
+// ValidSeriesMetadataSortFields centralizes sortable fields for series metadata
+// Note: These should match the actual column names used in the SQL query
+var ValidSeriesMetadataSortFields = map[string]bool{
+	"name": true,
+	"type": true,
+	"help": true,
+	"unit": true,
+}
+
+// ValidSortDirections centralizes valid sort directions
+var ValidSortDirections = map[string]bool{
+	"asc":  true,
+	"desc": true,
 }
 
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
@@ -105,14 +126,28 @@ func SetDefaultTimeRange(tr *TimeRange) {
 }
 
 func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[string]bool, defaultSort string) {
+	// Set default values if empty
 	if *sortBy == "" {
 		*sortBy = defaultSort
 	}
 	if *sortOrder == "" {
 		*sortOrder = "desc"
 	}
-	if !validSortFields[*sortBy] {
-		*sortBy = defaultSort
+
+	// Validate sort order against whitelist to prevent SQL injection
+	normalizedOrder := strings.ToLower(strings.TrimSpace(*sortOrder))
+	if !ValidSortDirections[normalizedOrder] {
+		*sortOrder = "desc" // Safe default
+	} else {
+		*sortOrder = normalizedOrder
+	}
+
+	// Validate sort field against whitelist to prevent SQL injection
+	normalizedSortBy := strings.TrimSpace(*sortBy)
+	if !validSortFields[normalizedSortBy] {
+		*sortBy = defaultSort // Safe default
+	} else {
+		*sortBy = normalizedSortBy
 	}
 }
 
@@ -123,6 +158,45 @@ func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
 	if *pageSize <= 0 {
 		*pageSize = defaultPageSize
 	}
+	if *pageSize > MaxPageSize {
+		*pageSize = MaxPageSize
+	}
+}
+
+// BuildSafeOrderByClause constructs a safe ORDER BY clause using validated parameters
+// tableAlias should be the table alias (e.g., "c") or empty string if not needed
+func BuildSafeOrderByClause(sortBy, sortOrder, tableAlias string, validSortFields map[string]bool, defaultSort string) string {
+	// Validate parameters using existing validation function
+	ValidateSortField(&sortBy, &sortOrder, validSortFields, defaultSort)
+
+	// Build the ORDER BY clause safely
+	var orderByClause string
+	if tableAlias != "" {
+		orderByClause = fmt.Sprintf(" ORDER BY %s.%s %s NULLS LAST", tableAlias, sortBy, strings.ToUpper(sortOrder))
+	} else {
+		orderByClause = fmt.Sprintf(" ORDER BY %s %s NULLS LAST", sortBy, strings.ToUpper(sortOrder))
+	}
+
+	return orderByClause
+}
+
+// BuildSafeQueryWithOrderBy constructs a complete query with validated ORDER BY clause
+// This function minimizes string concatenation for better static analysis compatibility
+func BuildSafeQueryWithOrderBy(baseQuery, tableAlias, limitClause string, sortBy, sortOrder string, validSortFields map[string]bool, defaultSort string) string {
+	// Validate parameters first
+	ValidateSortField(&sortBy, &sortOrder, validSortFields, defaultSort)
+
+	// Build complete query with validated components
+	var completeQuery string
+	if tableAlias != "" {
+		completeQuery = fmt.Sprintf("%s ORDER BY %s.%s %s NULLS LAST%s",
+			baseQuery, tableAlias, sortBy, strings.ToUpper(sortOrder), limitClause)
+	} else {
+		completeQuery = fmt.Sprintf("%s ORDER BY %s %s NULLS LAST%s",
+			baseQuery, sortBy, strings.ToUpper(sortOrder), limitClause)
+	}
+
+	return completeQuery
 }
 
 func CalculateTotalPages(totalCount, pageSize int) int {
@@ -171,6 +245,14 @@ type SeriesMetadataParams struct {
 	SortOrder string
 	Filter    string
 	Type      string
+	Unused    bool
+}
+
+type MetricCatalogItem struct {
+	Name string
+	Type string
+	Help string
+	Unit string
 }
 
 type TimeRange struct {

@@ -88,6 +88,11 @@ export interface MetricMetadata {
 	type: string;
 	help: string;
 	unit: string;
+	alertCount?: number;
+	recordCount?: number;
+	dashboardCount?: number;
+	queryCount?: number;
+	lastQueriedAt?: string;
 }
 
 export interface Producer {

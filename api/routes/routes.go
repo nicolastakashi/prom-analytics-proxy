@@ -11,13 +11,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
-	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
@@ -476,97 +474,59 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		Type:      "",
 	}
 
-	// Parse query parameters
 	if page, err := getQueryParamAsInt(req, "page", 1); err == nil {
 		params.Page = page
 	}
-
 	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
-		params.PageSize = pageSize
+		if pageSize < 1 {
+			params.PageSize = 1
+		} else if pageSize > db.MaxPageSize {
+			params.PageSize = db.MaxPageSize
+		} else {
+			params.PageSize = pageSize
+		}
 	}
-
+	// Validate sortBy parameter against whitelist to prevent SQL injection
 	if sortBy := req.FormValue("sortBy"); sortBy != "" {
-		params.SortBy = sortBy
+		if db.ValidSeriesMetadataSortFields[sortBy] {
+			params.SortBy = sortBy
+		} else {
+			// Invalid sortBy provided - log warning and use safe default
+			slog.Warn("invalid sortBy parameter provided", "sortBy", sortBy, "using_default", "name")
+			params.SortBy = "name" // Safe default
+		}
 	}
 
+	// Validate sortOrder parameter against whitelist to prevent SQL injection
 	if sortOrder := req.FormValue("sortOrder"); sortOrder != "" {
-		params.SortOrder = sortOrder
+		normalizedOrder := strings.ToLower(strings.TrimSpace(sortOrder))
+		if db.ValidSortDirections[normalizedOrder] {
+			params.SortOrder = normalizedOrder
+		} else {
+			// Invalid sortOrder provided - log warning and use safe default
+			slog.Warn("invalid sortOrder parameter provided", "sortOrder", sortOrder, "using_default", "asc")
+			params.SortOrder = "asc" // Safe default
+		}
 	}
-
 	if filter := req.FormValue("filter"); filter != "" {
 		params.Filter = filter
 	}
-
 	if metricType := req.FormValue("type"); metricType != "" {
 		params.Type = metricType
 	}
 
-	// Get all metadata
-	metadata, err := r.promAPI.Metadata(req.Context(), "", r.metadataLimit)
+	if unused := req.FormValue("unused"); unused == "true" {
+		params.Unused = true
+	}
+
+	data, err := r.dbProvider.GetSeriesMetadata(req.Context(), params)
 	if err != nil {
-		slog.Error("unable to retrieve series metadata", "err", err)
-		writeErrorResponse(req, w, err, http.StatusInternalServerError)
+		slog.Error("unable to retrieve series metadata (db)", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series metadata: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Filter and sort metadata
-	var filteredMetadata []models.MetricMetadata
-	for metric, metas := range metadata {
-		for _, meta := range metas {
-			// Apply filter if exists
-			if params.Filter != "" && !strings.Contains(strings.ToLower(metric), strings.ToLower(params.Filter)) {
-				continue
-			}
-
-			// Apply type filter if exists
-			if params.Type != "" && params.Type != "all" && !strings.EqualFold(string(meta.Type), params.Type) {
-				continue
-			}
-
-			filteredMetadata = append(filteredMetadata, models.MetricMetadata{
-				Name: metric,
-				Type: string(meta.Type),
-				Help: meta.Help,
-				Unit: meta.Unit,
-			})
-		}
-	}
-
-	// Sort metadata
-	sort.Slice(filteredMetadata, func(i, j int) bool {
-		var result bool
-		switch params.SortBy {
-		case "name":
-			result = filteredMetadata[i].Name < filteredMetadata[j].Name
-		case "type":
-			result = filteredMetadata[i].Type < filteredMetadata[j].Type
-		default:
-			result = filteredMetadata[i].Name < filteredMetadata[j].Name
-		}
-
-		if params.SortOrder == "desc" {
-			return !result
-		}
-		return result
-	})
-
-	// Calculate pagination
-	totalCount := len(filteredMetadata)
-	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
-	start := (params.Page - 1) * params.PageSize
-	end := start + params.PageSize
-	if end > totalCount {
-		end = totalCount
-	}
-
-	// Return paginated result using db.PagedResult
-	result := db.PagedResult{
-		Total:      totalCount,
-		TotalPages: totalPages,
-		Data:       filteredMetadata[start:end],
-	}
-
-	writeJSONResponse(req, w, result)
+	writeJSONResponse(req, w, data)
 }
 
 func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
