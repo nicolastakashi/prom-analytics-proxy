@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -713,8 +712,8 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.SortOrder = "asc"
 	}
 
-	ValidateSortField(&params.SortBy, &params.SortOrder, ValidSeriesMetadataSortFields, "name")
-	orderDir := strings.ToUpper(params.SortOrder)
+	// Build safe ORDER BY clause to prevent SQL injection
+	orderByClause := BuildSafeOrderByClause(params.SortBy, params.SortOrder, "c", ValidSeriesMetadataSortFields, "name")
 
 	// Count
 	countQuery := `
@@ -739,7 +738,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 	}
 
 	// Query page with left join to usage summary
-	query := fmt.Sprintf(`
+	baseQuery := `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
         FROM metrics_catalog AS c
@@ -751,9 +750,8 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                 SELECT 1 FROM queries q
                 WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
               ) ELSE 1 END)
-        ORDER BY c.%s %s
-        LIMIT ? OFFSET ?
-    `, params.SortBy, orderDir)
+    `
+	query := baseQuery + orderByClause + " LIMIT ? OFFSET ?"
 
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,

@@ -56,11 +56,18 @@ type Provider interface {
 const MaxPageSize = 100
 
 // ValidSeriesMetadataSortFields centralizes sortable fields for series metadata
+// Note: These should match the actual column names used in the SQL query
 var ValidSeriesMetadataSortFields = map[string]bool{
 	"name": true,
 	"type": true,
 	"help": true,
 	"unit": true,
+}
+
+// ValidSortDirections centralizes valid sort directions
+var ValidSortDirections = map[string]bool{
+	"asc":  true,
+	"desc": true,
 }
 
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
@@ -119,23 +126,28 @@ func SetDefaultTimeRange(tr *TimeRange) {
 }
 
 func ValidateSortField(sortBy *string, sortOrder *string, validSortFields map[string]bool, defaultSort string) {
+	// Set default values if empty
 	if *sortBy == "" {
 		*sortBy = defaultSort
 	}
 	if *sortOrder == "" {
 		*sortOrder = "desc"
 	}
-	// Normalize and validate sort order strictly to prevent SQL injection via ORDER BY
-	switch strings.ToLower(*sortOrder) {
-	case "asc":
-		*sortOrder = "asc"
-	case "desc":
-		*sortOrder = "desc"
-	default:
-		*sortOrder = "desc"
+
+	// Validate sort order against whitelist to prevent SQL injection
+	normalizedOrder := strings.ToLower(strings.TrimSpace(*sortOrder))
+	if !ValidSortDirections[normalizedOrder] {
+		*sortOrder = "desc" // Safe default
+	} else {
+		*sortOrder = normalizedOrder
 	}
-	if !validSortFields[*sortBy] {
-		*sortBy = defaultSort
+
+	// Validate sort field against whitelist to prevent SQL injection
+	normalizedSortBy := strings.TrimSpace(*sortBy)
+	if !validSortFields[normalizedSortBy] {
+		*sortBy = defaultSort // Safe default
+	} else {
+		*sortBy = normalizedSortBy
 	}
 }
 
@@ -149,6 +161,23 @@ func ValidatePagination(page *int, pageSize *int, defaultPageSize int) {
 	if *pageSize > MaxPageSize {
 		*pageSize = MaxPageSize
 	}
+}
+
+// BuildSafeOrderByClause constructs a safe ORDER BY clause using validated parameters
+// tableAlias should be the table alias (e.g., "c") or empty string if not needed
+func BuildSafeOrderByClause(sortBy, sortOrder, tableAlias string, validSortFields map[string]bool, defaultSort string) string {
+	// Validate parameters using existing validation function
+	ValidateSortField(&sortBy, &sortOrder, validSortFields, defaultSort)
+
+	// Build the ORDER BY clause safely
+	var orderByClause string
+	if tableAlias != "" {
+		orderByClause = fmt.Sprintf(" ORDER BY %s.%s %s NULLS LAST", tableAlias, sortBy, strings.ToUpper(sortOrder))
+	} else {
+		orderByClause = fmt.Sprintf(" ORDER BY %s %s NULLS LAST", sortBy, strings.ToUpper(sortOrder))
+	}
+
+	return orderByClause
 }
 
 func CalculateTotalPages(totalCount, pageSize int) int {

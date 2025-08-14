@@ -689,8 +689,8 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		params.SortOrder = "asc"
 	}
 
-	ValidateSortField(&params.SortBy, &params.SortOrder, ValidSeriesMetadataSortFields, "name")
-	dir := strings.ToUpper(params.SortOrder)
+	// Build safe ORDER BY clause to prevent SQL injection
+	orderByClause := BuildSafeOrderByClause(params.SortBy, params.SortOrder, "c", ValidSeriesMetadataSortFields, "name")
 
 	// Count
 	countSQL := `
@@ -713,7 +713,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	query := fmt.Sprintf(`
+	baseQuery := `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
         FROM metrics_catalog c
@@ -725,9 +725,8 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 SELECT 1 FROM queries q
                 WHERE (q.labelMatchers->0->>'__name__') = c.name
               ) ELSE TRUE END)
-        ORDER BY c.%s %s NULLS LAST
-        LIMIT $4 OFFSET $5
-    `, params.SortBy, dir)
+    `
+	query := baseQuery + orderByClause + " LIMIT $4 OFFSET $5"
 
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
