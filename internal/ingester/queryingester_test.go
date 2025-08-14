@@ -18,6 +18,11 @@ type MockDBProvider struct {
 // Ensure MockDBProvider implements db.Provider
 var _ db.Provider = (*MockDBProvider)(nil)
 
+// Satisfy new Provider method; tests don't use it
+func (m *MockDBProvider) ListJobs(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+
 func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
 	args := m.Called(ctx, params)
 	if v := args.Get(0); v != nil {
@@ -27,6 +32,11 @@ func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.Series
 }
 
 func (m *MockDBProvider) UpsertMetricsCatalog(ctx context.Context, items []db.MetricCatalogItem) error {
+	args := m.Called(ctx, items)
+	return args.Error(0)
+}
+
+func (m *MockDBProvider) UpsertMetricsJobIndex(ctx context.Context, items []db.MetricJobIndexItem) error {
 	args := m.Called(ctx, items)
 	return args.Error(0)
 }

@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { getMetricQueryPerformanceStatistics, getMetricStatistics, getSeriesMetadata, getSerieExpressions, getMetricUsage } from "@/api/metrics";
+import { getMetricQueryPerformanceStatistics, getMetricStatistics, getSeriesMetadata, getSerieExpressions, getMetricUsage, getJobs } from "@/api/metrics";
 import { PagedResult, TableState, MetricMetadata, MetricStatistics, MetricQueryPerformanceStatistics, QueryLatencyTrendsResult, DateRange } from "@/lib/types";
 import { getQueryLatencyTrends } from "@/api/queries";
 
 interface MetricsData {
   metrics: PagedResult<MetricMetadata> | undefined;
+  jobs: string[] | undefined;
 }
 
 interface MetricStatisticsData {
@@ -23,13 +24,13 @@ interface MetricUsageResponse {
   }>;
 }
 
-export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: string, unused?: boolean) {
+export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: string, unused?: boolean, job?: string) {
   const {
     data: metrics,
     isLoading,
     error
   } = useQuery<PagedResult<MetricMetadata>>({
-    queryKey: ['metrics', tableState, searchQuery, unused],
+    queryKey: ['metrics', tableState, searchQuery, unused, job],
     queryFn: () => getSeriesMetadata(
       tableState?.page || 1,
       tableState?.pageSize || 10,
@@ -38,12 +39,19 @@ export function useSeriesMetadataTable(tableState?: TableState, searchQuery?: st
       searchQuery || '',
       tableState?.type || 'all',
       unused || false,
+      job,
     ),
+  });
+
+  const { data: jobs } = useQuery<string[]>({
+    queryKey: ['jobs'],
+    queryFn: getJobs,
   });
 
   return {
     data: {
       metrics,
+      jobs,
     } as MetricsData,
     isLoading,
     error,

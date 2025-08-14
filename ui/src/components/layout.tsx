@@ -32,7 +32,7 @@ interface LayoutProps {
 
 export default function Layout({ children, breadcrumb }: LayoutProps) {
     const [location] = useLocation()
-    const showFilterPanel = location !== '/metrics' && location !== '/settings'
+    const showFilterPanel = location !== '/metrics-explorer' && location !== '/settings'
 
     return (
         <ErrorBoundaryWithToast>

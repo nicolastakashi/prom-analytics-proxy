@@ -36,6 +36,7 @@ interface ApiConfig {
     metricQueryPerformanceStatistics: string;
     serieExpressions: string;
     metricUsage: string;
+    jobs: string;
   };
 }
 
@@ -50,6 +51,7 @@ interface FetchOptions {
   to?: string;
   kind?: string;
   unused?: boolean;
+  job?: string;
 }
 
 const API_CONFIG: ApiConfig = {
@@ -60,6 +62,7 @@ const API_CONFIG: ApiConfig = {
     metricQueryPerformanceStatistics: '/api/v1/metricQueryPerformanceStatistics',
     serieExpressions: '/api/v1/serieExpressions',
     metricUsage: '/api/v1/serieUsage',
+    jobs: '/api/v1/jobs',
   }
 };
 
@@ -108,7 +111,7 @@ async function fetchApiData<T>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { page, pageSize, sortBy, sortOrder, filter, type, from, to, kind } = options;
+  const { page, pageSize, sortBy, sortOrder, filter, type, from, to, kind, job } = options;
 
   const queryParams = new URLSearchParams({
     ...(page !== undefined && { page: page.toString() }),
@@ -121,6 +124,7 @@ async function fetchApiData<T>(
     ...(to && { to: toUTC(to) }),
     ...(kind && { kind }),
     ...(options.unused ? { unused: "true" } : {}),
+    ...(job ? { job } : {}),
   });
 
   try {
@@ -154,11 +158,12 @@ export async function getSeriesMetadata(
   filter: string = "",
   type: string = "",
   unused: boolean = false,
+  job?: string,
 ): Promise<PagedResult<MetricMetadata>> {
   return withErrorHandling(
     () => fetchApiData<PagedResult<MetricMetadata>>(
       API_CONFIG.endpoints.seriesMetadata,
-      { page, pageSize, sortBy, sortOrder, filter, type, unused }
+      { page, pageSize, sortBy, sortOrder, filter, type, unused, job }
     ),
     DEFAULT_ERROR_VALUES.seriesMetadata
   );
@@ -237,4 +242,11 @@ export async function getMetricUsage(
     () => fetchApiData<MetricUsageResponse>(url, params),
     DEFAULT_ERROR_VALUES.metricUsage
   );
+}
+
+export async function getJobs(): Promise<string[]> {
+  const res = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.jobs}`);
+  if (!res.ok) throw new Error(`Failed to fetch jobs: ${res.status}`);
+  const body = await res.json() as { data: string[] };
+  return body.data || [];
 }

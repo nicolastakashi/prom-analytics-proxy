@@ -701,9 +701,13 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 SELECT 1 FROM queries q
                 WHERE (q.labelMatchers->0->>'__name__') = c.name
               ) ELSE TRUE END)
+          AND ($4 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $4
+          ))
     `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Unused).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Unused, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
@@ -722,11 +726,15 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 SELECT 1 FROM queries q
                 WHERE (q.labelMatchers->0->>'__name__') = c.name
               ) ELSE TRUE END)
+          AND ($4 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $4
+          ))
     `
 	// Build complete query with safe ORDER BY clause to prevent SQL injection
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $4 OFFSET $5", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $5 OFFSET $6", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
 
-	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.PageSize, (params.Page-1)*params.PageSize)
+	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
 	}
@@ -747,6 +755,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		if r.last.Valid {
 			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
 		}
+
 		out = append(out, mm)
 	}
 	if err := rows.Err(); err != nil {
@@ -839,6 +848,59 @@ func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr 
 		return fmt.Errorf("refresh summary: %w", err)
 	}
 	return nil
+}
+
+func (p *PostGreSQLProvider) UpsertMetricsJobIndex(ctx context.Context, items []MetricJobIndexItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO metrics_job_index(name, job, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT(name, job) DO UPDATE SET
+		  updated_at = EXCLUDED.updated_at
+	`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer CloseResource(stmt)
+	for _, it := range items {
+		if _, err := stmt.ExecContext(ctx, it.Name, it.Job); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// ListJobs returns the distinct list of jobs known in metrics_job_index
+func (p *PostGreSQLProvider) ListJobs(ctx context.Context) ([]string, error) {
+	rows, err := ExecuteQuery(ctx, p.db, `SELECT DISTINCT job FROM metrics_job_index ORDER BY job`)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseResource(rows)
+
+	var jobs []string
+	for rows.Next() {
+		var job string
+		if err := rows.Scan(&job); err != nil {
+			return nil, fmt.Errorf("scan job: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter jobs: %w", err)
+	}
+	return jobs, nil
 }
 
 func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
