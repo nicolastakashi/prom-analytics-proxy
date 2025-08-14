@@ -22,9 +22,9 @@ export function MetricsExplorerHeader({
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <h1 className="text-2xl font-bold">Queries</h1>
+        <h1 className="text-2xl font-bold">Metrics</h1>
         <p className="text-sm text-muted-foreground">
-          Browse and analyze query patterns in your queries
+          Browse and analyze patterns and usage of your metrics
         </p>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

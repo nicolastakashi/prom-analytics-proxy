@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
@@ -485,11 +486,27 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 			params.PageSize = pageSize
 		}
 	}
+	// Validate sortBy parameter against whitelist to prevent SQL injection
 	if sortBy := req.FormValue("sortBy"); sortBy != "" {
-		params.SortBy = sortBy
+		if db.ValidSeriesMetadataSortFields[sortBy] {
+			params.SortBy = sortBy
+		} else {
+			// Invalid sortBy provided - log warning and use safe default
+			slog.Warn("invalid sortBy parameter provided", "sortBy", sortBy, "using_default", "name")
+			params.SortBy = "name" // Safe default
+		}
 	}
+
+	// Validate sortOrder parameter against whitelist to prevent SQL injection
 	if sortOrder := req.FormValue("sortOrder"); sortOrder != "" {
-		params.SortOrder = sortOrder
+		normalizedOrder := strings.ToLower(strings.TrimSpace(sortOrder))
+		if db.ValidSortDirections[normalizedOrder] {
+			params.SortOrder = normalizedOrder
+		} else {
+			// Invalid sortOrder provided - log warning and use safe default
+			slog.Warn("invalid sortOrder parameter provided", "sortOrder", sortOrder, "using_default", "asc")
+			params.SortOrder = "asc" // Safe default
+		}
 	}
 	if filter := req.FormValue("filter"); filter != "" {
 		params.Filter = filter
