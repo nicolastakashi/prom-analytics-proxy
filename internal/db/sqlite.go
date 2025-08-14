@@ -724,9 +724,13 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                 SELECT 1 FROM queries q
                 WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
               ) ELSE 1 END)
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
     `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), boolToInt(params.Unused)).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), boolToInt(params.Unused), params.Job, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count catalog: %w", err)
 	}
 
@@ -747,6 +751,10 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                 SELECT 1 FROM queries q
                 WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
               ) ELSE 1 END)
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
     `
 	// Build complete query with safe ORDER BY clause to prevent SQL injection
 	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
@@ -755,6 +763,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type,
 		boolToInt(params.Unused), boolToInt(params.Unused),
+		params.Job, params.Job,
 		params.PageSize, (params.Page-1)*params.PageSize,
 	)
 	if err != nil {
@@ -786,6 +795,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		if r.last.Valid {
 			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
 		}
+
 		results = append(results, mm)
 	}
 	if err := rows.Err(); err != nil {
@@ -830,6 +840,61 @@ func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []Metri
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+func (p *SQLiteProvider) UpsertMetricsJobIndex(ctx context.Context, items []MetricJobIndexItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO metrics_job_index(name, job, updated_at)
+		VALUES(?, ?, datetime('now'))
+		ON CONFLICT(name, job) DO UPDATE SET
+			updated_at = excluded.updated_at
+	`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer CloseResource(stmt)
+	for _, it := range items {
+		if _, err := stmt.ExecContext(ctx, it.Name, it.Job); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// ListJobs returns the distinct list of jobs from metrics_job_index
+func (p *SQLiteProvider) ListJobs(ctx context.Context) ([]string, error) {
+	rows, err := ExecuteQuery(ctx, p.db, `SELECT DISTINCT job FROM metrics_job_index ORDER BY job`)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseResource(rows)
+
+	var jobs []string
+	for rows.Next() {
+		var job string
+		if err := rows.Scan(&job); err != nil {
+			return nil, fmt.Errorf("scan job: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter jobs: %w", err)
+	}
+	return jobs, nil
 }
 
 func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {

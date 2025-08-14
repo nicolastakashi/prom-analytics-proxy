@@ -34,6 +34,8 @@ type Provider interface {
 	GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error)
 	UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error
 	RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error
+	UpsertMetricsJobIndex(ctx context.Context, items []MetricJobIndexItem) error
+	ListJobs(ctx context.Context) ([]string, error)
 
 	GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error)
 	GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error)
@@ -246,6 +248,7 @@ type SeriesMetadataParams struct {
 	Filter    string
 	Type      string
 	Unused    bool
+	Job       string
 }
 
 type MetricCatalogItem struct {
@@ -253,6 +256,11 @@ type MetricCatalogItem struct {
 	Type string
 	Help string
 	Unit string
+}
+
+type MetricJobIndexItem struct {
+	Name string
+	Job  string
 }
 
 type TimeRange struct {

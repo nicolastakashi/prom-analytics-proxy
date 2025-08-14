@@ -70,9 +70,15 @@ type CORSConfig struct {
 }
 
 type InventoryConfig struct {
-	Enabled      bool          `yaml:"enabled,omitempty"`
-	SyncInterval time.Duration `yaml:"sync_interval,omitempty"`
-	TimeWindow   time.Duration `yaml:"time_window,omitempty"`
+	Enabled               bool          `yaml:"enabled,omitempty"`
+	SyncInterval          time.Duration `yaml:"sync_interval,omitempty"`
+	TimeWindow            time.Duration `yaml:"time_window,omitempty"`
+	RunTimeout            time.Duration `yaml:"run_timeout,omitempty"`
+	MetadataStepTimeout   time.Duration `yaml:"metadata_step_timeout,omitempty"`
+	SummaryStepTimeout    time.Duration `yaml:"summary_step_timeout,omitempty"`
+	JobIndexLabelTimeout  time.Duration `yaml:"job_index_label_timeout,omitempty"`
+	JobIndexPerJobTimeout time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
+	JobIndexWorkers       int           `yaml:"job_index_workers,omitempty"`
 }
 
 var DefaultConfig = &Config{
@@ -87,9 +93,15 @@ var DefaultConfig = &Config{
 		IncludeQueryStats: true,
 	},
 	Inventory: InventoryConfig{
-		Enabled:      true,
-		SyncInterval: 10 * time.Minute,
-		TimeWindow:   30 * 24 * time.Hour,
+		Enabled:               true,
+		SyncInterval:          10 * time.Minute,
+		TimeWindow:            30 * 24 * time.Hour,
+		RunTimeout:            300 * time.Second,
+		MetadataStepTimeout:   30 * time.Second,
+		SummaryStepTimeout:    30 * time.Second,
+		JobIndexLabelTimeout:  30 * time.Second,
+		JobIndexPerJobTimeout: 30 * time.Second,
+		JobIndexWorkers:       10,
 	},
 }
 

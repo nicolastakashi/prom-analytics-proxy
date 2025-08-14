@@ -97,6 +97,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/metricQueryPerformanceStatistics/{name}", http.HandlerFunc(r.GetMetricQueryPerformanceStatistics))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
 		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
+		mux.Handle("/api/v1/jobs", http.HandlerFunc(r.listJobs))
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
@@ -519,6 +520,10 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		params.Unused = true
 	}
 
+	if job := req.FormValue("job"); job != "" {
+		params.Job = job
+	}
+
 	data, err := r.dbProvider.GetSeriesMetadata(req.Context(), params)
 	if err != nil {
 		slog.Error("unable to retrieve series metadata (db)", "err", err)
@@ -866,4 +871,18 @@ func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
 		writeErrorResponse(req, w, fmt.Errorf("failed to write response: %w", err), http.StatusInternalServerError)
 		return
 	}
+}
+
+func (r *routes) listJobs(w http.ResponseWriter, req *http.Request) {
+	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+	defer cancel()
+	jobs, err := r.dbProvider.ListJobs(ctx)
+	if err != nil {
+		slog.Error("unable to list jobs", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to list jobs: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSONResponse(req, w, struct {
+		Data []string `json:"data"`
+	}{Data: jobs})
 }

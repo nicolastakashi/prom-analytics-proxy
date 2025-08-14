@@ -10,6 +10,7 @@ export default function MetricsExplorer() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
   const [usageFilter, setUsageFilter] = useState<"all" | "unused">("all")
+  const [jobFilter, setJobFilter] = useState<string>("")
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
     pageSize: 10,
@@ -22,7 +23,7 @@ export default function MetricsExplorer() {
   // Increase debounce delay to 750ms for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 750)
 
-  const { data, isLoading, error } = useSeriesMetadataTable(tableState, debouncedSearchQuery, usageFilter === "unused")
+  const { data, isLoading, error } = useSeriesMetadataTable(tableState, debouncedSearchQuery, usageFilter === "unused", jobFilter)
 
   if (isLoading) {
     return <LoadingState />
@@ -50,6 +51,9 @@ export default function MetricsExplorer() {
         onTypeFilterChange={handleTypeFilterChange}
         usageFilter={usageFilter}
         onUsageFilterChange={setUsageFilter}
+        jobs={data.jobs}
+        jobFilter={jobFilter}
+        onJobFilterChange={setJobFilter}
       />
       <MetricsTable 
         metrics={data.metrics}
