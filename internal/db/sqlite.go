@@ -720,17 +720,13 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
         WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
           AND (? = 'all' OR c.type = ?)
           AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
-          AND (CASE WHEN ? = 1 THEN NOT EXISTS (
-                SELECT 1 FROM queries q
-                WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
-              ) ELSE 1 END)
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = ?
           ))
     `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), boolToInt(params.Unused), params.Job, params.Job).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), params.Job, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count catalog: %w", err)
 	}
 
@@ -747,10 +743,6 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
         WHERE (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
           AND (? = 'all' OR c.type = ?)
           AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
-          AND (CASE WHEN ? = 1 THEN NOT EXISTS (
-                SELECT 1 FROM queries q
-                WHERE json_extract(q.labelMatchers, '$[0].__name__') = c.name
-              ) ELSE 1 END)
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = ?
@@ -762,7 +754,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type,
-		boolToInt(params.Unused), boolToInt(params.Unused),
+		boolToInt(params.Unused),
 		params.Job, params.Job,
 		params.PageSize, (params.Page-1)*params.PageSize,
 	)

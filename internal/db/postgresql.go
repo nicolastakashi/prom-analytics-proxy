@@ -697,10 +697,6 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
           AND ($2 = 'all' OR c.type = $2)
           AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
-          AND (CASE WHEN $3 THEN NOT EXISTS (
-                SELECT 1 FROM queries q
-                WHERE (q.labelMatchers->0->>'__name__') = c.name
-              ) ELSE TRUE END)
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
@@ -722,10 +718,6 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         WHERE ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
           AND ($2 = 'all' OR c.type = $2)
           AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
-          AND (CASE WHEN $3 THEN NOT EXISTS (
-                SELECT 1 FROM queries q
-                WHERE (q.labelMatchers->0->>'__name__') = c.name
-              ) ELSE TRUE END)
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
@@ -1378,7 +1370,7 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 			COUNT(DISTINCT name) FILTER (WHERE serie = $3) AS dashboard_count,
 			COUNT(DISTINCT name)                           AS total_dashboards
 		FROM   dashboardusage
-		WHERE  created_at BETWEEN $1 AND $2
+		WHERE  first_seen_at <= $2 AND last_seen_at >= $1
 	)
 	SELECT
 		rs.alert_count,
