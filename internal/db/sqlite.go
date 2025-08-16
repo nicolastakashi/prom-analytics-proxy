@@ -1433,26 +1433,41 @@ func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQuer
 
 func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
-		SELECT 
-            COALESCE(SUM(CASE WHEN r.Kind = 'alert' THEN 1 ELSE 0 END), 0) as alert_count,
-            COALESCE(SUM(CASE WHEN r.Kind = 'record' THEN 1 ELSE 0 END), 0) as record_count,
-			COALESCE(COUNT(DISTINCT CASE WHEN d.created_at BETWEEN datetime(?) AND datetime(?) THEN d.Name END), 0) as dashboard_count,
-            (SELECT COALESCE(SUM(CASE WHEN Kind = 'alert' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)) as total_alerts,
-            (SELECT COALESCE(SUM(CASE WHEN Kind = 'record' THEN 1 ELSE 0 END), 0) FROM RulesUsage WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)) as total_records,
-			(SELECT COALESCE(COUNT(DISTINCT Name), 0) FROM DashboardUsage WHERE created_at BETWEEN datetime(?) AND datetime(?)) as total_dashboards
-		FROM RulesUsage r
-		LEFT JOIN DashboardUsage d ON r.Serie = d.Serie
-		WHERE r.Serie = ? 
-        AND r.first_seen_at <= datetime(?) AND r.last_seen_at >= datetime(?);
+	WITH rule_stats AS (
+		SELECT
+			SUM(CASE WHEN serie = ? AND kind = 'alert' THEN 1 ELSE 0 END) AS alert_count,
+			SUM(CASE WHEN serie = ? AND kind = 'record' THEN 1 ELSE 0 END) AS record_count,
+			SUM(CASE WHEN kind = 'alert' THEN 1 ELSE 0 END) AS total_alerts,
+			SUM(CASE WHEN kind = 'record' THEN 1 ELSE 0 END) AS total_records
+		FROM rulesusage
+		WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)
+	),
+	dash_stats AS (
+		SELECT
+			COUNT(DISTINCT CASE WHEN serie = ? THEN name END) AS dashboard_count,
+			COUNT(DISTINCT name) AS total_dashboards
+		FROM dashboardusage
+		WHERE first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)
+	)
+	SELECT
+		COALESCE(rs.alert_count, 0),
+		COALESCE(rs.record_count, 0),
+		COALESCE(ds.dashboard_count, 0),
+		COALESCE(rs.total_alerts, 0),
+		COALESCE(rs.total_records, 0),
+		COALESCE(ds.total_dashboards, 0)
+	FROM rule_stats rs
+	CROSS JOIN dash_stats ds;
 	`
 
-	from, to := tr.Format(ISOTimeFormat)
+	from, to := PrepareTimeRange(tr, "sqlite")
 	rows, err := p.db.QueryContext(ctx, query,
-		from, to, // For dashboard_count (created_at BETWEEN from AND to)
-		to, from, // For total_alerts (first_seen_at <= to AND last_seen_at >= from)
-		to, from, // For total_records (first_seen_at <= to AND last_seen_at >= from)
-		from, to, // For total_dashboards (created_at BETWEEN from AND to)
-		metricName, to, from) // Main WHERE (first_seen_at <= to AND last_seen_at >= from)
+		metricName, // rule_stats serie filter for alert_count
+		metricName, // rule_stats serie filter for record_count
+		to, from,   // rule_stats time range (first_seen_at <= to AND last_seen_at >= from)
+		metricName, // dash_stats serie filter
+		to, from,   // dash_stats time range (first_seen_at <= to AND last_seen_at >= from)
+	)
 	if err != nil {
 		return MetricUsageStatics{}, fmt.Errorf("failed to query metric statistics: %w", err)
 	}
