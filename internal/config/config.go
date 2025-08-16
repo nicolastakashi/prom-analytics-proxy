@@ -1,6 +1,7 @@
 package config
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -150,4 +151,16 @@ func (c *Config) GetSanitizedConfig() *Config {
 	}
 
 	return c
+}
+
+// RegisterInventoryFlags registers all inventory-related command-line flags
+func RegisterInventoryFlags(flagSet *flag.FlagSet) {
+	flagSet.DurationVar(&DefaultConfig.Inventory.SyncInterval, "inventory-sync-interval", DefaultConfig.Inventory.SyncInterval, "Interval between inventory sync runs")
+	flagSet.DurationVar(&DefaultConfig.Inventory.TimeWindow, "inventory-time-window", DefaultConfig.Inventory.TimeWindow, "Time window for inventory data collection")
+	flagSet.DurationVar(&DefaultConfig.Inventory.RunTimeout, "inventory-run-timeout", DefaultConfig.Inventory.RunTimeout, "Timeout for the entire inventory sync run")
+	flagSet.DurationVar(&DefaultConfig.Inventory.MetadataStepTimeout, "inventory-metadata-timeout", DefaultConfig.Inventory.MetadataStepTimeout, "Timeout for metadata collection step")
+	flagSet.DurationVar(&DefaultConfig.Inventory.SummaryStepTimeout, "inventory-summary-timeout", DefaultConfig.Inventory.SummaryStepTimeout, "Timeout for summary refresh step")
+	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexLabelTimeout, "inventory-job-index-label-timeout", DefaultConfig.Inventory.JobIndexLabelTimeout, "Timeout for job label values collection")
+	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexPerJobTimeout, "inventory-job-index-per-job-timeout", DefaultConfig.Inventory.JobIndexPerJobTimeout, "Timeout for processing each individual job")
+	flagSet.IntVar(&DefaultConfig.Inventory.JobIndexWorkers, "inventory-job-index-workers", DefaultConfig.Inventory.JobIndexWorkers, "Number of worker goroutines for job index processing")
 }

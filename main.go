@@ -51,9 +51,10 @@ func main() {
 
 	flagset.StringVar(&configFile, "config-file", "", "Path to the configuration file, it takes precedence over the command line flags.")
 	flagset.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for storing query data. Supported values: postgresql, sqlite.")
+	flagset.BoolVar(&config.DefaultConfig.Inventory.Enabled, "inventory-enabled", config.DefaultConfig.Inventory.Enabled, "Enable the metrics inventory syncer")
 
-	flagset.Uint64("metadata-limit", 0, "The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)")
-	flagset.Uint64("series-limit", 0, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
+	flagset.Uint64Var(&config.DefaultConfig.MetadataLimit, "metadata-limit", config.DefaultConfig.MetadataLimit, "The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)")
+	flagset.Uint64Var(&config.DefaultConfig.SeriesLimit, "series-limit", config.DefaultConfig.SeriesLimit, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	flagset.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
 	flagset.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
 	flagset.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", true, "Request query stats from the upstream prometheus API.")
@@ -65,6 +66,7 @@ func main() {
 
 	db.RegisterPostGreSQLFlags(flagset)
 	db.RegisterSqliteFlags(flagset)
+	config.RegisterInventoryFlags(flagset)
 
 	err := flagset.Parse(os.Args[1:])
 	if err != nil {
