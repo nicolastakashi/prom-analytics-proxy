@@ -220,7 +220,11 @@ func TestSQLite_DashboardUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Debug query failed: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Err(); err != nil {
+			t.Fatalf("Debug query error: %v", err)
+		}
+	}()
 
 	t.Log("Current database contents with time range check:")
 	for rows.Next() {

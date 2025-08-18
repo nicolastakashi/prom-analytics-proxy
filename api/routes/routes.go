@@ -183,6 +183,13 @@ func getTimeParam(req *http.Request, param string) time.Time {
 			return time.Unix(ts, 0).UTC()
 		}
 
+		// Fallback: attempt to parse as Unix timestamp with fractional seconds.
+		if tf, err := strconv.ParseFloat(timeParam, 64); err == nil {
+			seconds := int64(tf)
+			nanos := int64((tf - float64(seconds)) * 1e9)
+			return time.Unix(seconds, nanos).UTC()
+		}
+
 		// All parsing attempts failed – log and fallback.
 		slog.Error("failed to parse time parameter", "param", param, "value", timeParam)
 	}

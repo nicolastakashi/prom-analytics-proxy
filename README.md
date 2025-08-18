@@ -141,6 +141,24 @@ insert-timeout: "1s"
     	Grace period to insert pending queries after program shutdown. (default 5s)
   -insert-timeout duration
     	Timeout to insert a query into the database. (default 1s)
+  -inventory-enabled
+    	Enable the metrics inventory syncer (default true)
+  -inventory-job-index-label-timeout duration
+    	Timeout for job label values collection (default 30s)
+  -inventory-job-index-per-job-timeout duration
+    	Timeout for processing each individual job (default 30s)
+  -inventory-job-index-workers int
+    	Number of worker goroutines for job index processing (default 10)
+  -inventory-metadata-timeout duration
+    	Timeout for metadata collection step (default 30s)
+  -inventory-run-timeout duration
+    	Timeout for the entire inventory sync run (default 5m0s)
+  -inventory-summary-timeout duration
+    	Timeout for summary refresh step (default 30s)
+  -inventory-sync-interval duration
+    	Interval between inventory sync runs (default 10m0s)
+  -inventory-time-window duration
+    	Time window for inventory data collection (default 720h0m0s)
   -log-format string
     	Log format (text, json) (default "text")
   -log-level string
