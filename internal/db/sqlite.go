@@ -583,7 +583,8 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
         SELECT COUNT(DISTINCT id)
         FROM DashboardUsage
         WHERE serie = ? 
-        AND first_seen_at <= ? AND last_seen_at >= ?
+        AND strftime('%Y-%m-%d %H:%M:%S', first_seen_at) <= strftime('%Y-%m-%d %H:%M:%S', ?)
+        AND strftime('%Y-%m-%d %H:%M:%S', last_seen_at) >= strftime('%Y-%m-%d %H:%M:%S', ?)
         AND CASE 
             WHEN ? != '' THEN 
                 (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
@@ -593,7 +594,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
     `
 	var totalCount int
 	err := p.db.QueryRowContext(ctx, countQuery,
-		params.Serie, startTime, endTime,
+		params.Serie, endTime, startTime,
 		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
@@ -615,7 +616,8 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
                 ) AS rank
             FROM DashboardUsage
             WHERE serie = ? 
-            AND first_seen_at <= ? AND last_seen_at >= ?
+            AND strftime('%Y-%m-%d %H:%M:%S', first_seen_at) <= strftime('%Y-%m-%d %H:%M:%S', ?)
+            AND strftime('%Y-%m-%d %H:%M:%S', last_seen_at) >= strftime('%Y-%m-%d %H:%M:%S', ?)
             AND CASE 
                 WHEN ? != '' THEN 
                     (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
@@ -650,7 +652,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
     `
 
 	args := []interface{}{
-		params.Serie, startTime, endTime,
+		params.Serie, endTime, startTime,
 		params.Filter, params.Filter, params.Filter,
 		params.SortOrder, params.SortBy,
 		params.SortOrder, params.SortBy,
