@@ -50,23 +50,23 @@ export function KeyMetrics() {
 
     if (loading || !queryTypes || !averageDuration || !queryRate) {
       return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                    {/* Large card placeholder */}
-          <Card className="lg:col-span-2 relative">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+          {/* Large card placeholder */}
+          <Card className="md:col-span-2 lg:col-span-2 xl:col-span-2 relative py-2 gap-1 md:h-[128px] lg:h-[132px]">
             {/* title & icon */}
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-0 pt-0">
               <CardTitle className="text-sm font-medium">
                 <Skeleton className="h-4 w-24" />
               </CardTitle>
               {/* icon circle */}
-              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-5 w-5 rounded" />
             </CardHeader>
-            <CardContent className="flex items-center gap-3 pb-3">
+            <CardContent className="flex items-center gap-4 pb-2 max-sm:flex-col max-sm:items-start">
               {/* circular chart placeholder */}
-              <Skeleton className="h-[70px] w-[70px] rounded-full" />
-              <div className="space-y-1 flex-1">
-                <Skeleton className="h-5 w-20" />
-                <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-[76px] w-[76px] sm:h-[92px] sm:w-[92px] rounded-full" />
+              <div className="space-y-1 flex-1 min-w-0">
+                <Skeleton className="h-7 w-24" />
+                <Skeleton className="h-4 w-40" />
                 <div className="flex gap-2 mt-2">
                   <Skeleton className="h-2 w-12" />
                   <Skeleton className="h-2 w-12" />
@@ -75,18 +75,18 @@ export function KeyMetrics() {
             </CardContent>
           </Card>
 
-                    {/* Three small metric cards */}
+          {/* Three small metric cards */}
           {[...Array(3)].map((_, i) => (
-            <Card key={i} className="relative">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+            <Card key={i} className="relative py-2 gap-3 md:h-[128px] lg:h-[132px]">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-0 pt-1">
                 <CardTitle className="text-sm font-medium">
                   <Skeleton className="h-4 w-20" />
                 </CardTitle>
-                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-5 w-5 rounded" />
               </CardHeader>
-              <CardContent className="space-y-2 pb-3">
-                <Skeleton className="h-7 w-20" />
-                <Skeleton className="h-3 w-24" />
+              <CardContent className="space-y-2 pb-2">
+                <Skeleton className="h-8 w-24" />
+                <Skeleton className="h-4 w-28" />
               </CardContent>
             </Card>
           ))}
@@ -103,18 +103,18 @@ export function KeyMetrics() {
     }
 
     return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card className="lg:col-span-2 gap-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        <Card className="md:col-span-2 lg:col-span-2 xl:col-span-2 gap-1 py-2 md:h-[128px] lg:h-[132px]">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-0 pt-0">
             <CardTitle className="text-sm font-medium">Query Types</CardTitle>
-            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Filter className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="h-[70px] w-[70px]">
+          <CardContent className="pb-2">
+            <div className="flex items-center gap-4 max-sm:flex-col max-sm:items-start">
+              <div className="h-[76px] w-[76px] sm:h-[92px] sm:w-[92px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={queryTypeData} innerRadius={25} outerRadius={35} paddingAngle={2} dataKey="value">
+                    <Pie cx="50%" cy="50%" data={queryTypeData} innerRadius="58%" outerRadius="82%" paddingAngle={2} dataKey="value">
                       {queryTypeData.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index]} />
                       ))}
@@ -141,10 +141,10 @@ export function KeyMetrics() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="space-y-0.5">
-                <p className="text-xl font-bold">{queryTypes?.total_queries || 0}</p>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-2xl font-bold leading-none">{(queryTypes?.total_queries ?? 0).toLocaleString()}</p>
                 <p className="text-xs text-muted-foreground">Total queries in selected period</p>
-                <div className="mt-2 flex items-center gap-2 text-xs">
+                <div className="mt-1 flex items-center gap-3 text-[11px]">
                   <div className="flex items-center gap-1">
                     <div className="h-2 w-2 rounded-full bg-chart-1" />
                     Instant ({queryTypeData[0]?.value ? parseFloat(queryTypeData[0].value.toString()).toFixed(2) : 0}%)
@@ -159,15 +159,15 @@ export function KeyMetrics() {
           </CardContent>
         </Card>
   
-        <Card className="gap-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+        <Card className="gap-3 py-2 auto-rows-min">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
             <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <Clock className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="pb-3">
-            <div className="space-y-0.5">
-              <p className="text-2xl font-bold">{formatDuration(averageDuration?.avg_duration || 0)}</p>
-              <p className="text-xs text-muted-foreground">
+          <CardContent className="pb-2">
+            <div className="space-y-0.5 leading-tight pt-0.5">
+              <p className="text-2xl font-bold leading-none">{formatDuration(averageDuration?.avg_duration || 0)}</p>
+              <p className="text-xs text-muted-foreground mt-1">
                 {averageDuration?.delta_percent != null 
                   ? `${averageDuration.delta_percent.toFixed(2)}% from previous period`
                   : 'No previous data'
@@ -177,43 +177,43 @@ export function KeyMetrics() {
           </CardContent>
         </Card>
   
-        <Card className="gap-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+        <Card className="gap-3 py-2 auto-rows-min">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
             <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
+            <Activity className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="pb-3">
-            <div className="space-y-0.5">
-              <p className="text-2xl font-bold">
+          <CardContent className="pb-2">
+            <div className="space-y-0.5 leading-tight pt-0.5">
+              <p className="text-2xl font-bold leading-none">
                 {queryRate?.success_rate_percent != null 
                   ? `${queryRate.success_rate_percent.toFixed(2)}%` 
                   : '0%'
                 }
               </p>
-              <div className="flex items-center gap-1 text-xs">
+              <div className="flex items-center gap-1 text-[11px] mt-1">
                 <div className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-muted-foreground">{queryRate?.success_total || 0} successful</span>
+                <span className="text-muted-foreground">{(queryRate?.success_total ?? 0).toLocaleString()} successful</span>
               </div>
             </div>
           </CardContent>
         </Card>
   
-        <Card className="gap-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+        <Card className="gap-3 py-2 auto-rows-min">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
             <CardTitle className="text-sm font-medium">Error Rate</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+            <AlertTriangle className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
-          <CardContent className="pb-3">
-            <div className="space-y-0.5">
-              <p className="text-2xl font-bold">
+          <CardContent className="pb-2">
+            <div className="space-y-0.5 leading-tight pt-0.5">
+              <p className="text-2xl font-bold leading-none">
                 {queryRate?.error_rate_percent != null 
                   ? `${queryRate.error_rate_percent.toFixed(2)}%` 
                   : '0%'
                 }
               </p>
-              <div className="flex items-center gap-1 text-xs">
+              <div className="flex items-center gap-1 text-[11px] mt-1">
                 <div className="h-2 w-2 rounded-full bg-red-500" />
-                <span className="text-muted-foreground">{queryRate?.error_total || 0} failed</span>
+                <span className="text-muted-foreground">{(queryRate?.error_total ?? 0).toLocaleString()} failed</span>
               </div>
             </div>
           </CardContent>

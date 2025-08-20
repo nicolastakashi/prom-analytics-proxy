@@ -319,7 +319,7 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
               Alerts
             </TabsTrigger>
             <TabsTrigger value="rules" className="flex-1 py-3 px-5">
-              Rules
+              Recording Rules
             </TabsTrigger>
             <TabsTrigger value="dashboards" className="flex-1 py-3 px-5">
               Dashboards
