@@ -583,11 +583,11 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
         SELECT COUNT(DISTINCT id)
         FROM DashboardUsage
         WHERE serie = ? 
-        AND strftime('%Y-%m-%d %H:%M:%S', first_seen_at) <= strftime('%Y-%m-%d %H:%M:%S', ?)
-        AND strftime('%Y-%m-%d %H:%M:%S', last_seen_at) >= strftime('%Y-%m-%d %H:%M:%S', ?)
+        AND first_seen_at <= datetime(?)
+        AND last_seen_at  >= datetime(?)
         AND CASE 
             WHEN ? != '' THEN 
-                (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+                (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
             ELSE 
                 1=1
             END;
@@ -616,11 +616,11 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
                 ) AS rank
             FROM DashboardUsage
             WHERE serie = ? 
-            AND strftime('%Y-%m-%d %H:%M:%S', first_seen_at) <= strftime('%Y-%m-%d %H:%M:%S', ?)
-            AND strftime('%Y-%m-%d %H:%M:%S', last_seen_at) >= strftime('%Y-%m-%d %H:%M:%S', ?)
+            AND first_seen_at <= datetime(?)
+            AND last_seen_at  >= datetime(?)
             AND CASE 
                 WHEN ? != '' THEN 
-                    (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+                    (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
                 ELSE 
                     1=1
                 END
