@@ -105,7 +105,7 @@ export default function QueryTimeRangeDistribution() {
               ))}
             </div>
             {retentionInsight && (
-              <div className="mt-4 p-3 bg-foreground/5 rounded-lg ">
+              <div className="mt-4 p-3 bg-foreground/5 rounded-lg">
                 <p className="text-sm text-muted-foreground">
                   <strong>Retention Insight:</strong> {retentionInsight}
                 </p>
