@@ -21,11 +21,11 @@ export function StatCard({
   statusColor,
 }: StatCardProps) {
   return (
-    <Card className="relative overflow-hidden">
-      <CardContent>
-        <div className="space-y-2">
+    <Card className="relative overflow-hidden py-1.5 md:h-[112px] lg:h-[116px]">
+      <CardContent className="pb-1.5 pt-1">
+        <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <p className="text-sm text-muted-foreground">{title}</p>
               <InfoTooltip content={tooltipContent} />
             </div>
@@ -34,10 +34,10 @@ export function StatCard({
           {showStatusIndicator ? (
             <div className="flex items-center gap-2">
               <div className={cn("h-2 w-2 rounded-full", statusColor)} />
-              <p className="text-2xl font-bold">{value}</p>
+              <p className="text-xl font-bold leading-none">{value}</p>
             </div>
           ) : (
-            <p className="text-2xl font-bold">{value}</p>
+            <p className="text-xl font-bold leading-none">{value}</p>
           )}
         </div>
       </CardContent>

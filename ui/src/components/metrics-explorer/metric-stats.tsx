@@ -17,18 +17,18 @@ export function MetricStats({ metricName }: MetricStatsProps) {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-4">
         {[...Array(4)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
+          <Card key={i} className="py-2 md:h-[128px] lg:h-[132px]">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
               <CardTitle className="text-sm font-medium">
                 <Skeleton className="h-4 w-24" />
               </CardTitle>
-              <Skeleton className="h-4 w-4" />
+              <Skeleton className="h-5 w-5 rounded" />
             </CardHeader>
-            <CardContent className="space-y-2 pb-3">
-              <Skeleton className="h-6 w-20" />
-              <Skeleton className="h-3 w-24" />
+            <CardContent className="space-y-2 pb-2">
+              <Skeleton className="h-8 w-24" />
+              <Skeleton className="h-3 w-28" />
             </CardContent>
           </Card>
         ))}
@@ -43,7 +43,7 @@ export function MetricStats({ metricName }: MetricStatsProps) {
   const stats = data.statistics;
 
   return (
-    <div className="grid gap-4 md:grid-cols-4">
+    <div className="grid gap-6 md:grid-cols-4">
       <StatCard
         title="Series Count"
         value={formatUnit(stats.serieCount)}
@@ -81,15 +81,15 @@ interface StatCardProps {
 
 function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">{title}</span>
-            <Icon className="h-4 w-4 text-muted-foreground" />
-          </div>
+    <Card className="py-2 md:h-[128px] lg:h-[132px]">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <Icon className="h-5 w-5 text-muted-foreground" />
+      </CardHeader>
+      <CardContent className="pb-2">
+        <div className="space-y-0.5">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold">{value}</span>
+            <span className="text-2xl font-bold leading-none">{value}</span>
           </div>
           {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
         </div>
