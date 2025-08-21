@@ -461,7 +461,7 @@ func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 	defer func() { _ = provider.Close() }()
 
 	// Manually insert a few range queries with ISO timestamps (T/Z) to simulate proxy inserts
-	provider.(*SQLiteProvider).db.ExecContext(ctx, `DELETE FROM queries`)
+	_, _ = provider.(*SQLiteProvider).db.ExecContext(ctx, `DELETE FROM queries`)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	from := now.Add(-15 * time.Minute)
