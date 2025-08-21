@@ -1255,6 +1255,58 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	return results, nil
 }
 
+// GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
+func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error) {
+	SetDefaultTimeRange(&tr)
+	from, to := PrepareTimeRange(tr, "postgresql")
+
+	query := `
+    WITH filtered AS (
+        SELECT EXTRACT(EPOCH FROM ("end" - start))::bigint AS seconds
+        FROM   queries
+        WHERE  ts BETWEEN $1 AND $2
+        AND    type = 'range'
+        AND    start IS NOT NULL AND "end" IS NOT NULL AND "end" > start
+    ), total AS (
+        SELECT COUNT(*) AS total FROM filtered
+    ), buckets AS (
+        SELECT '<24h' AS label, COUNT(*) AS cnt FROM filtered WHERE seconds < 86400
+        UNION ALL
+        SELECT '24h'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 86400 AND seconds < 7*86400
+        UNION ALL
+        SELECT '7d'   AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 7*86400 AND seconds < 30*86400
+        UNION ALL
+        SELECT '30d'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 30*86400 AND seconds < 60*86400
+        UNION ALL
+        SELECT '60d'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 60*86400 AND seconds < 90*86400
+        UNION ALL
+        SELECT '90d+' AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 90*86400
+    )
+    SELECT label,
+           cnt AS count,
+           CASE WHEN t.total > 0 THEN ROUND((cnt * 100.0 / t.total)::numeric, 2) ELSE 0 END AS percent
+    FROM buckets, total t;`
+
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseResource(rows)
+
+	var results []QueryTimeRangeDistributionResult
+	for rows.Next() {
+		var r QueryTimeRangeDistributionResult
+		if err := rows.Scan(&r.Label, &r.Count, &r.Percent); err != nil {
+			return nil, ErrorWithOperation(err, "scanning row")
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, ErrorWithOperation(err, "row iteration")
+	}
+	return results, nil
+}
+
 func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
