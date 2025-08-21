@@ -1,4 +1,4 @@
-import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery } from "@/lib/types"
+import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery, QueryTimeRangeDistributionResult } from "@/lib/types"
 import { ConfigResponse } from "@/types/config"
 import { toUTC } from "@/lib/utils/date-utils"
 
@@ -12,6 +12,7 @@ interface ApiConfig {
     queryLatencyTrends: string;
     queryThroughputAnalysis: string;
     queryErrorAnalysis: string;
+    queryTimeRangeDistribution: string;
     recentQueries: string;
     configs: string;
   };
@@ -39,6 +40,7 @@ const API_CONFIG: ApiConfig = {
     queryLatencyTrends: '/api/v1/query/latency',
     queryThroughputAnalysis: '/api/v1/query/throughput',
     queryErrorAnalysis: '/api/v1/query/errors',
+    queryTimeRangeDistribution: '/api/v1/query/time_range_distribution',
     recentQueries: '/api/v1/query/recent_queries',
     configs: '/api/v1/configs',
   }
@@ -81,7 +83,7 @@ type EmptyObject = Record<string, never>;
 
 type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | 
   QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | 
-  QueryThroughputAnalysisResult[] | QueryErrorAnalysisResult[] | 
+  QueryThroughputAnalysisResult[] | QueryErrorAnalysisResult[] | QueryTimeRangeDistributionResult[] | 
   PagedResult<RecentQuery> | ConfigResponse | string | EmptyObject;
 
 async function fetchApiData<T extends ApiResponse>(
@@ -179,6 +181,13 @@ export async function getQueryThroughputAnalysis(from?: string, to?: string): Pr
 export async function getQueryErrorAnalysis(from?: string, to?: string): Promise<QueryErrorAnalysisResult[]> {
   return withErrorHandling(
     () => fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, { from, to }),
+    []
+  );
+}
+
+export async function getQueryTimeRangeDistribution(from?: string, to?: string): Promise<QueryTimeRangeDistributionResult[]> {
+  return withErrorHandling(
+    () => fetchApiData<QueryTimeRangeDistributionResult[]>(API_CONFIG.endpoints.queryTimeRangeDistribution, { from, to }),
     []
   );
 }

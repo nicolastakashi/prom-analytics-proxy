@@ -356,3 +356,161 @@ func TestSQLite_DashboardUsage(t *testing.T) {
 		})
 	}
 }
+
+// TestSQLite_QueryTimeRangeDistribution verifies bucketed counts and percents for range queries
+func TestSQLite_QueryTimeRangeDistribution(t *testing.T) {
+	ctx := context.Background()
+	provider, err := newSqliteProvider(ctx)
+	if err != nil {
+		t.Fatalf("newSqliteProvider: %v", err)
+	}
+	defer func() { _ = provider.Close() }()
+
+	now := time.Now().UTC()
+
+	// Helper to create a range query with the given window duration
+	mkRange := func(window time.Duration) Query {
+		return Query{
+			TS:            now.Add(-5 * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     now.Add(-5 * time.Minute),
+			Duration:      5 * time.Millisecond,
+			StatusCode:    200,
+			BodySize:      1,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:          QueryTypeRange,
+			Step:          15,
+			Start:         now.Add(-5 * time.Minute).Add(-window),
+			End:           now.Add(-5 * time.Minute),
+		}
+	}
+
+	// Seed queries across buckets
+	var qs []Query
+	for i := 0; i < 5; i++ { // <24h
+		qs = append(qs, mkRange(5*time.Minute))
+	}
+	for i := 0; i < 3; i++ { // 24h–<7d
+		qs = append(qs, mkRange(48*time.Hour))
+	}
+	for i := 0; i < 2; i++ { // 7d–<30d
+		qs = append(qs, mkRange(8*24*time.Hour))
+	}
+	qs = append(qs, mkRange(31*24*time.Hour))  // 30d–<60d
+	qs = append(qs, mkRange(65*24*time.Hour))  // 60d–<90d
+	qs = append(qs, mkRange(100*24*time.Hour)) // 90d+
+
+	// Insert a few instant queries that must be ignored
+	qs = append(qs, Query{
+		TS:            now.Add(-2 * time.Minute),
+		QueryParam:    "up",
+		TimeParam:     now.Add(-2 * time.Minute),
+		Duration:      3 * time.Millisecond,
+		StatusCode:    200,
+		BodySize:      1,
+		LabelMatchers: LabelMatchers{{"__name__": "up"}},
+		Type:          QueryTypeInstant,
+	})
+
+	if err := provider.Insert(ctx, qs); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Query distribution within a window that includes TS
+	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: now.Add(-24 * time.Hour), To: now})
+	if err != nil {
+		t.Fatalf("GetQueryTimeRangeDistribution: %v", err)
+	}
+
+	// Build result map for easy assertions
+	got := map[string]int{}
+	total := 0
+	for _, b := range out {
+		got[b.Label] = b.Count
+		total += b.Count
+	}
+
+	// Expect 5+3+2+1+1+1 = 13
+	if total != 13 {
+		t.Fatalf("unexpected total count %d", total)
+	}
+
+	if got["<24h"] != 5 || got["24h"] != 3 || got["7d"] != 2 || got["30d"] != 1 || got["60d"] != 1 || got["90d+"] != 1 {
+		t.Fatalf("unexpected bucket counts: %#v", got)
+	}
+
+	// Percent sanity check (rounded); ensure first bucket ~38.46%
+	var firstPct float64
+	for _, b := range out {
+		if b.Label == "<24h" {
+			firstPct = b.Percent
+			break
+		}
+	}
+	if firstPct < 38.4 || firstPct > 38.5 { // 5/13 ~= 38.46%
+		t.Fatalf("unexpected percent for <24h: %v", firstPct)
+	}
+}
+
+func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
+	ctx := context.Background()
+	provider, err := newSqliteProvider(ctx)
+	if err != nil {
+		t.Fatalf("newSqliteProvider: %v", err)
+	}
+	defer func() { _ = provider.Close() }()
+
+	// Manually insert a few range queries with ISO timestamps (T/Z) to simulate proxy inserts
+	_, _ = provider.(*SQLiteProvider).db.ExecContext(ctx, `DELETE FROM queries`)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	from := now.Add(-15 * time.Minute)
+
+	insert := `INSERT INTO queries (ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	// Three ranges: 5m, 2h, 9d
+	ranges := []struct{ start, end time.Time }{
+		{now.Add(-10 * time.Minute), now.Add(-5 * time.Minute)},
+		{now.Add(-3 * time.Hour), now.Add(-1 * time.Hour)},
+		{now.Add(-9 * 24 * time.Hour), now},
+	}
+	for _, r := range ranges {
+		_, err := provider.(*SQLiteProvider).db.ExecContext(ctx, insert,
+			now.Format(time.RFC3339), // ts
+			"up",                     // queryParam
+			now.Format(time.RFC3339), // timeParam
+			int64(100),               // duration ms
+			200,                      // statusCode
+			0,                        // bodySize
+			"fp",                     // fingerprint
+			`[{"__name__":"up"}]`,    // labelMatchers
+			"range",                  // type
+			15.0,                     // step
+			r.start.Format(time.RFC3339),
+			r.end.Format(time.RFC3339),
+			0,
+			0,
+		)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: from, To: now})
+	if err != nil {
+		t.Fatalf("GetQueryTimeRangeDistribution: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatalf("no buckets returned")
+	}
+
+	// Sum should be 3
+	sum := 0
+	for _, b := range out {
+		sum += b.Count
+	}
+	if sum == 0 {
+		t.Fatalf("expected non-zero distribution, got %#v", out)
+	}
+}
