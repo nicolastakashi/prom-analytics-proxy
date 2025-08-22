@@ -91,6 +91,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/latency", http.HandlerFunc(r.queryLatencyTrends))
 		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
 		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
+		mux.Handle("/api/v1/query/time_range_distribution", http.HandlerFunc(r.queryTimeRangeDistribution))
 		mux.Handle("/api/v1/query/recent_queries", http.HandlerFunc(r.queryRecentQueries))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
 		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
@@ -181,6 +182,13 @@ func getTimeParam(req *http.Request, param string) time.Time {
 		// Fallback: attempt to parse as Unix timestamp (seconds).
 		if ts, err := strconv.ParseInt(timeParam, 10, 64); err == nil {
 			return time.Unix(ts, 0).UTC()
+		}
+
+		// Fallback: attempt to parse as Unix timestamp with fractional seconds.
+		if tf, err := strconv.ParseFloat(timeParam, 64); err == nil {
+			seconds := int64(tf)
+			nanos := int64((tf - float64(seconds)) * 1e9)
+			return time.Unix(seconds, nanos).UTC()
 		}
 
 		// All parsing attempts failed – log and fallback.
@@ -411,6 +419,20 @@ func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 	to := getTimeParam(req, "to")
 
 	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+
+	data, err := r.dbProvider.GetQueryTimeRangeDistribution(req.Context(), db.TimeRange{From: from, To: to})
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)

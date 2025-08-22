@@ -122,6 +122,11 @@ func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRa
 	return args.Get(0).([]db.QueryErrorAnalysisResult), args.Error(1)
 }
 
+func (m *MockDBProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryTimeRangeDistributionResult, error) {
+	args := m.Called(ctx, tr)
+	return args.Get(0).([]db.QueryTimeRangeDistributionResult), args.Error(1)
+}
+
 func (m *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
 	args := m.Called(ctx, params)
 	return args.Get(0).(db.PagedResult), args.Error(1)

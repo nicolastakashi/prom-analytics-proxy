@@ -88,6 +88,14 @@ type QueryErrorAnalysisResult struct {
 	Value float64 `json:"value"`
 }
 
+// QueryTimeRangeDistributionResult represents a bucketed count of range query window sizes.
+// Label corresponds to human-friendly bucket labels like "<24h", "24h", "7d", "30d", "60d", "90d+".
+type QueryTimeRangeDistributionResult struct {
+	Label   string  `json:"label"`
+	Count   int     `json:"count"`
+	Percent float64 `json:"percent"`
+}
+
 type MetricProducersResult struct {
 	Job    string `json:"job"`
 	Series int    `json:"series"`

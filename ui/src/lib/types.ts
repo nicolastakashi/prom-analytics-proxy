@@ -44,6 +44,12 @@ export interface QueryErrorAnalysisResult {
 	value: number;
 }
 
+export interface QueryTimeRangeDistributionResult {
+	label: string;
+	count: number;
+	percent: number;
+}
+
 export interface RecentQueriesParams {
 	Page: number
 	PageSize: number

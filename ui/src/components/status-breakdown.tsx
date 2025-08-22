@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts"
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts"
 import { QueryStatusDistributionResult } from "@/lib/types"
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting"
 
@@ -46,7 +46,7 @@ export function StatusBreakdown() {
       <CardContent>
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={statusData} margin={{ top: 16, right: 0, left: 0 }} barGap={2}>
+            <BarChart data={statusData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke="#888888" opacity={0.2} />
               <XAxis
                 dataKey="time"
@@ -95,11 +95,6 @@ export function StatusBreakdown() {
                   return null
                 }}
               />
-              <Legend
-                verticalAlign="top"
-                height={36}
-                formatter={(value) => <span className="text-sm text-muted-foreground">{value}</span>}
-              />
               <Bar
                 dataKey="2xx"
                 name="Success"
@@ -120,6 +115,20 @@ export function StatusBreakdown() {
               />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+        <div className="mt-4 flex items-center justify-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-[hsl(var(--primary))]" />
+            <span className="text-sm">Success</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-[hsl(var(--warning))]" />
+            <span className="text-sm">Client Error</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded-full bg-[hsl(var(--destructive))]" />
+            <span className="text-sm">Server Error</span>
+          </div>
         </div>
       </CardContent>
     </Card>

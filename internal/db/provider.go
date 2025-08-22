@@ -45,6 +45,7 @@ type Provider interface {
 	GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
+	GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error)
 	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)

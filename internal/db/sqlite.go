@@ -583,17 +583,18 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
         SELECT COUNT(DISTINCT id)
         FROM DashboardUsage
         WHERE serie = ? 
-        AND first_seen_at <= ? AND last_seen_at >= ?
+        AND first_seen_at <= datetime(?)
+        AND last_seen_at  >= datetime(?)
         AND CASE 
             WHEN ? != '' THEN 
-                (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+                (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
             ELSE 
                 1=1
             END;
     `
 	var totalCount int
 	err := p.db.QueryRowContext(ctx, countQuery,
-		params.Serie, startTime, endTime,
+		params.Serie, endTime, startTime,
 		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query total count: %w", err)
@@ -615,10 +616,11 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
                 ) AS rank
             FROM DashboardUsage
             WHERE serie = ? 
-            AND first_seen_at <= ? AND last_seen_at >= ?
+            AND first_seen_at <= datetime(?)
+            AND last_seen_at  >= datetime(?)
             AND CASE 
                 WHEN ? != '' THEN 
-                    (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+                    (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
                 ELSE 
                     1=1
                 END
@@ -650,7 +652,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
     `
 
 	args := []interface{}{
-		params.Serie, startTime, endTime,
+		params.Serie, endTime, startTime,
 		params.Filter, params.Filter, params.Filter,
 		params.SortOrder, params.SortBy,
 		params.SortOrder, params.SortBy,
@@ -1300,6 +1302,68 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 		results = append(results, result)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, ErrorWithOperation(err, "row iteration")
+	}
+
+	return results, nil
+}
+
+// GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
+func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error) {
+	SetDefaultTimeRange(&tr)
+	from, to := PrepareTimeRange(tr, "sqlite")
+
+	query := `
+    WITH filtered AS (
+        SELECT CAST((
+            julianday(substr(REPLACE(REPLACE("end", 'T', ' '), 'Z', ''),1,19)) -
+            julianday(substr(REPLACE(REPLACE(start, 'T', ' '), 'Z', ''),1,19))
+        ) * 86400 AS INTEGER) AS seconds
+        FROM queries
+        WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
+              BETWEEN julianday(substr(REPLACE(REPLACE(?, 'T', ' '), 'Z', ''),1,19))
+                  AND julianday(substr(REPLACE(REPLACE(?, 'T', ' '), 'Z', ''),1,19))
+          AND type = 'range'
+          AND start IS NOT NULL AND "end" IS NOT NULL
+          AND julianday(substr(REPLACE(REPLACE("end", 'T', ' '), 'Z', ''),1,19)) >= julianday(substr(REPLACE(REPLACE(start, 'T', ' '), 'Z', ''),1,19))
+    ),
+    total AS (
+        SELECT COUNT(*) AS total FROM filtered
+    ),
+    buckets AS (
+        SELECT '<24h' AS label, COUNT(*) AS cnt FROM filtered WHERE seconds < 86400
+        UNION ALL
+        SELECT '24h'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 86400 AND seconds < 7*86400
+        UNION ALL
+        SELECT '7d'   AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 7*86400 AND seconds < 30*86400
+        UNION ALL
+        SELECT '30d'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 30*86400 AND seconds < 60*86400
+        UNION ALL
+        SELECT '60d'  AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 60*86400 AND seconds < 90*86400
+        UNION ALL
+        SELECT '90d+' AS label, COUNT(*) AS cnt FROM filtered WHERE seconds >= 90*86400
+    )
+    SELECT label,
+           cnt AS count,
+           CASE WHEN t.total > 0 THEN ROUND(cnt * 100.0 / t.total, 2) ELSE 0 END AS percent
+    FROM buckets, total t;
+    `
+
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseResource(rows)
+
+	results := []QueryTimeRangeDistributionResult{}
+	for rows.Next() {
+		var r QueryTimeRangeDistributionResult
+		if err := rows.Scan(&r.Label, &r.Count, &r.Percent); err != nil {
+			return nil, ErrorWithOperation(err, "scanning row")
+		}
+		results = append(results, r)
+	}
 	if err := rows.Err(); err != nil {
 		return nil, ErrorWithOperation(err, "row iteration")
 	}
