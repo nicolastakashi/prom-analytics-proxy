@@ -1371,92 +1371,78 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
 	return results, nil
 }
 
-func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
+// GetRecentQueries removed (endpoint deprecated)
+
+// GetQueryExpressions aggregates queries by fingerprint for SQLite
+func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
 	if params.PageSize <= 0 {
 		params.PageSize = 10
 	}
-	if params.SortBy == "" {
-		params.SortBy = "timestamp"
-	}
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
 	}
 
 	validSortFields := map[string]bool{
-		"queryParam": true,
-		"duration":   true,
-		"samples":    true,
-		"status":     true,
-		"timestamp":  true,
+		"query":            true,
+		"executions":       true,
+		"avgDuration":      true,
+		"errorRatePercent": true,
+		"peakSamples":      true,
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "timestamp"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "executions")
 
-	from, to := params.TimeRange.Format(SQLiteTimeFormat)
+	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
 
 	query := `
-	WITH filtered_queries AS (
-		SELECT 
-			queryParam,
-			MAX(duration) as duration,
-			MAX(peakSamples) as peakSamples,
-			statusCode as statusCode,
-			ts as ts
-		FROM queries
-		WHERE 
-			ts BETWEEN ? AND ?
-			AND CASE 
-				WHEN ? != '' THEN 
-					queryParam LIKE '%' || ? || '%'
-				ELSE 
-					1=1
-				END
-		GROUP BY queryParam
-	),
-	counted_queries AS (
-		SELECT COUNT(*) as total_count 
-		FROM filtered_queries
-	)
-	SELECT 
-		q.*,
-		cq.total_count
-	FROM 
-		filtered_queries q,
-		counted_queries cq
-	ORDER BY
-		CASE WHEN ? = 'asc' THEN
-			CASE ?
-				WHEN 'queryParam' THEN queryParam
-				WHEN 'duration' THEN duration
-				WHEN 'samples' THEN peakSamples
-				WHEN 'status' THEN statusCode
-				WHEN 'timestamp' THEN ts
-			END
-		END ASC,
-		CASE WHEN ? = 'desc' THEN
-			CASE ?
-				WHEN 'queryParam' THEN queryParam
-				WHEN 'duration' THEN duration
-				WHEN 'samples' THEN peakSamples
-				WHEN 'status' THEN statusCode
-				WHEN 'timestamp' THEN ts
-			END
-		END DESC
-	LIMIT ? OFFSET ?;
-	`
+        WITH filtered AS (
+            SELECT * FROM queries
+            WHERE ts BETWEEN datetime(?) AND datetime(?)
+              AND CASE WHEN ? != '' THEN queryParam LIKE '%' || ? || '%' ELSE 1=1 END
+        ), latest AS (
+            SELECT fingerprint, queryParam, ts,
+                   ROW_NUMBER() OVER (PARTITION BY fingerprint ORDER BY ts DESC) AS rn
+            FROM filtered
+        ), grouped AS (
+            SELECT
+                f.fingerprint AS fingerprint,
+                COUNT(*) AS executions,
+                ROUND(AVG(f.duration), 2) AS avgDuration,
+                ROUND((SUM(CASE WHEN f.statusCode >= 400 THEN 1 ELSE 0 END) * 100.0) / NULLIF(COUNT(*), 0), 2) AS errorRatePercent,
+                MAX(f.peakSamples) AS peakSamples,
+                (SELECT l.queryParam FROM latest l WHERE l.fingerprint = f.fingerprint AND l.rn = 1) AS query
+            FROM filtered f
+            GROUP BY f.fingerprint
+        ), counted AS (
+            SELECT COUNT(*) AS total_count FROM grouped
+        )
+        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples, total_count
+        FROM grouped, counted
+        ORDER BY
+            CASE WHEN ? = 'asc' THEN
+                CASE ?
+                    WHEN 'query' THEN query
+                    WHEN 'executions' THEN executions
+                    WHEN 'avgDuration' THEN avgDuration
+                    WHEN 'errorRatePercent' THEN errorRatePercent
+                    WHEN 'peakSamples' THEN peakSamples
+                END
+            END ASC,
+            CASE WHEN ? = 'desc' THEN
+                CASE ?
+                    WHEN 'query' THEN query
+                    WHEN 'executions' THEN executions
+                    WHEN 'avgDuration' THEN avgDuration
+                    WHEN 'errorRatePercent' THEN errorRatePercent
+                    WHEN 'peakSamples' THEN peakSamples
+                END
+            END DESC
+        LIMIT ? OFFSET ?;
+    `
 
-	args := []interface{}{
-		from, to,
-		params.Filter, params.Filter,
-		params.SortOrder, params.SortBy,
-		params.SortOrder, params.SortBy,
-		params.PageSize,
-		(params.Page - 1) * params.PageSize,
-	}
+	args := []interface{}{from, to, params.Filter, params.Filter, params.SortOrder, params.SortBy, params.SortOrder, params.SortBy, params.PageSize, (params.Page - 1) * params.PageSize}
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1464,35 +1450,23 @@ func (p *SQLiteProvider) GetRecentQueries(ctx context.Context, params RecentQuer
 	}
 	defer CloseResource(rows)
 
-	var results []RecentQueriesResult
-	var totalCount int
-
+	var (
+		results    []QueryExpression
+		totalCount int
+	)
 	for rows.Next() {
-		var result RecentQueriesResult
-		if err := rows.Scan(
-			&result.QueryParam,
-			&result.Duration,
-			&result.Samples,
-			&result.Status,
-			&result.Timestamp,
-			&totalCount,
-		); err != nil {
+		var r QueryExpression
+		if err := rows.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
-		results = append(results, result)
+		results = append(results, r)
 	}
-
 	if err := rows.Err(); err != nil {
 		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
-
-	return PagedResult{
-		Total:      totalCount,
-		TotalPages: totalPages,
-		Data:       results,
-	}, nil
+	totalPages := CalculateTotalPages(totalCount, params.PageSize)
+	return PagedResult{Total: totalCount, TotalPages: totalPages, Data: results}, nil
 }
 
 func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {

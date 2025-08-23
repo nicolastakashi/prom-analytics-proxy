@@ -23,6 +23,11 @@ func (m *MockDBProvider) ListJobs(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
+// Satisfy new Provider method; tests don't use it
+func (m *MockDBProvider) GetQueryExpressions(ctx context.Context, params db.QueryExpressionsParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
+
 func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
 	args := m.Called(ctx, params)
 	if v := args.Get(0); v != nil {
@@ -125,11 +130,6 @@ func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRa
 func (m *MockDBProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryTimeRangeDistributionResult, error) {
 	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryTimeRangeDistributionResult), args.Error(1)
-}
-
-func (m *MockDBProvider) GetRecentQueries(ctx context.Context, params db.RecentQueriesParams) (db.PagedResult, error) {
-	args := m.Called(ctx, params)
-	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricUsageStatics, error) {
@@ -331,7 +331,7 @@ func TestFingerprintFromQuery_ValidQueries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := fingerprintFromQuery(tt.query)
 			assert.NotEmpty(t, result, "Fingerprint should not be empty")
-			assert.Len(t, result, 32, "Fingerprint should be 32 characters (MD5)")
+			assert.Len(t, result, 16, "Fingerprint should be 16 characters (xxhash64)")
 		})
 	}
 }

@@ -1307,7 +1307,10 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
 	return results, nil
 }
 
-func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error) {
+// GetRecentQueries removed (endpoint deprecated)
+
+// GetQueryExpressions aggregates queries by fingerprint returning executions, avgDuration, errorRatePercent, peakSamples and latest query text
+func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -1315,95 +1318,67 @@ func (p *PostGreSQLProvider) GetRecentQueries(ctx context.Context, params Recent
 		params.PageSize = 10
 	}
 
-	switch params.SortBy {
-	case "queryParam", "duration", "samples", "status", "timestamp":
-	default:
-		params.SortBy = "timestamp"
+	validSortFields := map[string]bool{
+		"query":            true,
+		"executions":       true,
+		"avgDuration":      true,
+		"errorRatePercent": true,
+		"peakSamples":      true,
 	}
-
-	dir := "DESC"
-	if strings.ToLower(params.SortOrder) == "asc" {
-		dir = "ASC"
-	}
-
-	orderCol := map[string]string{
-		"queryParam": "queryParam",
-		"duration":   "duration",
-		"samples":    "peak_samples",
-		"status":     "statusCode",
-		"timestamp":  "ts",
-	}[params.SortBy]
-
-	querySQL := fmt.Sprintf(`
-	WITH aggregated AS (
-		SELECT
-			queryParam,
-			statusCode,
-			MAX(duration)    AS duration,
-			MAX(peakSamples) AS peak_samples,
-			MAX(ts)          AS ts
-		FROM   queries
-		WHERE  ts BETWEEN $1 AND $2
-		AND  ($3 = '' OR queryParam ILIKE '%%' || $3 || '%%')
-		GROUP  BY queryParam, statusCode
-	)
-	SELECT
-		queryParam,
-		statusCode,
-		duration,
-		peak_samples,
-		ts,
-		COUNT(*) OVER () AS total_count
-	FROM   aggregated
-	ORDER  BY %s %s NULLS LAST
-	LIMIT  $4 OFFSET $5;`, orderCol, dir)
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "executions")
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
-	rows, err := p.db.QueryContext(
-		ctx,
-		querySQL,
-		from,
-		to,
-		params.Filter,
-		params.PageSize,
-		(params.Page-1)*params.PageSize,
-	)
+	baseQuery := `
+        WITH filtered AS (
+            SELECT *
+            FROM queries
+            WHERE ts BETWEEN $1 AND $2
+              AND CASE WHEN $3 <> '' THEN queryParam ILIKE '%%' || $3 || '%%' ELSE TRUE END
+        ), grouped AS (
+            SELECT
+                fingerprint,
+                COUNT(*) AS executions,
+                ROUND(AVG(duration)::numeric, 2) AS avgDuration,
+                ROUND((SUM(CASE WHEN statusCode >= 400 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*),0))::numeric, 2) AS errorRatePercent,
+                MAX(peakSamples) AS peakSamples,
+                (ARRAY_AGG(queryParam ORDER BY ts DESC))[1] AS query
+            FROM filtered
+            GROUP BY fingerprint
+        ), counted AS (
+            SELECT COUNT(*) AS total_count FROM grouped
+        )
+        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples, total_count
+        FROM grouped, counted
+    `
+
+	// Safe ORDER BY
+	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
+	query := baseQuery + orderClause + " LIMIT $4 OFFSET $5;"
+
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, params.Filter, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
-		return PagedResult{}, fmt.Errorf("query exec: %w", err)
+		return PagedResult{}, err
 	}
 	defer CloseResource(rows)
 
 	var (
-		out        []RecentQueriesResult
+		results    []QueryExpression
 		totalCount int
 	)
-
 	for rows.Next() {
-		var r RecentQueriesResult
-		if err := rows.Scan(
-			&r.QueryParam,
-			&r.Status,
-			&r.Duration,
-			&r.Samples,
-			&r.Timestamp,
-			&totalCount,
-		); err != nil {
+		var r QueryExpression
+		if err := rows.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("scan: %w", err)
 		}
-		out = append(out, r)
+		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
 		return PagedResult{}, fmt.Errorf("row iter: %w", err)
 	}
 
-	pages := (totalCount + params.PageSize - 1) / params.PageSize
-
-	return PagedResult{
-		Total:      totalCount,
-		TotalPages: pages,
-		Data:       out,
-	}, nil
+	totalPages := CalculateTotalPages(totalCount, params.PageSize)
+	return PagedResult{Total: totalCount, TotalPages: totalPages, Data: results}, nil
 }
 
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {

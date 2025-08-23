@@ -46,7 +46,7 @@ type Provider interface {
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
 	GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error)
-	GetRecentQueries(ctx context.Context, params RecentQueriesParams) (PagedResult, error)
+	GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
@@ -222,7 +222,8 @@ func ProcessRows(rows *sql.Rows, scanFunc func(*sql.Rows) error) error {
 	return nil
 }
 
-type RecentQueriesParams struct {
+// QueryExpressionsParams defines parameters for aggregated query expressions grouped by fingerprint
+type QueryExpressionsParams struct {
 	Page      int
 	PageSize  int
 	SortBy    string

@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Frame, Map } from "lucide-react"
+import { Frame, Map, Search } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { RouteComponentProps } from "wouter"
 import { Overview } from '@/app/overview'
@@ -20,6 +20,7 @@ export interface RouteConfig {
 const MetricsExplorer = lazy(() => import('@/app/metrics'))
 const MetricsDetails = lazy(() => import('@/app/metrics/details'))
 const SettingsPage = lazy(() => import('@/app/settings'))
+const QueriesPage = lazy(() => import('@/app/queries'))
 
 export const ROUTES = {
   HOME: '/',
@@ -29,6 +30,7 @@ export const ROUTES = {
   METRICS_DETAILS: '/metrics-explorer/:metric',
   METRIC_DETAILS: '/metrics-explorer/:metric', // For backward compatibility
   SETTINGS: '/settings',
+  QUERIES: '/queries',
 } as const
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES]
@@ -44,6 +46,18 @@ export const routeConfigs: readonly RouteConfig[] = [
     navigation: {
       name: "Overview",
       icon: Frame,
+      showInSidebar: true
+    }
+  },
+  {
+    path: ROUTES.QUERIES,
+    component: QueriesPage,
+    breadcrumb: {
+      current: "Queries"
+    },
+    navigation: {
+      name: "Queries",
+      icon: Search,
       showInSidebar: true
     }
   },

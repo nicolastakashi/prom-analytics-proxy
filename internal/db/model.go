@@ -167,3 +167,13 @@ type MetricQueryPerformanceStatistics struct {
 	AverageDuration *float64         `json:"averageDuration"`
 	SampleRate      *float64         `json:"sampleRate"`
 }
+
+// QueryExpression aggregates query metrics grouped by fingerprint
+type QueryExpression struct {
+	Fingerprint      string  `json:"fingerprint"`
+	Query            string  `json:"query"`
+	Executions       int     `json:"executions"`
+	AvgDuration      float64 `json:"avgDuration"`
+	ErrorRatePercent float64 `json:"errorRatePercent"`
+	PeakSamples      int     `json:"peakSamples"`
+}
