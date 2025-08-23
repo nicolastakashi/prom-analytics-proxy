@@ -2,13 +2,13 @@ package ingester
 
 import (
 	"context"
-	"crypto/md5"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/promfp"
 	"github.com/prometheus/prometheus/promql/parser"
 	"go.opentelemetry.io/otel"
 )
@@ -152,23 +152,8 @@ func (i *QueryIngester) ingest(ctx context.Context, queries []db.Query) {
 }
 
 func fingerprintFromQuery(query string) string {
-	expr, err := parser.ParseExpr(query)
-	if err != nil {
-		return ""
-	}
-
-	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
-		switch n := node.(type) {
-		case *parser.VectorSelector:
-			for _, m := range n.LabelMatchers {
-				if m.Name != "__name__" {
-					m.Value = "MASKED"
-				}
-			}
-		}
-		return nil
-	})
-	return fmt.Sprintf("%x", (md5.Sum([]byte(expr.String()))))
+	hash, _ := promfp.Fingerprint(query, false)
+	return hash
 }
 
 func labelMatchersFromQuery(query string) []map[string]string {

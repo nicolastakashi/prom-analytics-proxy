@@ -1,4 +1,4 @@
-import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, RecentQuery, QueryTimeRangeDistributionResult } from "@/lib/types"
+import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, QueryTimeRangeDistributionResult, QueryExpression } from "@/lib/types"
 import { ConfigResponse } from "@/types/config"
 import { toUTC } from "@/lib/utils/date-utils"
 
@@ -13,7 +13,7 @@ interface ApiConfig {
     queryThroughputAnalysis: string;
     queryErrorAnalysis: string;
     queryTimeRangeDistribution: string;
-    recentQueries: string;
+    queryExpressions: string;
     configs: string;
   };
 }
@@ -41,7 +41,7 @@ const API_CONFIG: ApiConfig = {
     queryThroughputAnalysis: '/api/v1/query/throughput',
     queryErrorAnalysis: '/api/v1/query/errors',
     queryTimeRangeDistribution: '/api/v1/query/time_range_distribution',
-    recentQueries: '/api/v1/query/recent_queries',
+    queryExpressions: '/api/v1/query/expressions',
     configs: '/api/v1/configs',
   }
 };
@@ -84,7 +84,7 @@ type EmptyObject = Record<string, never>;
 type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | 
   QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | 
   QueryThroughputAnalysisResult[] | QueryErrorAnalysisResult[] | QueryTimeRangeDistributionResult[] | 
-  PagedResult<RecentQuery> | ConfigResponse | string | EmptyObject;
+  PagedResult<QueryExpression> | ConfigResponse | string | EmptyObject;
 
 async function fetchApiData<T extends ApiResponse>(
   endpoint: string,
@@ -192,17 +192,25 @@ export async function getQueryTimeRangeDistribution(from?: string, to?: string):
   );
 }
 
-export async function getRecentQueries(
+
+export async function getConfigurations(format: 'json' | 'yaml' = 'json'): Promise<ConfigResponse | EmptyObject> {
+  return withErrorHandling(
+    () => fetchApiData<ConfigResponse>(API_CONFIG.endpoints.configs, { format }),
+    DEFAULT_ERROR_VALUES.configs
+  );
+}
+
+export async function getQueryExpressions(
   from?: string,
   to?: string,
   page?: number,
   pageSize?: number,
   sortBy?: string,
   sortOrder?: string,
-  filter?: string
-): Promise<PagedResult<RecentQuery>> {
+  filter?: string,
+): Promise<PagedResult<QueryExpression>> {
   return withErrorHandling(
-    () => fetchApiData<PagedResult<RecentQuery>>(API_CONFIG.endpoints.recentQueries, {
+    () => fetchApiData<PagedResult<QueryExpression>>(API_CONFIG.endpoints.queryExpressions, {
       from,
       to,
       page,
@@ -211,13 +219,6 @@ export async function getRecentQueries(
       sortOrder,
       filter,
     }),
-    DEFAULT_ERROR_VALUES.recentQueries
-  );
-}
-
-export async function getConfigurations(format: 'json' | 'yaml' = 'json'): Promise<ConfigResponse | EmptyObject> {
-  return withErrorHandling(
-    () => fetchApiData<ConfigResponse>(API_CONFIG.endpoints.configs, { format }),
-    DEFAULT_ERROR_VALUES.configs
+    { total: 0, totalPages: 0, data: [] }
   );
 }

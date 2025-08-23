@@ -6,8 +6,7 @@ import {
   getQueryLatencyTrends,
   getQueryStatusDistribution,
   getQueryThroughputAnalysis,
-  getQueryErrorAnalysis,
-  getRecentQueries
+  getQueryErrorAnalysis
 } from "@/api/queries";
 import { 
   QueryTypesResponse, 
@@ -18,9 +17,7 @@ import {
   QueryStatusDistributionResult,
   QueryThroughputAnalysisResult,
   QueryErrorAnalysisResult,
-  PagedResult,
-  RecentQuery,
-  TableState
+  
 } from "@/lib/types";
 
 interface OverviewData {
@@ -33,11 +30,9 @@ interface OverviewData {
   queryLatencyTrends: QueryLatencyTrendsResult[] | undefined;
   queryThroughputAnalysis: QueryThroughputAnalysisResult[] | undefined;
   queryErrorAnalysis: QueryErrorAnalysisResult[] | undefined;
-  // Recent queries data
-  recentQueries: PagedResult<RecentQuery> | undefined;
 }
 
-export function useOverviewData(dateRange: DateRange | undefined, tableState?: TableState) {
+export function useOverviewData(dateRange: DateRange | undefined) {
   const queryEnabled = Boolean(dateRange?.from && dateRange?.to);
   const from = dateRange?.from?.toISOString();
   const to = dateRange?.to?.toISOString();
@@ -114,25 +109,6 @@ export function useOverviewData(dateRange: DateRange | undefined, tableState?: T
     enabled: queryEnabled,
   });
 
-  // Recent queries
-  const {
-    data: recentQueries,
-    isLoading: isLoadingRecent,
-    error: recentError
-  } = useQuery<PagedResult<RecentQuery>>({
-    queryKey: ['recentQueries', from, to, tableState],
-    queryFn: () => getRecentQueries(
-      from, 
-      to, 
-      tableState?.page || 1,
-      tableState?.pageSize || 10,
-      tableState?.sortBy || 'timestamp',
-      tableState?.sortOrder || 'desc',
-      tableState?.filter || ''
-    ),
-    enabled: queryEnabled,
-  });
-
   const isLoading = 
     isLoadingMetrics || 
     isLoadingAvgDuration || 
@@ -140,8 +116,7 @@ export function useOverviewData(dateRange: DateRange | undefined, tableState?: T
     isLoadingAnalysis ||
     isLoadingLatency ||
     isLoadingThroughput ||
-    isLoadingError ||
-    isLoadingRecent;
+    isLoadingError;
 
   const error = 
     metricsError || 
@@ -150,8 +125,7 @@ export function useOverviewData(dateRange: DateRange | undefined, tableState?: T
     analysisError ||
     latencyError ||
     throughputError ||
-    errorAnalysisError ||
-    recentError;
+    errorAnalysisError;
 
   return {
     data: {
@@ -164,8 +138,6 @@ export function useOverviewData(dateRange: DateRange | undefined, tableState?: T
       queryLatencyTrends,
       queryThroughputAnalysis,
       queryErrorAnalysis,
-      // Recent queries
-      recentQueries,
     } as OverviewData,
     isLoading,
     error,

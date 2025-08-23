@@ -357,29 +357,6 @@ func TestMetricQueryPerformanceStatistics_Struct(t *testing.T) {
 	assert.Equal(t, &sampleRate, result.SampleRate)
 }
 
-func TestRecentQueriesParams_Struct(t *testing.T) {
-	tr := TimeRange{
-		From: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
-		To:   time.Date(2023, 1, 31, 23, 59, 59, 0, time.UTC),
-	}
-
-	params := RecentQueriesParams{
-		Page:      1,
-		PageSize:  20,
-		SortBy:    "timestamp",
-		SortOrder: "desc",
-		Filter:    "status=200",
-		TimeRange: tr,
-	}
-
-	assert.Equal(t, 1, params.Page)
-	assert.Equal(t, 20, params.PageSize)
-	assert.Equal(t, "timestamp", params.SortBy)
-	assert.Equal(t, "desc", params.SortOrder)
-	assert.Equal(t, "status=200", params.Filter)
-	assert.Equal(t, tr, params.TimeRange)
-}
-
 func TestQueriesBySerieNameParams_Struct(t *testing.T) {
 	tr := TimeRange{
 		From: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),

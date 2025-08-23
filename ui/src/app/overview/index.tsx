@@ -3,7 +3,6 @@ import { StatusBreakdown } from "@/components/status-breakdown";
 import { QueryLatencyTrends } from "@/components/query-latency-trends";
 import { QueryThroughputAnalysis } from "@/components/query-performance-analysis";
 import { QueryErrorAnalysis } from "@/components/query-error-analysis";
-import { QueryTable } from "@/components/query-table";
 import { TableProvider } from "@/contexts/table-context";
 import QueryTimeRangeDistribution from "@/components/query-time-range-distribution";
 
@@ -31,8 +30,7 @@ function OverviewContent() {
           <QueryErrorAnalysis />
         </div>
 
-        {/* Recent queries table */}
-        <QueryTable />
+        {/* Recent queries moved to Queries page */}
       </div>
     </div>
   );
