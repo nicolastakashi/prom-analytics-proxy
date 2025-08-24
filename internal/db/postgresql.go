@@ -895,7 +895,7 @@ func (p *PostGreSQLProvider) ListJobs(ctx context.Context) ([]string, error) {
 	return jobs, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error) {
 	SetDefaultTimeRange(&tr)
 	startTime, endTime := PrepareTimeRange(tr, "postgresql")
 
@@ -907,6 +907,7 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 				COUNT(*) FILTER (WHERE type = 'range')     AS range_cnt
 			FROM   queries
 			WHERE  ts BETWEEN $1 AND $2
+			AND   ($3 = '' OR fingerprint = $3)
 		)
 		SELECT
 			total,
@@ -915,7 +916,7 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 		FROM   stats;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime)
+	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -937,7 +938,7 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*
 	return &result, nil
 }
 
-func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
+func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error) {
 	query := `
 		WITH win AS (
 			SELECT
@@ -945,6 +946,7 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 				AVG(duration) FILTER (WHERE ts BETWEEN $3 AND $4) AS avg_previous
 			FROM queries
 			WHERE ts BETWEEN LEAST($1,$3) AND GREATEST($2,$4)
+			AND   ($5 = '' OR fingerprint = $5)
 		)
 		SELECT
 			ROUND(COALESCE(avg_current, 0)::numeric, 2)                            AS avg_current,
@@ -959,7 +961,7 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 	from, to := tr.Format(ISOTimeFormat)
 	previousFrom, previousTo := tr.Previous().Format(ISOTimeFormat)
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to, previousFrom, previousTo)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, previousFrom, previousTo, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -982,7 +984,7 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
+func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string, fingerprint string) (*QueryRateResult, error) {
 	query := `
 		WITH s AS (
 			SELECT
@@ -992,6 +994,7 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 			FROM   queries
 			WHERE  ts BETWEEN $1 AND $2
 			AND  ( $3 = '' OR labelMatchers @> $4::jsonb )
+			AND  ( $5 = '' OR fingerprint = $5 )
 		)
 		SELECT
 			success_rows                                                          AS successful_queries,
@@ -1002,7 +1005,7 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	`
 
 	from, to := tr.Format(ISOTimeFormat)
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to, metricName, metricMatcherJSON(metricName))
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, metricName, metricMatcherJSON(metricName), fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -1087,7 +1090,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	return results, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
+func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
@@ -1113,6 +1116,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 		WHERE  ts >= $1
 		AND  ts <  $3
 		AND  ( $4 = '' OR labelMatchers @> $5::jsonb )
+		AND  ( $6 = '' OR fingerprint = $6 )
 		GROUP  BY bucket
 	)
 	SELECT
@@ -1124,7 +1128,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	ORDER  BY b.bucket;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, metricMatcherJSON(metricName))
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, metricName, metricMatcherJSON(metricName), fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -1256,7 +1260,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 }
 
 // GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
-func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error) {
+func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error) {
 	SetDefaultTimeRange(&tr)
 	from, to := PrepareTimeRange(tr, "postgresql")
 
@@ -1265,6 +1269,7 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
         SELECT EXTRACT(EPOCH FROM ("end" - start))::bigint AS seconds
         FROM   queries
         WHERE  ts BETWEEN $1 AND $2
+        AND    ($3 = '' OR fingerprint = $3)
         AND    type = 'range'
         AND    start IS NOT NULL AND "end" IS NOT NULL AND "end" > start
     ), total AS (
@@ -1287,7 +1292,7 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
            CASE WHEN t.total > 0 THEN ROUND((cnt * 100.0 / t.total)::numeric, 2) ELSE 0 END AS percent
     FROM buckets, total t;`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, fingerprint)
 	if err != nil {
 		return nil, err
 	}

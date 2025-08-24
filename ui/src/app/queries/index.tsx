@@ -8,6 +8,8 @@ import { useDebounce } from "@/hooks/use-debounce"
 import { getQueryExpressions } from "@/api/queries"
 import { LoadingState } from "./loading"
 import type { PagedResult, QueryExpression, TableState } from "@/lib/types"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { QueryDetails } from "@/components/query-details"
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number }
@@ -67,7 +69,7 @@ export default function QueriesPage() {
   const { dateRange } = useDateRange()
   const fromISO = dateRange?.from?.toISOString()
   const toISO = dateRange?.to?.toISOString()
-
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const debouncedSearch = useDebounce(searchQuery, 750)
   const [tableState, setTableState] = useState<TableState>({
@@ -150,7 +152,28 @@ export default function QueriesPage() {
           onSortingChange={handleSortingChange}
           onFilterChange={handleFilterChange}
           onPaginationChange={handlePaginationChange}
+          onRowClick={(row) => setSelectedQuery(JSON.stringify({ query: row.query, fingerprint: row.fingerprint }))}
         />
+        <Sheet open={!!selectedQuery} onOpenChange={() => setSelectedQuery(null)}>
+          <SheetContent className="w-[1200px] sm:max-w-[1200px]">
+            <SheetHeader>
+              <SheetTitle>Query Fingerprint Details</SheetTitle>
+              <SheetDescription>
+                Detailed analysis and performance metrics for the selected query pattern
+              </SheetDescription>
+            </SheetHeader>
+            {selectedQuery && (() => {
+              const parsed = JSON.parse(selectedQuery) as { query: string; fingerprint?: string }
+              return (
+                <QueryDetails
+                  query={parsed.query}
+                  fingerprint={parsed.fingerprint}
+                  onClose={() => setSelectedQuery(null)}
+                />
+              )
+            })()}
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   )

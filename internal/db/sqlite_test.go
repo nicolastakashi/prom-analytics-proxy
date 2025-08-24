@@ -417,7 +417,7 @@ func TestSQLite_QueryTimeRangeDistribution(t *testing.T) {
 	}
 
 	// Query distribution within a window that includes TS
-	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: now.Add(-24 * time.Hour), To: now})
+	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: now.Add(-24 * time.Hour), To: now}, "")
 	if err != nil {
 		t.Fatalf("GetQueryTimeRangeDistribution: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 		}
 	}
 
-	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: from, To: now})
+	out, err := provider.GetQueryTimeRangeDistribution(ctx, TimeRange{From: from, To: now}, "")
 	if err != nil {
 		t.Fatalf("GetQueryTimeRangeDistribution: %v", err)
 	}

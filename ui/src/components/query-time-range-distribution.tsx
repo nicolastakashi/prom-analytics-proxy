@@ -18,14 +18,14 @@ const BUCKET_COLORS: Record<string, string> = {
   "90d+": "bg-purple-500",
 }
 
-export default function QueryTimeRangeDistribution() {
+export default function QueryTimeRangeDistribution({ fingerprint }: { fingerprint?: string }) {
   const { dateRange } = useDateRange()
   const from = dateRange?.from?.toISOString()
   const to = dateRange?.to?.toISOString()
 
   const { data, isLoading } = useQuery<QueryTimeRangeDistributionResult[]>({
-    queryKey: ["queryTimeRangeDistribution", from, to],
-    queryFn: () => getQueryTimeRangeDistribution(from, to),
+    queryKey: ["queryTimeRangeDistribution", from, to, fingerprint],
+    queryFn: () => getQueryTimeRangeDistribution(from, to, fingerprint),
     enabled: Boolean(from && to),
   })
 

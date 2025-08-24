@@ -323,6 +323,7 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
 	if from.IsZero() {
 		from = time.Now().UTC().Add(-7 * 24 * time.Hour)
@@ -332,7 +333,7 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 		to = time.Now().UTC()
 	}
 
-	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -345,8 +346,9 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetAverageDuration(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetAverageDuration(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -359,8 +361,9 @@ func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, "")
+	data, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, "", fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -389,8 +392,9 @@ func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 	metric_name := req.FormValue("metricName")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, metric_name)
+	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, metric_name, fingerprint)
 
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
@@ -432,8 +436,9 @@ func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryTimeRangeDistribution(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryTimeRangeDistribution(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -616,7 +621,7 @@ func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req 
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 
-	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, name)
+	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, name, "")
 	if err != nil {
 		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
