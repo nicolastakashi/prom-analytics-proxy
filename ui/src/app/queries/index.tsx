@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Input } from "@/components/ui/input"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
@@ -119,6 +119,15 @@ export default function QueriesPage() {
     enabled: Boolean(fromISO && toISO),
   })
 
+  const parsedSelectedQuery = useMemo(() => {
+    if (!selectedQuery) return null
+    try {
+      return JSON.parse(selectedQuery) as { query: string; fingerprint?: string }
+    } catch {
+      return null
+    }
+  }, [selectedQuery])
+
   if (isLoading) {
     return <LoadingState />
   }
@@ -162,16 +171,13 @@ export default function QueriesPage() {
                 Detailed analysis and performance metrics for the selected query pattern
               </SheetDescription>
             </SheetHeader>
-            {selectedQuery && (() => {
-              const parsed = JSON.parse(selectedQuery) as { query: string; fingerprint?: string }
-              return (
-                <QueryDetails
-                  query={parsed.query}
-                  fingerprint={parsed.fingerprint}
-                  onClose={() => setSelectedQuery(null)}
-                />
-              )
-            })()}
+            {parsedSelectedQuery && (
+              <QueryDetails
+                query={parsedSelectedQuery.query}
+                fingerprint={parsedSelectedQuery.fingerprint}
+                onClose={() => setSelectedQuery(null)}
+              />
+            )}
           </SheetContent>
         </Sheet>
       </div>
