@@ -14,7 +14,7 @@ import { getQueryTypes, getAverageDuration, getQueryRate } from "@/api/queries"
 import { Skeleton } from "@/components/ui/skeleton"
 
 
-export function KeyMetrics() {
+export function KeyMetrics({ fingerprint }: { fingerprint?: string }) {
     const { dateRange } = useDateRange()
     const from = dateRange?.from?.toISOString()
     const to = dateRange?.to?.toISOString()
@@ -23,8 +23,8 @@ export function KeyMetrics() {
       data: queryTypes,
       isLoading: isLoadingTypes,
     } = useQuery<QueryTypesResponse>({
-      queryKey: ["queryTypes", from, to],
-      queryFn: () => getQueryTypes(from, to),
+      queryKey: ["queryTypes", from, to, fingerprint],
+      queryFn: () => getQueryTypes(from, to, fingerprint),
       enabled: Boolean(from && to),
     })
 
@@ -32,8 +32,8 @@ export function KeyMetrics() {
       data: averageDuration,
       isLoading: isLoadingAvg,
     } = useQuery<AverageDurationResponse>({
-      queryKey: ["averageDuration", from, to],
-      queryFn: () => getAverageDuration(from, to),
+      queryKey: ["averageDuration", from, to, fingerprint],
+      queryFn: () => getAverageDuration(from, to, fingerprint),
       enabled: Boolean(from && to),
     })
 
@@ -41,8 +41,8 @@ export function KeyMetrics() {
       data: queryRate,
       isLoading: isLoadingRate,
     } = useQuery<QueryRateResponse>({
-      queryKey: ["queryRate", from, to],
-      queryFn: () => getQueryRate(from, to),
+      queryKey: ["queryRate", from, to, fingerprint],
+      queryFn: () => getQueryRate(from, to, fingerprint),
       enabled: Boolean(from && to),
     })
 
@@ -50,7 +50,7 @@ export function KeyMetrics() {
 
     if (loading || !queryTypes || !averageDuration || !queryRate) {
       return (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           {/* Large card placeholder */}
           <Card className="md:col-span-2 lg:col-span-2 xl:col-span-2 relative py-2 gap-1 md:h-[128px] lg:h-[132px]">
             {/* title & icon */}
@@ -103,7 +103,7 @@ export function KeyMetrics() {
     }
 
     return (
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
         <Card className="md:col-span-2 lg:col-span-2 xl:col-span-2 gap-1 py-2 md:h-[128px] lg:h-[132px]">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-0 pt-0">
             <CardTitle className="text-sm font-medium">Query Types</CardTitle>

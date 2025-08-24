@@ -28,6 +28,7 @@ interface FetchOptions {
   filter?: string;
   metricName?: string;
   format?: 'json' | 'yaml';
+  fingerprint?: string;
 }
 
 const API_CONFIG: ApiConfig = {
@@ -90,7 +91,7 @@ async function fetchApiData<T extends ApiResponse>(
   endpoint: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { from, to, page, pageSize, sortBy, sortOrder, filter, metricName, format } = options;
+  const { from, to, page, pageSize, sortBy, sortOrder, filter, metricName, format, fingerprint } = options;
   const fromUTC = getUTCDate(from);
   const toUTC = getUTCDate(to);
 
@@ -104,6 +105,7 @@ async function fetchApiData<T extends ApiResponse>(
     ...(filter && { filter }),
     ...(metricName && { metricName }),
     ...(format && { format }),
+    ...(fingerprint && { fingerprint }),
   });
 
   try {
@@ -136,23 +138,23 @@ function withErrorHandling<T extends ApiResponse>(
   }
 }
 
-export async function getQueryTypes(from?: string, to?: string): Promise<QueryTypesResponse> {
+export async function getQueryTypes(from?: string, to?: string, fingerprint?: string): Promise<QueryTypesResponse> {
   return withErrorHandling(
-    () => fetchApiData<QueryTypesResponse>(API_CONFIG.endpoints.queryTypes, { from, to }),
+    () => fetchApiData<QueryTypesResponse>(API_CONFIG.endpoints.queryTypes, { from, to, fingerprint }),
     DEFAULT_ERROR_VALUES.queryTypes
   );
 }
 
-export async function getQueryRate(from?: string, to?: string): Promise<QueryRateResponse> {
+export async function getQueryRate(from?: string, to?: string, fingerprint?: string): Promise<QueryRateResponse> {
   return withErrorHandling(
-    () => fetchApiData<QueryRateResponse>(API_CONFIG.endpoints.queryRate, { from, to }),
+    () => fetchApiData<QueryRateResponse>(API_CONFIG.endpoints.queryRate, { from, to, fingerprint }),
     DEFAULT_ERROR_VALUES.queryRate
   );
 }
 
-export async function getAverageDuration(from?: string, to?: string): Promise<AverageDurationResponse> {
+export async function getAverageDuration(from?: string, to?: string, fingerprint?: string): Promise<AverageDurationResponse> {
   return withErrorHandling(
-    () => fetchApiData<AverageDurationResponse>(API_CONFIG.endpoints.averageDuration, { from, to }),
+    () => fetchApiData<AverageDurationResponse>(API_CONFIG.endpoints.averageDuration, { from, to, fingerprint }),
     DEFAULT_ERROR_VALUES.averageDuration
   );
 }
@@ -164,9 +166,9 @@ export async function getQueryStatusDistribution(from?: string, to?: string): Pr
   );
 }
 
-export async function getQueryLatencyTrends(from?: string, to?: string, metricName?: string): Promise<QueryLatencyTrendsResult[]> {
+export async function getQueryLatencyTrends(from?: string, to?: string, metricName?: string, fingerprint?: string): Promise<QueryLatencyTrendsResult[]> {
   return withErrorHandling(
-    () => fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, { from, to, metricName }),
+    () => fetchApiData<QueryLatencyTrendsResult[]>(API_CONFIG.endpoints.queryLatencyTrends, { from, to, metricName, fingerprint }),
     []
   );
 }
@@ -185,9 +187,9 @@ export async function getQueryErrorAnalysis(from?: string, to?: string): Promise
   );
 }
 
-export async function getQueryTimeRangeDistribution(from?: string, to?: string): Promise<QueryTimeRangeDistributionResult[]> {
+export async function getQueryTimeRangeDistribution(from?: string, to?: string, fingerprint?: string): Promise<QueryTimeRangeDistributionResult[]> {
   return withErrorHandling(
-    () => fetchApiData<QueryTimeRangeDistributionResult[]>(API_CONFIG.endpoints.queryTimeRangeDistribution, { from, to }),
+    () => fetchApiData<QueryTimeRangeDistributionResult[]>(API_CONFIG.endpoints.queryTimeRangeDistribution, { from, to, fingerprint }),
     []
   );
 }

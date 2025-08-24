@@ -942,7 +942,7 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
 }
 
 // GetQueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
-func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*QueryTypesResult, error) {
+func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error) {
 	SetDefaultTimeRange(&tr)
 	startTime, endTime := PrepareTimeRange(tr, "sqlite")
 
@@ -951,6 +951,7 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*Quer
 			SELECT COUNT(*) AS count
 			FROM queries
 			WHERE ts BETWEEN ? AND ?
+			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 		),
 		types AS (
 			SELECT 
@@ -958,6 +959,7 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*Quer
 				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
 			FROM queries
 			WHERE ts BETWEEN ? AND ?
+			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 		)
 		SELECT 
 			t.count,
@@ -968,7 +970,7 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*Quer
 			types ty;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, startTime, endTime)
+	rows, err := ExecuteQuery(ctx, p.db, query, startTime, endTime, fingerprint, fingerprint, startTime, endTime, fingerprint, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -990,18 +992,20 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange) (*Quer
 	return &result, nil
 }
 
-func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (*AverageDurationResult, error) {
+func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error) {
 	query := `
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current
 			FROM queries
 			WHERE ts BETWEEN datetime(?) AND datetime(?)
+			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 			ORDER BY ts
 		),
 		previous AS (
 			SELECT AVG(duration) AS avg_previous
 			FROM queries
 			WHERE ts BETWEEN datetime(?) AND datetime(?)
+			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 			ORDER BY ts
 		)
 		SELECT
@@ -1017,7 +1021,7 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (
 	prevFrom, prevTo := prevRange.Format(ISOTimeFormatNano)
 	from, to := tr.Format(ISOTimeFormatNano)
 
-	rows, err := p.db.QueryContext(ctx, query, from, to, prevFrom, prevTo)
+	rows, err := p.db.QueryContext(ctx, query, from, to, fingerprint, fingerprint, prevFrom, prevTo, fingerprint, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query average duration: %w", err)
 	}
@@ -1040,7 +1044,7 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange) (
 	return result, nil
 }
 
-func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string) (*QueryRateResult, error) {
+func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string, fingerprint string) (*QueryRateResult, error) {
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -1060,11 +1064,17 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 				json_extract(labelMatchers, '$[0].__name__') = ?
 			ELSE 
 				1=1
+			END
+		AND CASE 
+			WHEN ? != '' THEN 
+				fingerprint = ?
+			ELSE 
+				1=1
 			END;
 	`
 
 	from, to := tr.Format(ISOTimeFormatNano)
-	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, metricName)
+	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, metricName, fingerprint, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
 	}
@@ -1139,7 +1149,7 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 	return results, nil
 }
 
-func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string) ([]QueryLatencyTrendsResult, error) {
+func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "sqlite")
 	from, to := PrepareTimeRange(tr, "sqlite")
@@ -1177,6 +1187,12 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 			ELSE 
 				1=1
 			END
+		AND CASE 
+			WHEN ? != '' THEN 
+				fingerprint = ?
+			ELSE 
+				1=1
+			END
 	) t ON 
 		t.ts >= b.bucket_start AND 
 		t.ts < b.bucket_end
@@ -1184,7 +1200,7 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	ORDER BY b.bucket_start;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to, metricName, metricName)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to, metricName, metricName, fingerprint, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -1310,7 +1326,7 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 }
 
 // GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
-func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange) ([]QueryTimeRangeDistributionResult, error) {
+func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error) {
 	SetDefaultTimeRange(&tr)
 	from, to := PrepareTimeRange(tr, "sqlite")
 
@@ -1324,6 +1340,7 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
         WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
               BETWEEN julianday(substr(REPLACE(REPLACE(?, 'T', ' '), 'Z', ''),1,19))
                   AND julianday(substr(REPLACE(REPLACE(?, 'T', ' '), 'Z', ''),1,19))
+          AND CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
           AND type = 'range'
           AND start IS NOT NULL AND "end" IS NOT NULL
           AND julianday(substr(REPLACE(REPLACE("end", 'T', ' '), 'Z', ''),1,19)) >= julianday(substr(REPLACE(REPLACE(start, 'T', ' '), 'Z', ''),1,19))
@@ -1350,7 +1367,7 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
     FROM buckets, total t;
     `
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, fingerprint, fingerprint)
 	if err != nil {
 		return nil, err
 	}

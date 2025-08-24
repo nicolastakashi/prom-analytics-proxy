@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Input } from "@/components/ui/input"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
@@ -8,6 +8,8 @@ import { useDebounce } from "@/hooks/use-debounce"
 import { getQueryExpressions } from "@/api/queries"
 import { LoadingState } from "./loading"
 import type { PagedResult, QueryExpression, TableState } from "@/lib/types"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { QueryDetails } from "@/components/query-details"
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number }
@@ -67,7 +69,7 @@ export default function QueriesPage() {
   const { dateRange } = useDateRange()
   const fromISO = dateRange?.from?.toISOString()
   const toISO = dateRange?.to?.toISOString()
-
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const debouncedSearch = useDebounce(searchQuery, 750)
   const [tableState, setTableState] = useState<TableState>({
@@ -117,6 +119,15 @@ export default function QueriesPage() {
     enabled: Boolean(fromISO && toISO),
   })
 
+  const parsedSelectedQuery = useMemo(() => {
+    if (!selectedQuery) return null
+    try {
+      return JSON.parse(selectedQuery) as { query: string; fingerprint?: string }
+    } catch {
+      return null
+    }
+  }, [selectedQuery])
+
   if (isLoading) {
     return <LoadingState />
   }
@@ -150,7 +161,25 @@ export default function QueriesPage() {
           onSortingChange={handleSortingChange}
           onFilterChange={handleFilterChange}
           onPaginationChange={handlePaginationChange}
+          onRowClick={(row) => setSelectedQuery(JSON.stringify({ query: row.query, fingerprint: row.fingerprint }))}
         />
+        <Sheet open={!!selectedQuery} onOpenChange={() => setSelectedQuery(null)}>
+          <SheetContent className="w-[1200px] sm:max-w-[1200px]">
+            <SheetHeader>
+              <SheetTitle>Query Fingerprint Details</SheetTitle>
+              <SheetDescription>
+                Detailed analysis and performance metrics for the selected query pattern
+              </SheetDescription>
+            </SheetHeader>
+            {parsedSelectedQuery && (
+              <QueryDetails
+                query={parsedSelectedQuery.query}
+                fingerprint={parsedSelectedQuery.fingerprint}
+                onClose={() => setSelectedQuery(null)}
+              />
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   )

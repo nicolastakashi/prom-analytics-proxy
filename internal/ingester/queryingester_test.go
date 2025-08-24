@@ -92,17 +92,17 @@ func (m *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.Dashbo
 	return args.Get(0).(*db.PagedResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange) (*db.QueryTypesResult, error) {
+func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange, fingerprint string) (*db.QueryTypesResult, error) {
 	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.QueryTypesResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetAverageDuration(ctx context.Context, tr db.TimeRange) (*db.AverageDurationResult, error) {
+func (m *MockDBProvider) GetAverageDuration(ctx context.Context, tr db.TimeRange, fingerprint string) (*db.AverageDurationResult, error) {
 	args := m.Called(ctx, tr)
 	return args.Get(0).(*db.AverageDurationResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metricName string) (*db.QueryRateResult, error) {
+func (m *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metricName string, fingerprint string) (*db.QueryRateResult, error) {
 	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).(*db.QueryRateResult), args.Error(1)
 }
@@ -112,7 +112,7 @@ func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.T
 	return args.Get(0).([]db.QueryStatusDistributionResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange, metricName string) ([]db.QueryLatencyTrendsResult, error) {
+func (m *MockDBProvider) GetQueryLatencyTrends(ctx context.Context, tr db.TimeRange, metricName string, fingerprint string) ([]db.QueryLatencyTrendsResult, error) {
 	args := m.Called(ctx, tr, metricName)
 	return args.Get(0).([]db.QueryLatencyTrendsResult), args.Error(1)
 }
@@ -127,8 +127,8 @@ func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRa
 	return args.Get(0).([]db.QueryErrorAnalysisResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryTimeRangeDistributionResult, error) {
-	args := m.Called(ctx, tr)
+func (m *MockDBProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr db.TimeRange, fingerprint string) ([]db.QueryTimeRangeDistributionResult, error) {
+	args := m.Called(ctx, tr, fingerprint)
 	return args.Get(0).([]db.QueryTimeRangeDistributionResult), args.Error(1)
 }
 

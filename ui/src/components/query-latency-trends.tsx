@@ -13,9 +13,10 @@ interface QueryLatencyTrendsProps {
   className?: string
   title?: React.ReactNode
   metricName?: string
+  fingerprint?: string
 }
 
-export function QueryLatencyTrends({ className, title, metricName }: QueryLatencyTrendsProps) {
+export function QueryLatencyTrends({ className, title, metricName, fingerprint }: QueryLatencyTrendsProps) {
   const { dateRange } = useDateRange()
   const fromISO = dateRange?.from?.toISOString()
   const toISO = dateRange?.to?.toISOString()
@@ -23,8 +24,8 @@ export function QueryLatencyTrends({ className, title, metricName }: QueryLatenc
   const toDate = dateRange?.to ?? new Date()
 
   const { data: latencyTrendsData, isLoading } = useQuery<QueryLatencyTrendsResult[]>({
-    queryKey: ["queryLatencyTrends", fromISO, toISO, metricName],
-    queryFn: () => getQueryLatencyTrends(fromISO, toISO, metricName),
+    queryKey: ["queryLatencyTrends", fromISO, toISO, metricName, fingerprint],
+    queryFn: () => getQueryLatencyTrends(fromISO, toISO, metricName, fingerprint),
     enabled: Boolean(fromISO && toISO),
   })
 
