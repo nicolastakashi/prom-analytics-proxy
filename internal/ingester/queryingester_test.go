@@ -28,6 +28,11 @@ func (m *MockDBProvider) GetQueryExpressions(ctx context.Context, params db.Quer
 	return db.PagedResult{}, nil
 }
 
+// Satisfy new Provider method; tests don't use it
+func (m *MockDBProvider) GetQueryExecutions(ctx context.Context, params db.QueryExecutionsParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
+
 func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
 	args := m.Called(ctx, params)
 	if v := args.Get(0); v != nil {

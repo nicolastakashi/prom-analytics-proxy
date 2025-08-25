@@ -118,3 +118,12 @@ export interface QueryExpression {
 	errorRatePercent: number;
 	peakSamples: number;
 }
+
+export interface QueryExecution {
+  timestamp: string;
+  status: number;
+  duration: number;
+  samples: number;
+  type: 'instant' | 'range';
+  steps: number;
+}

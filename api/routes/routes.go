@@ -92,6 +92,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/throughput", http.HandlerFunc(r.queryThroughputAnalysis))
 		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
 		mux.Handle("/api/v1/query/time_range_distribution", http.HandlerFunc(r.queryTimeRangeDistribution))
+		mux.Handle("/api/v1/query/executions", http.HandlerFunc(r.queryExecutions))
 		// recent queries endpoint removed; use /api/v1/query/expressions instead
 		mux.Handle("/api/v1/query/expressions", http.HandlerFunc(r.queryExpressions))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
@@ -484,6 +485,49 @@ func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	writeJSONResponse(req, w, data)
+}
+
+func (r *routes) queryExecutions(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
+	if fingerprint == "" {
+		writeErrorResponse(req, w, fmt.Errorf("missing fingerprint parameter"), http.StatusBadRequest)
+		return
+	}
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+	pageSize, err := getQueryParamAsInt(req, "pageSize", 10)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+		return
+	}
+	sortBy := req.FormValue("sortBy")
+	sortOrder := req.FormValue("sortOrder")
+	typ := req.FormValue("type")
+	if typ != "instant" && typ != "range" {
+		typ = ""
+	}
+
+	params := db.QueryExecutionsParams{
+		Fingerprint: fingerprint,
+		TimeRange:   db.TimeRange{From: from, To: to},
+		Page:        page,
+		PageSize:    pageSize,
+		SortBy:      sortBy,
+		SortOrder:   sortOrder,
+		Type:        typ,
+	}
+	data, err := r.dbProvider.GetQueryExecutions(req.Context(), params)
+	if err != nil {
+		slog.Error("unable to execute query", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
+		return
+	}
 	writeJSONResponse(req, w, data)
 }
 

@@ -1386,6 +1386,75 @@ func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params Que
 	return PagedResult{Total: totalCount, TotalPages: totalPages, Data: results}, nil
 }
 
+// GetQueryExecutions returns raw executions filtered by fingerprint/time range with steps computed in DB
+func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error) {
+	ValidatePagination(&params.Page, &params.PageSize, 10)
+	validSort := map[string]bool{
+		"ts":         true,
+		"duration":   true,
+		"samples":    true,
+		"statusCode": true,
+		"type":       true,
+		"steps":      true,
+	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSort, "ts")
+
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+
+	base := `
+        WITH filtered AS (
+            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step
+            FROM queries
+            WHERE ts BETWEEN $1 AND $2
+              AND fingerprint = $3
+              AND ($4 = '' OR type = $4)
+        ), counted AS (
+            SELECT COUNT(*) AS total_count FROM filtered
+        )
+        SELECT ts, statusCode, duration, samples, type,
+               CASE WHEN type = 'instant' THEN 1
+                    ELSE FLOOR(EXTRACT(EPOCH FROM ("end" - start)) / NULLIF(step,0))::int + 1 END AS steps,
+               total_count
+        FROM filtered, counted
+    `
+
+	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
+	query := base + orderClause + " LIMIT $5 OFFSET $6;"
+
+	offset := (params.Page - 1) * params.PageSize
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, params.Fingerprint, params.Type, params.PageSize, offset)
+	if err != nil {
+		return PagedResult{}, err
+	}
+	defer CloseResource(rows)
+
+	type row struct {
+		ts         time.Time
+		status     int
+		duration   int64
+		samples    int
+		typ        string
+		steps      int
+		totalCount int
+	}
+	var (
+		results []QueryExecutionRow
+		total   int
+	)
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.totalCount); err != nil {
+			return PagedResult{}, ErrorWithOperation(err, "scanning row")
+		}
+		results = append(results, QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps})
+		total = r.totalCount
+	}
+	if err := rows.Err(); err != nil {
+		return PagedResult{}, ErrorWithOperation(err, "row iteration")
+	}
+	return PagedResult{Total: total, TotalPages: CalculateTotalPages(total, params.PageSize), Data: results}, nil
+}
+
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
 	WITH rule_stats AS (

@@ -1486,6 +1486,117 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
 	return PagedResult{Total: totalCount, TotalPages: totalPages, Data: results}, nil
 }
 
+// GetQueryExecutions returns raw query executions with DB-computed steps
+func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error) {
+	ValidatePagination(&params.Page, &params.PageSize, 10)
+	if params.SortOrder == "" {
+		params.SortOrder = "desc"
+	}
+	validSortFields := map[string]bool{
+		"ts":         true,
+		"duration":   true,
+		"samples":    true,
+		"statusCode": true,
+		"type":       true,
+		"steps":      true,
+	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "ts")
+
+	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
+
+	query := `
+        WITH filtered AS (
+            SELECT 
+                ts,
+                statusCode,
+                duration,
+                totalQueryableSamples AS samples,
+                type,
+                start,
+                "end",
+                step,
+                julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19)) AS nts
+            FROM queries
+            WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
+                  BETWEEN julianday(?) AND julianday(?)
+              AND fingerprint = ?
+              AND CASE WHEN ? != '' THEN type = ? ELSE 1=1 END
+        ), counted AS (
+            SELECT COUNT(*) AS total_count FROM filtered
+        )
+        SELECT 
+            ts, 
+            statusCode,
+            duration,
+            samples,
+            type,
+            CASE 
+                WHEN type = 'instant' THEN 1
+                WHEN step IS NULL OR step = 0 THEN 0
+                ELSE CAST(((julianday(substr(REPLACE(REPLACE("end", 'T', ' '), 'Z', ''),1,19)) - 
+                           julianday(substr(REPLACE(REPLACE(start, 'T', ' '), 'Z', ''),1,19))) * 86400) / step AS INTEGER) + 1
+            END AS steps,
+            total_count
+        FROM filtered, counted
+        ORDER BY
+            CASE WHEN ? = 'asc' THEN
+                CASE ?
+                    WHEN 'ts' THEN nts
+                    WHEN 'duration' THEN duration
+                    WHEN 'samples' THEN samples
+                    WHEN 'statusCode' THEN statusCode
+                    WHEN 'type' THEN type
+                    WHEN 'steps' THEN steps
+                END
+            END ASC,
+            CASE WHEN ? = 'desc' THEN
+                CASE ?
+                    WHEN 'ts' THEN nts
+                    WHEN 'duration' THEN duration
+                    WHEN 'samples' THEN samples
+                    WHEN 'statusCode' THEN statusCode
+                    WHEN 'type' THEN type
+                    WHEN 'steps' THEN steps
+                END
+            END DESC
+        LIMIT ? OFFSET ?;
+    `
+
+	args := []interface{}{from, to, params.Fingerprint, params.Type, params.Type,
+		params.SortOrder, params.SortBy, params.SortOrder, params.SortBy,
+		params.PageSize, (params.Page - 1) * params.PageSize,
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to query executions: %w", err)
+	}
+	defer CloseResource(rows)
+
+	var (
+		results    []QueryExecutionRow
+		totalCount int
+	)
+	for rows.Next() {
+		var ts time.Time
+		var status int
+		var duration int64
+		var samples int
+		var typ string
+		var steps int
+		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &steps, &totalCount); err != nil {
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		results = append(results, QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps})
+	}
+	if err := rows.Err(); err != nil {
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	totalPages := CalculateTotalPages(totalCount, params.PageSize)
+	return PagedResult{Total: totalCount, TotalPages: totalPages, Data: results}, nil
+}
+
 func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
 	query := `
 	WITH rule_stats AS (

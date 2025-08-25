@@ -47,6 +47,8 @@ type Provider interface {
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error)
 	GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error)
 	GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error)
+	// GetQueryExecutions returns paginated raw query executions filtered by fingerprint/time range
+	GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
@@ -240,6 +242,27 @@ type QueriesBySerieNameParams struct {
 	Filter    string
 	SortBy    string
 	SortOrder string
+}
+
+// QueryExecutionsParams defines parameters to list raw query executions for a fingerprint
+type QueryExecutionsParams struct {
+	Fingerprint string
+	TimeRange   TimeRange
+	Page        int
+	PageSize    int
+	SortBy      string
+	SortOrder   string
+	Type        string // all|instant|range
+}
+
+// QueryExecutionRow represents a single query execution row returned from the DB
+type QueryExecutionRow struct {
+	Timestamp time.Time `json:"timestamp"`
+	Status    int       `json:"status"`
+	Duration  int64     `json:"duration"`
+	Samples   int       `json:"samples"`
+	Type      string    `json:"type"`
+	Steps     int       `json:"steps"`
 }
 
 type SeriesMetadataParams struct {
