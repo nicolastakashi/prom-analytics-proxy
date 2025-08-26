@@ -1413,7 +1413,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
         )
         SELECT ts, statusCode, duration, samples, type,
                CASE WHEN type = 'instant' THEN 1
-                    ELSE FLOOR(EXTRACT(EPOCH FROM ("end" - start)) / NULLIF(step,0))::int + 1 END AS steps,
+                    ELSE FLOOR(EXTRACT(EPOCH FROM ("end" - start)) / NULLIF(COALESCE(step, 1),0))::int + 1 END AS steps,
                total_count
         FROM filtered, counted
     `
