@@ -1,4 +1,4 @@
-import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, QueryTimeRangeDistributionResult, QueryExpression } from "@/lib/types"
+import { AverageDurationResponse, PagedResult, QueryErrorAnalysisResult, QueryLatencyTrendsResult, QueryRateResponse, QueryStatusDistributionResult, QueryThroughputAnalysisResult, QueryTypesResponse, QueryTimeRangeDistributionResult, QueryExpression, QueryExecution } from "@/lib/types"
 import { ConfigResponse } from "@/types/config"
 import { toUTC } from "@/lib/utils/date-utils"
 
@@ -14,6 +14,7 @@ interface ApiConfig {
     queryErrorAnalysis: string;
     queryTimeRangeDistribution: string;
     queryExpressions: string;
+    queryExecutions: string;
     configs: string;
   };
 }
@@ -29,6 +30,7 @@ interface FetchOptions {
   metricName?: string;
   format?: 'json' | 'yaml';
   fingerprint?: string;
+  type?: string;
 }
 
 const API_CONFIG: ApiConfig = {
@@ -43,6 +45,7 @@ const API_CONFIG: ApiConfig = {
     queryErrorAnalysis: '/api/v1/query/errors',
     queryTimeRangeDistribution: '/api/v1/query/time_range_distribution',
     queryExpressions: '/api/v1/query/expressions',
+    queryExecutions: '/api/v1/query/executions',
     configs: '/api/v1/configs',
   }
 };
@@ -85,7 +88,7 @@ type EmptyObject = Record<string, never>;
 type ApiResponse = QueryTypesResponse | QueryRateResponse | AverageDurationResponse | 
   QueryStatusDistributionResult[] | QueryLatencyTrendsResult[] | 
   QueryThroughputAnalysisResult[] | QueryErrorAnalysisResult[] | QueryTimeRangeDistributionResult[] | 
-  PagedResult<QueryExpression> | ConfigResponse | string | EmptyObject;
+  PagedResult<QueryExpression> | PagedResult<QueryExecution> | ConfigResponse | string | EmptyObject;
 
 async function fetchApiData<T extends ApiResponse>(
   endpoint: string,
@@ -106,6 +109,7 @@ async function fetchApiData<T extends ApiResponse>(
     ...(metricName && { metricName }),
     ...(format && { format }),
     ...(fingerprint && { fingerprint }),
+    ...(options.type && { type: options.type }),
   });
 
   try {
@@ -220,6 +224,31 @@ export async function getQueryExpressions(
       sortBy,
       sortOrder,
       filter,
+    }),
+    { total: 0, totalPages: 0, data: [] }
+  );
+}
+
+export async function getQueryExecutions(
+  fingerprint: string,
+  from?: string,
+  to?: string,
+  page?: number,
+  pageSize?: number,
+  sortBy?: string,
+  sortOrder?: string,
+  type?: 'all' | 'instant' | 'range',
+): Promise<PagedResult<QueryExecution>> {
+  return withErrorHandling(
+    () => fetchApiData<PagedResult<QueryExecution>>(API_CONFIG.endpoints.queryExecutions, {
+      fingerprint,
+      from,
+      to,
+      page,
+      pageSize,
+      sortBy,
+      sortOrder,
+      type,
     }),
     { total: 0, totalPages: 0, data: [] }
   );
