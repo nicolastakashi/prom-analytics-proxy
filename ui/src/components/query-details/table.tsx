@@ -38,9 +38,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     cell: ({ row }) => {
       const t = String(row.getValue("type"))
       const label = t === 'range' ? 'Range' : 'Instant'
-      const variant: "default" | "secondary" | "destructive" | "outline" =
-        t === 'range' ? 'default' : 'outline'
-      return <Badge variant={variant}>{label}</Badge>
+      return <Badge variant="outline">{label}</Badge>
     },
   },
   {

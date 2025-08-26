@@ -1530,12 +1530,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
             duration,
             samples,
             type,
-            CASE 
-                WHEN type = 'instant' THEN 1
-                WHEN step IS NULL OR step = 0 THEN 0
-                ELSE CAST(((julianday(substr(REPLACE(REPLACE("end", 'T', ' '), 'Z', ''),1,19)) - 
-                           julianday(substr(REPLACE(REPLACE(start, 'T', ' '), 'Z', ''),1,19))) * 86400) / step AS INTEGER) + 1
-            END AS steps,
+            COALESCE(step, 0) AS steps,
             total_count
         FROM filtered, counted
         ORDER BY
@@ -1583,7 +1578,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 		var duration int64
 		var samples int
 		var typ string
-		var steps int
+		var steps float64
 		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &steps, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}

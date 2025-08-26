@@ -262,7 +262,7 @@ type QueryExecutionRow struct {
 	Duration  int64     `json:"duration"`
 	Samples   int       `json:"samples"`
 	Type      string    `json:"type"`
-	Steps     int       `json:"steps"`
+	Steps     float64   `json:"steps"`
 }
 
 type SeriesMetadataParams struct {
