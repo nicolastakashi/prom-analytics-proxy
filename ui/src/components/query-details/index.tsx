@@ -28,7 +28,7 @@ export function QueryDetails({ query, fingerprint }: QueryDetailsProps) {
         </Button>
       </div>
       <Tabs defaultValue="overview">
-          <TabsList className="flex bg-gray-100 rounded-lg overflow-hidden w-full grid-cols-5">
+          <TabsList className="flex bg-gray-100 rounded-lg overflow-hidden w-full grid-cols-3">
             <TabsTrigger value="overview" className="flex-1 py-3 px-5">Overview</TabsTrigger>
             <TabsTrigger value="executions" className="flex-1 py-3 px-5">Executions</TabsTrigger>
             <TabsTrigger value="errors" className="flex-1 py-3 px-5">Errors</TabsTrigger>
