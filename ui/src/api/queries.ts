@@ -249,7 +249,6 @@ export async function getQueryExecutions(
       sortBy,
       sortOrder,
       type,
-    // custom param 'type' not in helper signature; we piggyback via sortBy param is unsafe, so extend fetch to include it
     }),
     { total: 0, totalPages: 0, data: [] }
   );
