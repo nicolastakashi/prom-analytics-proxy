@@ -377,8 +377,9 @@ func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryStatusDistribution(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryStatusDistribution(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -423,8 +424,9 @@ func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Reques
 func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
+	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)

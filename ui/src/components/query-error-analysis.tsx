@@ -10,7 +10,11 @@ import { useDateRange } from "@/contexts/date-range-context"
 import { getQueryErrorAnalysis } from "@/api/queries"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export function QueryErrorAnalysis() {
+interface QueryErrorAnalysisProps {
+  fingerprint?: string
+}
+
+export function QueryErrorAnalysis({ fingerprint }: QueryErrorAnalysisProps) {
   const { dateRange } = useDateRange()
   const fromISO = dateRange?.from?.toISOString()
   const toISO = dateRange?.to?.toISOString()
@@ -18,8 +22,8 @@ export function QueryErrorAnalysis() {
   const toDate = dateRange?.to ?? new Date()
 
   const { data, isLoading } = useQuery<QueryErrorAnalysisResult[]>({
-    queryKey: ["queryErrorAnalysis", fromISO, toISO],
-    queryFn: () => getQueryErrorAnalysis(fromISO, toISO),
+    queryKey: ["queryErrorAnalysis", fromISO, toISO, fingerprint],
+    queryFn: () => getQueryErrorAnalysis(fromISO, toISO, fingerprint),
     enabled: Boolean(fromISO && toISO),
   })
 

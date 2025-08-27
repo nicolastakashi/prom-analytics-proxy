@@ -1097,7 +1097,7 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 	return result, nil
 }
 
-func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
+func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "sqlite")
 	from, to := PrepareTimeRange(tr, "sqlite")
@@ -1113,21 +1113,31 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
 		FROM time_buckets 
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
+	),
+	filtered AS (
+		SELECT ts, statusCode
+		FROM queries
+		WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
+		      BETWEEN julianday(?) AND julianday(?)
+		  AND CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 	)
 	SELECT 
-		bucket_start as time,
-		SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) as status2xx,
-		SUM(CASE WHEN statusCode >= 400 AND statusCode < 500 THEN 1 ELSE 0 END) as status4xx,
-		SUM(CASE WHEN statusCode >= 500 AND statusCode < 600 THEN 1 ELSE 0 END) as status5xx
-	FROM time_buckets
-	LEFT JOIN queries ON 
-		ts >= bucket_start AND 
-		ts < bucket_end
-	GROUP BY bucket_start
-	ORDER BY bucket_start;
+		b.bucket_start as time,
+		SUM(CASE WHEN q.statusCode >= 200 AND q.statusCode < 300 THEN 1 ELSE 0 END) as status2xx,
+		SUM(CASE WHEN q.statusCode >= 400 AND q.statusCode < 500 THEN 1 ELSE 0 END) as status4xx,
+		SUM(CASE WHEN q.statusCode >= 500 AND q.statusCode < 600 THEN 1 ELSE 0 END) as status5xx
+	FROM time_buckets b
+	LEFT JOIN filtered q ON 
+		q.ts >= b.bucket_start AND 
+		q.ts < b.bucket_end
+	GROUP BY b.bucket_start
+	ORDER BY b.bucket_start;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query,
+		from, from, interval, interval, to, // time_buckets params
+		from, to, fingerprint, fingerprint, // filtered subquery params
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1272,7 +1282,7 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	return results, nil
 }
 
-func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
+func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "sqlite")
 	from, to := PrepareTimeRange(tr, "sqlite")
@@ -1299,11 +1309,12 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 	LEFT JOIN queries q ON 
 		q.ts >= b.bucket_start AND 
 		q.ts < b.bucket_end
+		AND CASE WHEN ? != '' THEN q.fingerprint = ? ELSE 1=1 END
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to, fingerprint, fingerprint)
 	if err != nil {
 		return nil, err
 	}

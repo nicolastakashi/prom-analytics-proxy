@@ -10,7 +10,9 @@ import { useDateRange } from "@/contexts/date-range-context"
 import { getQueryStatusDistribution } from "@/api/queries"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export function StatusBreakdown() {
+interface StatusBreakdownProps { fingerprint?: string }
+
+export function StatusBreakdown({ fingerprint }: StatusBreakdownProps) {
   const { dateRange } = useDateRange()
   const from = dateRange?.from?.toISOString()
   const to = dateRange?.to?.toISOString()
@@ -18,8 +20,8 @@ export function StatusBreakdown() {
   const toDate = dateRange?.to ?? new Date()
 
   const { data: statusData, isLoading } = useQuery<QueryStatusDistributionResult[]>({
-    queryKey: ["queryStatusDistribution", from, to],
-    queryFn: () => getQueryStatusDistribution(from, to),
+    queryKey: ["queryStatusDistribution", from, to, fingerprint],
+    queryFn: () => getQueryStatusDistribution(from, to, fingerprint),
     enabled: Boolean(from && to),
   })
 

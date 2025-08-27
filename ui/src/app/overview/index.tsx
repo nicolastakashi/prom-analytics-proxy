@@ -8,9 +8,10 @@ import QueryTimeRangeDistribution from "@/components/query-time-range-distributi
 
 function OverviewHeader() {
   return (
-    <div className="mb-6">
-      <h1 className="text-2xl font-bold">Query Analytics</h1>
-    </div>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold">Overview</h1>
+        <p className="text-sm text-muted-foreground">Aggregated view of query executions, latency, errors, throughput, and status distribution.</p>
+      </div>
   );
 }
 
@@ -18,12 +19,11 @@ function OverviewContent() {
   return (
     <div className="mx-auto p-6">
       <OverviewHeader />
-      <div className="grid gap-6">
+      <div className="grid gap-4">
         <KeyMetrics />
-
         <QueryTimeRangeDistribution />
         {/* Charts */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           <StatusBreakdown />
           <QueryLatencyTrends />
           <QueryThroughputAnalysis />

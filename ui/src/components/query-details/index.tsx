@@ -6,6 +6,7 @@ import { KeyMetrics } from "../key-metrics"
 import QueryTimeRangeDistribution from "../query-time-range-distribution"
 import { QueryLatencyTrends } from "../query-latency-trends"
 import { QueryExecutions } from "./table"
+import { StatusBreakdown } from "../status-breakdown"
 
 interface QueryDetailsProps {
   onClose: () => void
@@ -31,12 +32,14 @@ export function QueryDetails({ query, fingerprint }: QueryDetailsProps) {
           <TabsList className="flex bg-gray-100 rounded-lg overflow-hidden w-full grid-cols-3">
             <TabsTrigger value="overview" className="flex-1 py-3 px-5">Overview</TabsTrigger>
             <TabsTrigger value="executions" className="flex-1 py-3 px-5">Executions</TabsTrigger>
-            <TabsTrigger value="errors" className="flex-1 py-3 px-5">Errors</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="mt-2 grid gap-4">
             <KeyMetrics fingerprint={fingerprint} />
             <QueryTimeRangeDistribution fingerprint={fingerprint} />
-            <QueryLatencyTrends fingerprint={fingerprint} />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <QueryLatencyTrends fingerprint={fingerprint} />
+              <StatusBreakdown fingerprint={fingerprint} />
+            </div>
           </TabsContent>
           <TabsContent value="executions" className="mt-2">
             <QueryExecutions fingerprint={fingerprint} />

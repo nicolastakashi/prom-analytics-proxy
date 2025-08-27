@@ -112,8 +112,8 @@ func (m *MockDBProvider) GetQueryRate(ctx context.Context, tr db.TimeRange, metr
 	return args.Get(0).(*db.QueryRateResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.TimeRange) ([]db.QueryStatusDistributionResult, error) {
-	args := m.Called(ctx, tr)
+func (m *MockDBProvider) GetQueryStatusDistribution(ctx context.Context, tr db.TimeRange, fingerprint string) ([]db.QueryStatusDistributionResult, error) {
+	args := m.Called(ctx, tr, fingerprint)
 	return args.Get(0).([]db.QueryStatusDistributionResult), args.Error(1)
 }
 
@@ -127,7 +127,7 @@ func (m *MockDBProvider) GetQueryThroughputAnalysis(ctx context.Context, tr db.T
 	return args.Get(0).([]db.QueryThroughputAnalysisResult), args.Error(1)
 }
 
-func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRange) ([]db.QueryErrorAnalysisResult, error) {
+func (m *MockDBProvider) GetQueryErrorAnalysis(ctx context.Context, tr db.TimeRange, fingerprint string) ([]db.QueryErrorAnalysisResult, error) {
 	args := m.Called(ctx, tr)
 	return args.Get(0).([]db.QueryErrorAnalysisResult), args.Error(1)
 }

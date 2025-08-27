@@ -32,7 +32,7 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
               {[...Array(6)].map((_, i) => (
                 <Skeleton key={i} className="h-20 w-full" />
               ))}
@@ -73,8 +73,8 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
         <CardTitle>Performance Statistics</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <StatCard
               title="Total Queries"
               value={queryPerformanceData?.totalQueries || 0}

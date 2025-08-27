@@ -1033,7 +1033,7 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	return result, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange) ([]QueryStatusDistributionResult, error) {
+func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
@@ -1056,6 +1056,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 		FROM   queries
 		WHERE  ts >= $1
 		AND  ts <  $3
+		AND  ($4 = '' OR fingerprint = $4)
 		GROUP  BY bucket
 	)
 	SELECT
@@ -1068,7 +1069,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	ORDER  BY b.bucket;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -1205,7 +1206,7 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	return results, nil
 }
 
-func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange) ([]QueryErrorAnalysisResult, error) {
+func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
@@ -1226,6 +1227,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 		FROM   queries
 		WHERE  ts >= $1
 		AND  ts <  $3
+		AND  ($4 = '' OR fingerprint = $4)
 		GROUP  BY bucket
 	)
 
@@ -1237,7 +1239,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	ORDER  BY b.bucket;
 	`
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, interval, to, fingerprint)
 	if err != nil {
 		return nil, err
 	}

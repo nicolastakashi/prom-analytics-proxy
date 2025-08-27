@@ -163,9 +163,9 @@ export async function getAverageDuration(from?: string, to?: string, fingerprint
   );
 }
 
-export async function getQueryStatusDistribution(from?: string, to?: string): Promise<QueryStatusDistributionResult[]> {
+export async function getQueryStatusDistribution(from?: string, to?: string, fingerprint?: string): Promise<QueryStatusDistributionResult[]> {
   return withErrorHandling(
-    () => fetchApiData<QueryStatusDistributionResult[]>(API_CONFIG.endpoints.queryStatusDistribution, { from, to }),
+    () => fetchApiData<QueryStatusDistributionResult[]>(API_CONFIG.endpoints.queryStatusDistribution, { from, to, fingerprint }),
     []
   );
 }
@@ -184,9 +184,9 @@ export async function getQueryThroughputAnalysis(from?: string, to?: string): Pr
   );
 }
 
-export async function getQueryErrorAnalysis(from?: string, to?: string): Promise<QueryErrorAnalysisResult[]> {
+export async function getQueryErrorAnalysis(from?: string, to?: string, fingerprint?: string): Promise<QueryErrorAnalysisResult[]> {
   return withErrorHandling(
-    () => fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, { from, to }),
+    () => fetchApiData<QueryErrorAnalysisResult[]>(API_CONFIG.endpoints.queryErrorAnalysis, { from, to, fingerprint }),
     []
   );
 }

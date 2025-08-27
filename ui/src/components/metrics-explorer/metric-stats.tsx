@@ -17,7 +17,7 @@ export function MetricStats({ metricName }: MetricStatsProps) {
 
   if (isLoading) {
     return (
-      <div className="grid gap-6 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i} className="py-2 md:h-[128px] lg:h-[132px]">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
@@ -43,7 +43,7 @@ export function MetricStats({ metricName }: MetricStatsProps) {
   const stats = data.statistics;
 
   return (
-    <div className="grid gap-6 md:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-4">
       <StatCard
         title="Series Count"
         value={formatUnit(stats.serieCount)}
