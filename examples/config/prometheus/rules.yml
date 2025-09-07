@@ -1,0 +1,13 @@
+groups:
+  - name: prometheus
+    rules:
+      - alert: PrometheusQueryDuration
+        expr: max by (slice) (prometheus_engine_query_duration_seconds{quantile="0.9"}) > 1
+        for: 1m
+        keep_firing_for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Prometheus query duration is too high
+      - record: prometheus_query_duration
+        expr: max by (slice) (prometheus_engine_query_duration_seconds{quantile="0.9"})

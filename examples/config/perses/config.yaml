@@ -1,0 +1,15 @@
+security:
+  readonly: false
+  enable_auth: false
+  cookie:
+    same_site: lax
+    secure: false
+
+database:
+  file:
+    extension: yaml
+    folder: /perses
+
+provisioning:
+  folders:
+    - /etc/perses/resources

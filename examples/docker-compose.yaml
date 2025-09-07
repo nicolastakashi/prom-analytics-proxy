@@ -1,0 +1,152 @@
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./config/prometheus/rules.yml:/etc/prometheus/rules.yml
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    networks:
+      - promcon-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:9090/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: prom-analytics-proxy
+      POSTGRES_USER: prom-analytics-proxy
+      POSTGRES_PASSWORD: prom-analytics-proxy_dev
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - data:/var/lib/postgresql/data
+    networks:
+      - promcon-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U prom-analytics-proxy -d prom-analytics-proxy",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prom-analytics-proxy:
+    image: ghcr.io/nicolastakashi/prom-analytics-proxy:main
+    container_name: prom-analytics-proxy
+    command:
+      - --insecure-listen-address=0.0.0.0:9091
+      - --upstream=http://prometheus:9090
+      - --database-provider=postgresql
+      - --postgresql-addr=postgres
+      - --postgresql-port=5432
+      - --postgresql-user=prom-analytics-proxy
+      - --postgresql-password=prom-analytics-proxy_dev
+      - --postgresql-database=prom-analytics-proxy
+      - --postgresql-sslmode=disable
+      - --inventory-sync-interval=1m
+    restart: unless-stopped
+    ports:
+      - 9091:9091
+    networks:
+      - promcon-network
+    depends_on:
+      - postgres
+      - prometheus
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9091/",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  perses:
+    image: persesdev/perses:v0.51-distroless-debug
+    container_name: perses
+    command: "--config=/etc/perses/config/config.yaml"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./config/perses/config.yaml:/etc/perses/config/config.yaml
+      - ./config/perses/datasource.yaml:/etc/perses/resources/datasource.yaml
+      - ./config/perses/project.yaml:/etc/perses/resources/project.yaml
+      - ./config/perses/dashboards:/etc/perses/resources/dashboard
+    networks:
+      - promcon-network
+    depends_on:
+      - prom-analytics-proxy
+      - prometheus
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/metrics",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  metrics-usage:
+    image: persesdev/metrics-usage
+    container_name: metrics-usage
+    command: "--config=/app/config.yaml"
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    depends_on:
+      - prom-analytics-proxy
+      - prometheus
+      - perses
+    volumes:
+      - ./config/metrics-usage/config.yaml:/app/config.yaml
+    networks:
+      - promcon-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8081/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  data:
+
+networks:
+  promcon-network:
+    driver: bridge
