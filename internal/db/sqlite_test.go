@@ -135,10 +135,26 @@ func TestSQLite_GetAverageDuration(t *testing.T) {
 	// Seed previous with avg 10ms, current with avg 20ms
 	var qs []Query
 	for i := range 5 {
-		qs = append(qs, Query{TS: prevFrom.Add(time.Duration(i) * time.Minute), QueryParam: "up", TimeParam: prevFrom, Duration: 10 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant})
+		qs = append(qs, Query{
+			TS:           prevFrom.Add(time.Duration(i) * time.Minute),
+			QueryParam:   "up",
+			TimeParam:    prevFrom,
+			Duration:     10 * time.Millisecond,
+			StatusCode:   200,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:         QueryTypeInstant,
+		})
 	}
 	for i := range 5 {
-		qs = append(qs, Query{TS: curFrom.Add(time.Duration(i) * time.Minute), QueryParam: "up", TimeParam: curFrom, Duration: 20 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant})
+		qs = append(qs, Query{
+			TS:           curFrom.Add(time.Duration(i) * time.Minute),
+			QueryParam:   "up",
+			TimeParam:    curFrom,
+			Duration:     20 * time.Millisecond,
+			StatusCode:   200,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:         QueryTypeInstant,
+		})
 	}
 	mustInsertQueries(t, p, qs)
 
