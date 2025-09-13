@@ -312,7 +312,7 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now().UTC().Truncate(time.Minute)
-	var qs []Query
+	qs := make([]Query, 0, 8)
 	// Two fingerprints, one with more executions
 	for i := range 5 {
 		qs = append(qs, Query{
