@@ -180,7 +180,7 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now().UTC().Truncate(time.Minute)
-	var qs []Query
+	qs := make([]Query, 0, 5)
 	// 3 successes, 2 errors for metric "up" and fingerprint fp1
 	for i := range 3 {
 		qs = append(qs, Query{
