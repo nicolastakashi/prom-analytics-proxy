@@ -228,7 +228,7 @@ func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now().UTC().Truncate(time.Minute)
-	var qs []Query
+	qs := make([]Query, 0, 13)
 	for i := range 10 {
 		qs = append(qs, Query{
 			TS:            now.Add(time.Duration(i) * time.Minute),
