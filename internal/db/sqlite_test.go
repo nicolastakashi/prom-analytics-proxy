@@ -313,7 +313,20 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 		})
 	}
 	for i := range 3 {
-		qs = append(qs, Query{TS: now.Add(time.Duration(i) * time.Minute), QueryParam: "rate(up[5m])", TimeParam: now, Duration: 20 * time.Millisecond, StatusCode: 500, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeRange, Start: now.Add(-5 * time.Minute), End: now, Step: 15, PeakSamples: 100, Fingerprint: "fp-b"})
+		qs = append(qs, Query{
+			TS:           now.Add(time.Duration(i) * time.Minute),
+			QueryParam:   "rate(up[5m])",
+			TimeParam:    now,
+			Duration:     20 * time.Millisecond,
+			StatusCode:   500,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:         QueryTypeRange,
+			Start:        now.Add(-5 * time.Minute),
+			End:          now,
+			Step:         15,
+			PeakSamples:  100,
+			Fingerprint:  "fp-b",
+		})
 	}
 	mustInsertQueries(t, p, qs)
 
