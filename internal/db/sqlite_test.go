@@ -189,7 +189,16 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 		})
 	}
 	for i := range 2 {
-		qs = append(qs, Query{TS: now.Add(time.Duration(3+i) * time.Minute), QueryParam: "up", TimeParam: now, Duration: 5 * time.Millisecond, StatusCode: 500, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, Fingerprint: "fp1"})
+		qs = append(qs, Query{
+			TS:           now.Add(time.Duration(3+i) * time.Minute),
+			QueryParam:   "up",
+			TimeParam:    now,
+			Duration:     5 * time.Millisecond,
+			StatusCode:   500,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:         QueryTypeInstant,
+			Fingerprint:  "fp1",
+		})
 	}
 	mustInsertQueries(t, p, qs)
 
