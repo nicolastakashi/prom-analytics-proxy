@@ -177,7 +177,16 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 	var qs []Query
 	// 3 successes, 2 errors for metric "up" and fingerprint fp1
 	for i := range 3 {
-		qs = append(qs, Query{TS: now.Add(time.Duration(i) * time.Minute), QueryParam: "up", TimeParam: now, Duration: 5 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, Fingerprint: "fp1"})
+		qs = append(qs, Query{
+			TS:            now.Add(time.Duration(i) * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     now,
+			Duration:      5 * time.Millisecond,
+			StatusCode:    200,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:          QueryTypeInstant,
+			Fingerprint:   "fp1",
+		})
 	}
 	for i := range 2 {
 		qs = append(qs, Query{TS: now.Add(time.Duration(3+i) * time.Minute), QueryParam: "up", TimeParam: now, Duration: 5 * time.Millisecond, StatusCode: 500, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, Fingerprint: "fp1"})
