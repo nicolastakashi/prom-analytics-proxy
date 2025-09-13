@@ -300,7 +300,17 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 	var qs []Query
 	// Two fingerprints, one with more executions
 	for i := range 5 {
-		qs = append(qs, Query{TS: now.Add(time.Duration(i) * time.Minute), QueryParam: "up", TimeParam: now, Duration: 10 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, PeakSamples: 10 + i, Fingerprint: "fp-a"})
+		qs = append(qs, Query{
+			TS:           now.Add(time.Duration(i) * time.Minute),
+			QueryParam:   "up",
+			TimeParam:    now,
+			Duration:     10 * time.Millisecond,
+			StatusCode:   200,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:         QueryTypeInstant,
+			PeakSamples:  10 + i,
+			Fingerprint:  "fp-a",
+		})
 	}
 	for i := range 3 {
 		qs = append(qs, Query{TS: now.Add(time.Duration(i) * time.Minute), QueryParam: "rate(up[5m])", TimeParam: now, Duration: 20 * time.Millisecond, StatusCode: 500, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeRange, Start: now.Add(-5 * time.Minute), End: now, Step: 15, PeakSamples: 100, Fingerprint: "fp-b"})
