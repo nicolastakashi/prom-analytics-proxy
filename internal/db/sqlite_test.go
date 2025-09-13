@@ -20,11 +20,17 @@ func newTestSQLiteProvider(t *testing.T) (Provider, func()) {
 	assert.NoError(t, err, "failed to create temp db")
 	_ = file.Close()
 
-	// Point DefaultConfig to the temp database path
-	config.DefaultConfig.Database.Provider = string(SQLite)
-	config.DefaultConfig.Database.SQLite.DatabasePath = file.Name()
+	// Create a test-specific config
+	testConfig := &config.Config{
+		Database: config.DatabaseConfig{
+			Provider: string(SQLite),
+			SQLite: config.SQLiteConfig{
+				DatabasePath: file.Name(),
+			},
+		},
+	}
 
-	provider, err := newSqliteProvider(ctx)
+	provider, err := newSqliteProvider(ctx, testConfig)
 	if err != nil {
 		// Cleanup temp file on failure as well
 		_ = os.Remove(file.Name())
