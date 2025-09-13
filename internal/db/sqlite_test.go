@@ -81,7 +81,7 @@ func TestSQLite_GetQueryTypes(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now().UTC().Truncate(time.Minute)
-	qs := []Query{}
+	qs := make([]Query, 0, 10)
 	for i := range 4 { // 4 instant
 		qs = append(qs, Query{
 			TS:            now.Add(time.Duration(i) * time.Minute),
