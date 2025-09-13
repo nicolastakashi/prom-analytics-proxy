@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
-	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,17 +19,7 @@ func newTestSQLiteProvider(t *testing.T) (Provider, func()) {
 	assert.NoError(t, err, "failed to create temp db")
 	_ = file.Close()
 
-	// Create a test-specific config
-	testConfig := &config.Config{
-		Database: config.DatabaseConfig{
-			Provider: string(SQLite),
-			SQLite: config.SQLiteConfig{
-				DatabasePath: file.Name(),
-			},
-		},
-	}
-
-	provider, err := newSqliteProvider(ctx, testConfig)
+	provider, err := newSqliteProvider(ctx)
 	if err != nil {
 		// Cleanup temp file on failure as well
 		_ = os.Remove(file.Name())
@@ -142,24 +131,24 @@ func TestSQLite_GetAverageDuration(t *testing.T) {
 	var qs []Query
 	for i := range 5 {
 		qs = append(qs, Query{
-			TS:           prevFrom.Add(time.Duration(i) * time.Minute),
-			QueryParam:   "up",
-			TimeParam:    prevFrom,
-			Duration:     10 * time.Millisecond,
-			StatusCode:   200,
+			TS:            prevFrom.Add(time.Duration(i) * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     prevFrom,
+			Duration:      10 * time.Millisecond,
+			StatusCode:    200,
 			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:         QueryTypeInstant,
+			Type:          QueryTypeInstant,
 		})
 	}
 	for i := range 5 {
 		qs = append(qs, Query{
-			TS:           curFrom.Add(time.Duration(i) * time.Minute),
-			QueryParam:   "up",
-			TimeParam:    curFrom,
-			Duration:     20 * time.Millisecond,
-			StatusCode:   200,
+			TS:            curFrom.Add(time.Duration(i) * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     curFrom,
+			Duration:      20 * time.Millisecond,
+			StatusCode:    200,
 			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:         QueryTypeInstant,
+			Type:          QueryTypeInstant,
 		})
 	}
 	mustInsertQueries(t, p, qs)
@@ -196,14 +185,14 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 	}
 	for i := range 2 {
 		qs = append(qs, Query{
-			TS:           now.Add(time.Duration(3+i) * time.Minute),
-			QueryParam:   "up",
-			TimeParam:    now,
-			Duration:     5 * time.Millisecond,
-			StatusCode:   500,
+			TS:            now.Add(time.Duration(3+i) * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     now,
+			Duration:      5 * time.Millisecond,
+			StatusCode:    500,
 			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:         QueryTypeInstant,
-			Fingerprint:  "fp1",
+			Type:          QueryTypeInstant,
+			Fingerprint:   "fp1",
 		})
 	}
 	mustInsertQueries(t, p, qs)
@@ -316,31 +305,31 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 	// Two fingerprints, one with more executions
 	for i := range 5 {
 		qs = append(qs, Query{
-			TS:           now.Add(time.Duration(i) * time.Minute),
-			QueryParam:   "up",
-			TimeParam:    now,
-			Duration:     10 * time.Millisecond,
-			StatusCode:   200,
+			TS:            now.Add(time.Duration(i) * time.Minute),
+			QueryParam:    "up",
+			TimeParam:     now,
+			Duration:      10 * time.Millisecond,
+			StatusCode:    200,
 			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:         QueryTypeInstant,
-			PeakSamples:  10 + i,
-			Fingerprint:  "fp-a",
+			Type:          QueryTypeInstant,
+			PeakSamples:   10 + i,
+			Fingerprint:   "fp-a",
 		})
 	}
 	for i := range 3 {
 		qs = append(qs, Query{
-			TS:           now.Add(time.Duration(i) * time.Minute),
-			QueryParam:   "rate(up[5m])",
-			TimeParam:    now,
-			Duration:     20 * time.Millisecond,
-			StatusCode:   500,
+			TS:            now.Add(time.Duration(i) * time.Minute),
+			QueryParam:    "rate(up[5m])",
+			TimeParam:     now,
+			Duration:      20 * time.Millisecond,
+			StatusCode:    500,
 			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:         QueryTypeRange,
-			Start:        now.Add(-5 * time.Minute),
-			End:          now,
-			Step:         15,
-			PeakSamples:  100,
-			Fingerprint:  "fp-b",
+			Type:          QueryTypeRange,
+			Start:         now.Add(-5 * time.Minute),
+			End:           now,
+			Step:          15,
+			PeakSamples:   100,
+			Fingerprint:   "fp-b",
 		})
 	}
 	mustInsertQueries(t, p, qs)
