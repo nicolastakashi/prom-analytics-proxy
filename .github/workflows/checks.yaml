@@ -5,11 +5,51 @@ on:
     branches:
       - "main"
 
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_OPTIONS: "--max-old-space-size=4096"
 
+permissions:
+  contents: read
+
 jobs:
-  setup:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      ui: ${{ steps.filter.outputs.ui }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'go.mod'
+              - 'go.sum'
+              - 'main.go'
+              - 'internal/**'
+              - 'api/**'
+              - 'scripts/**'
+              - 'Makefile'
+              - 'Dockerfile'
+            ui:
+              - 'ui/**'
+            docs:
+              - '**/*.md'
+            workflows:
+              - '.github/**'
+
+  build-ui:
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +61,14 @@ jobs:
           node-version: "${{ env.node-version }}"
           check-latest: true
           cache: "npm"
-          cache-dependency-path: "**/package-lock.json"
+          cache-dependency-path: "ui/package-lock.json"
           registry-url: "https://registry.npmjs.org"
-      - name: Install UI Dependencies
-        run: make uidependencies
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --legacy-peer-deps
       - name: Build UI
-        run: make uibuild
+        working-directory: ui
+        run: npm run build
       - name: Upload UI artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -35,10 +77,10 @@ jobs:
           retention-days: 1
 
   check-golang:
-    needs: setup
+    needs: [build-ui, changes]
     runs-on: ubuntu-latest
     name: Go Code Quality Checks
-    if: ${{ github.event_name == 'push' || !contains(github.event.pull_request.changed_files, 'ui/') }}
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -63,9 +105,10 @@ jobs:
         run: make tests
 
   format:
-    needs: setup
+    needs: changes
     runs-on: ubuntu-latest
     name: Documentation Formatting Check
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.docs == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -75,25 +118,24 @@ jobs:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
-      - name: Download UI artifacts
-        uses: actions/download-artifact@v4
+      - name: Cache tooling binaries
+        uses: actions/cache@v4
         with:
-          name: ui-dist
-          path: ui/dist
+          path: tmp/bin
+          key: tooling-${{ runner.os }}-${{ hashFiles('scripts/go.mod') }}
       - name: Tidy Go modules
         run: make tidy
       - name: Check Documentation
         run: make check-docs
 
   build:
-    needs: setup
-    runs-on: ${{ matrix.os }}
+    needs: [build-ui, changes]
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.workflows == 'true' }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-    name: Build API and UI
+        goos: [linux, darwin]
+    name: Build API for ${{ matrix.goos }}
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -109,4 +151,6 @@ jobs:
           name: ui-dist
           path: ui/dist
       - name: Build API
+        env:
+          GOOS: ${{ matrix.goos }}
         run: make build
