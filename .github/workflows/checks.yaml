@@ -108,6 +108,7 @@ jobs:
     needs: [build-ui, changes]
     runs-on: ubuntu-latest
     name: Unit Tests
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' }}
     permissions:
       contents: read
       checks: write
