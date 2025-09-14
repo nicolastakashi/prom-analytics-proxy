@@ -18,6 +18,7 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    name: Changes
     outputs:
       go: ${{ steps.filter.outputs.go }}
       ui: ${{ steps.filter.outputs.ui }}
@@ -51,6 +52,7 @@ jobs:
     needs: changes
     if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
+    name: Build UI
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -141,11 +143,22 @@ jobs:
           name: unit-test-report
           path: test-results
           retention-days: 7
-      - name: Publish Unit Test Results
+      - name: Publish Test Report (Visual Overview)
         if: always()
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: ctrf-io/github-test-reporter@v1
         with:
-          files: test-results/**/*.xml
+          report-path: './test-results/**/*.xml'
+          summary-report: true
+          failed-report: true
+          flaky-rate-report: true
+          insights-report: true
+          test-report: true
+          report-order: 'summary-report,failed-report,flaky-rate-report,insights-report,test-report'
+          pull-request: true
+          status-check: true
+          status-check-name: 'Go Tests'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   format:
     needs: changes
