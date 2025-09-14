@@ -50,7 +50,7 @@ jobs:
 
   build-ui:
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' || needs.changes.outputs.docs == 'true' }}
     runs-on: ubuntu-latest
     name: Build UI
     steps:
@@ -164,7 +164,7 @@ jobs:
           files: test-results/**/*.xml
 
   format:
-    needs: changes
+    needs: [build-ui, changes]
     runs-on: ubuntu-latest
     name: Documentation Formatting Check
     if: ${{ github.event_name == 'push' || needs.changes.outputs.docs == 'true' }}
@@ -177,6 +177,11 @@ jobs:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
       - name: Cache tooling binaries
         uses: actions/cache@v4
         with:
