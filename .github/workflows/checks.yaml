@@ -129,13 +129,16 @@ jobs:
           path: ui/dist
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.12.0
-      - name: Run unit tests with JUnit report
+      - name: Install go-ctrf-json-reporter
+        run: go install github.com/ctrf-io/go-ctrf-json-reporter/cmd/go-ctrf-json-reporter@latest
+      - name: Run unit tests and produce CTRF JSON
         run: |
-          mkdir -p test-results
+          mkdir -p ctrf
           $(go env GOPATH)/bin/gotestsum \
             --format=short-verbose \
-            --junitfile test-results/unit-tests.xml \
+            --jsonfile gotestsum.json \
             -- -race -cover -covermode=atomic -coverprofile=coverage.out ./...
+          $(go env GOPATH)/bin/go-ctrf-json-reporter < gotestsum.json -output ctrf/ctrf-report.json
       - name: Coverage Summary
         if: always()
         run: |
@@ -143,12 +146,14 @@ jobs:
             echo "### Coverage" >> $GITHUB_STEP_SUMMARY
             echo "$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $3}')" >> $GITHUB_STEP_SUMMARY
           fi
-      - name: Upload unit test report
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-report
-          path: test-results
+          name: test-reports
+          path: |
+            gotestsum.json
+            ctrf/ctrf-report.json
           retention-days: 7
       - name: Upload coverage report
         if: always()
@@ -157,11 +162,22 @@ jobs:
           name: coverage
           path: coverage.out
           retention-days: 7
-      - name: Publish Unit Test Results
+      - name: Publish Test Report (Visual Overview)
         if: always()
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: ctrf-io/github-test-reporter@v1
         with:
-          files: test-results/**/*.xml
+          report-path: './ctrf/*.json'
+          summary-report: true
+          failed-report: true
+          flaky-rate-report: true
+          insights-report: true
+          test-report: true
+          report-order: 'summary-report,failed-report,flaky-rate-report,insights-report,test-report'
+          pull-request: true
+          status-check: true
+          status-check-name: 'Go Tests'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   format:
     needs: [build-ui, changes]
