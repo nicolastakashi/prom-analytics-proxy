@@ -121,6 +121,10 @@ jobs:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
+      - name: Ensure UI dist exists for go:embed
+        run: |
+          mkdir -p ui/dist
+          echo "<!doctype html><title>placeholder</title>" > ui/dist/index.html
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.12.0
       - name: Install go-ctrf-json-reporter
