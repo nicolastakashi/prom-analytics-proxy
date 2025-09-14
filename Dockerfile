@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22.16.0-alpine AS uibuild
+FROM node:23.6.0-alpine AS uibuild
 
 WORKDIR /go/src/github.com/nicolastakashi/prom-analytics-proxy
 

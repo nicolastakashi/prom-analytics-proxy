@@ -1,16 +1,58 @@
-name: checks
+name: Checks
 on:
   pull_request:
   push:
     branches:
       - "main"
 
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_OPTIONS: "--max-old-space-size=4096"
 
+permissions:
+  contents: read
+
 jobs:
-  setup:
+  changes:
     runs-on: ubuntu-latest
+    name: Changes
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      ui: ${{ steps.filter.outputs.ui }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'go.mod'
+              - 'go.sum'
+              - 'main.go'
+              - 'internal/**'
+              - 'api/**'
+              - 'scripts/**'
+              - 'Makefile'
+              - 'Dockerfile'
+            ui:
+              - 'ui/**'
+            docs:
+              - '**/*.md'
+            workflows:
+              - '.github/**'
+
+  build-ui:
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
+    runs-on: ubuntu-latest
+    name: Build UI
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -21,12 +63,14 @@ jobs:
           node-version: "${{ env.node-version }}"
           check-latest: true
           cache: "npm"
-          cache-dependency-path: "**/package-lock.json"
+          cache-dependency-path: "ui/package-lock.json"
           registry-url: "https://registry.npmjs.org"
-      - name: Install UI Dependencies
-        run: make uidependencies
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --legacy-peer-deps
       - name: Build UI
-        run: make uibuild
+        working-directory: ui
+        run: npm run build
       - name: Upload UI artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -35,10 +79,10 @@ jobs:
           retention-days: 1
 
   check-golang:
-    needs: setup
+    needs: [build-ui, changes]
     runs-on: ubuntu-latest
     name: Go Code Quality Checks
-    if: ${{ github.event_name == 'push' || !contains(github.event.pull_request.changed_files, 'ui/') }}
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -59,13 +103,16 @@ jobs:
         uses: golangci/golangci-lint-action@v8.0.0
         with:
           args: --timeout 10m0s
-      - name: Test Golang Code
-        run: make tests
 
-  format:
-    needs: setup
+  test:
+    needs: [build-ui, changes]
     runs-on: ubuntu-latest
-    name: Documentation Formatting Check
+    name: Unit Tests
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -80,20 +127,74 @@ jobs:
         with:
           name: ui-dist
           path: ui/dist
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+      - name: Run unit tests with JUnit report
+        run: |
+          mkdir -p test-results
+          $(go env GOPATH)/bin/gotestsum \
+            --format=short-verbose \
+            --junitfile test-results/unit-tests.xml \
+            -- -race -cover -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coverage Summary
+        if: always()
+        run: |
+          if [ -f coverage.out ]; then
+            echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $3}')" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: test-results
+          retention-days: 7
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+      - name: Publish Unit Test Results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: test-results/**/*.xml
+
+  format:
+    needs: changes
+    runs-on: ubuntu-latest
+    name: Documentation Formatting Check
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.docs == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+      - name: Cache tooling binaries
+        uses: actions/cache@v4
+        with:
+          path: tmp/bin
+          key: tooling-${{ runner.os }}-${{ hashFiles('scripts/go.mod') }}
       - name: Tidy Go modules
         run: make tidy
       - name: Check Documentation
         run: make check-docs
 
   build:
-    needs: setup
-    runs-on: ${{ matrix.os }}
+    needs: [build-ui, changes]
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.workflows == 'true' }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-    name: Build API and UI
+        goos: [linux, darwin]
+    name: Build API for ${{ matrix.goos }}
     steps:
       - uses: actions/checkout@v4
       - name: Import environment variables from file
@@ -109,4 +210,6 @@ jobs:
           name: ui-dist
           path: ui/dist
       - name: Build API
+        env:
+          GOOS: ${{ matrix.goos }}
         run: make build
