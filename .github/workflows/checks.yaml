@@ -1,4 +1,4 @@
-name: checks
+name: Checks
 on:
   pull_request:
   push:
@@ -135,7 +135,14 @@ jobs:
           $(go env GOPATH)/bin/gotestsum \
             --format=short-verbose \
             --junitfile test-results/unit-tests.xml \
-            -- -race -cover ./...
+            -- -race -cover -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coverage Summary
+        if: always()
+        run: |
+          if [ -f coverage.out ]; then
+            echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+            echo "$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $3}')" >> $GITHUB_STEP_SUMMARY
+          fi
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -143,22 +150,18 @@ jobs:
           name: unit-test-report
           path: test-results
           retention-days: 7
-      - name: Publish Test Report (Visual Overview)
+      - name: Upload coverage report
         if: always()
-        uses: ctrf-io/github-test-reporter@v1
+        uses: actions/upload-artifact@v4
         with:
-          report-path: './test-results/**/*.xml'
-          summary-report: true
-          failed-report: true
-          flaky-rate-report: true
-          insights-report: true
-          test-report: true
-          report-order: 'summary-report,failed-report,flaky-rate-report,insights-report,test-report'
-          pull-request: true
-          status-check: true
-          status-check-name: 'Go Tests'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+      - name: Publish Unit Test Results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: test-results/**/*.xml
 
   format:
     needs: changes
