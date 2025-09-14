@@ -105,10 +105,9 @@ jobs:
           args: --timeout 10m0s
 
   test:
-    needs: [build-ui, changes]
+    needs: [changes]
     runs-on: ubuntu-latest
     name: Unit Tests
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' }}
     permissions:
       contents: read
       checks: write
@@ -122,11 +121,6 @@ jobs:
           go-version: "${{ env.golang-version }}"
           check-latest: true
           cache: true
-      - name: Download UI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-dist
-          path: ui/dist
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.12.0
       - name: Install go-ctrf-json-reporter
