@@ -101,8 +101,51 @@ jobs:
         uses: golangci/golangci-lint-action@v8.0.0
         with:
           args: --timeout 10m0s
-      - name: Test Golang Code
-        run: make tests
+
+  test:
+    needs: [build-ui, changes]
+    runs-on: ubuntu-latest
+    name: Unit Tests
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.0
+      - name: Run unit tests with JUnit report
+        run: |
+          mkdir -p test-results
+          $(go env GOPATH)/bin/gotestsum \
+            --format=short-verbose \
+            --junitfile test-results/unit-tests.xml \
+            -- -race -cover ./...
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: test-results
+          retention-days: 7
+      - name: Publish Unit Test Results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: test-results/**/*.xml
 
   format:
     needs: changes
