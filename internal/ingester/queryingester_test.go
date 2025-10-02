@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -145,6 +146,11 @@ func (m *MockDBProvider) GetMetricStatistics(ctx context.Context, metricName str
 func (m *MockDBProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
 	args := m.Called(ctx, metricName, tr)
 	return args.Get(0).(db.MetricQueryPerformanceStatistics), args.Error(1)
+}
+
+func (m *MockDBProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
+	args := m.Called(ctx, names, job)
+	return args.Get(0).([]models.MetricMetadata), args.Error(1)
 }
 
 func TestQueryIngester_Run(t *testing.T) {
