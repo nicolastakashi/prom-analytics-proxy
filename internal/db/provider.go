@@ -7,6 +7,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 )
 
 // Common time formats
@@ -53,6 +55,7 @@ type Provider interface {
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
 	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
+	GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error)
 
 	Close() error
 }

@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/metalmatze/signal/server/signalhttp"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
@@ -101,6 +103,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
 		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
 		mux.Handle("/api/v1/jobs", http.HandlerFunc(r.listJobs))
+		mux.Handle("/api/v1/metrics/unused", http.HandlerFunc(r.metricsUnused))
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
@@ -953,4 +956,66 @@ func (r *routes) listJobs(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, struct {
 		Data []string `json:"data"`
 	}{Data: jobs})
+}
+
+func (r *routes) metricsUnused(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+
+	q := req.URL.Query()
+	name := q.Get("name")
+	if name == "" {
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+	var names []string
+	reader := csv.NewReader(strings.NewReader(name))
+	reader.FieldsPerRecord = -1
+	fields, err := reader.Read()
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid name CSV: %w", err), http.StatusBadRequest)
+		return
+	}
+	for _, f := range fields {
+		if trimmed := strings.Trim(strings.TrimSpace(f), "\"'"); trimmed != "" {
+			names = append(names, trimmed)
+		}
+	}
+
+	if len(names) == 0 {
+		writeErrorResponse(req, w, fmt.Errorf("no valid names provided"), http.StatusBadRequest)
+		return
+	}
+	if len(names) > 100 {
+		writeErrorResponse(req, w, fmt.Errorf("too many names; max 100"), http.StatusBadRequest)
+		return
+	}
+
+	items := make([]models.UnusedMetric, 0, len(names))
+
+	job := strings.Trim(strings.TrimSpace(q.Get("job")), "\"'")
+
+	mm, err := r.dbProvider.GetSeriesMetadataByNames(ctx, names, job)
+	if err != nil {
+		slog.Error("metricsUnused: GetSeriesMetadataByNames", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series metadata"), http.StatusInternalServerError)
+		return
+	}
+
+	for _, m := range mm {
+		item := models.UnusedMetric{
+			Name:   m.Name,
+			Unused: m.AlertCount == 0 && m.RecordCount == 0 && m.DashboardCount == 0 && m.QueryCount == 0,
+			Summary: models.UnusedSummary{
+				AlertCount:     m.AlertCount,
+				RecordCount:    m.RecordCount,
+				DashboardCount: m.DashboardCount,
+				QueryCount:     m.QueryCount,
+			},
+		}
+		items = append(items, item)
+	}
+
+	writeJSONResponse(req, w, struct {
+		Data []models.UnusedMetric `json:"data"`
+	}{Data: items})
 }

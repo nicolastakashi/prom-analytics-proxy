@@ -758,6 +758,66 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
+func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
+	if len(names) == 0 {
+		return []models.MetricMetadata{}, nil
+	}
+
+	var (
+		query string
+		args  []any
+	)
+
+	if job != "" {
+		query = `
+            SELECT c.name, c.type, c.help, c.unit,
+                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
+            FROM metrics_catalog c
+            LEFT JOIN metrics_usage_summary s ON s.name = c.name
+            WHERE c.name = ANY($1)
+              AND EXISTS (SELECT 1 FROM metrics_job_index j WHERE j.name = c.name AND j.job = $2)
+        `
+		args = []any{pq.Array(names), job}
+	} else {
+		query = `
+            SELECT c.name, c.type, c.help, c.unit,
+                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
+            FROM metrics_catalog c
+            LEFT JOIN metrics_usage_summary s ON s.name = c.name
+            WHERE c.name = ANY($1)
+        `
+		args = []any{pq.Array(names)}
+	}
+
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseResource(rows)
+
+	type row struct {
+		name, mtype, help, unit     string
+		alert, record, dash, qcount int
+		last                        sql.NullTime
+	}
+	out := make([]models.MetricMetadata, 0, len(names))
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount}
+		if r.last.Valid {
+			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
+		}
+		out = append(out, mm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iter: %w", err)
+	}
+	return out, nil
+}
+
 func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error {
 	if len(items) == 0 {
 		return nil

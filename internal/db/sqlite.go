@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -798,6 +799,77 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 
 	pages := (total + params.PageSize - 1) / params.PageSize
 	return &PagedResult{Total: total, TotalPages: pages, Data: results}, nil
+}
+
+// GetSeriesMetadataByNames returns metadata and usage summary for a fixed list of names, optionally filtered by job.
+func (p *SQLiteProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
+	if len(names) == 0 {
+		return []models.MetricMetadata{}, nil
+	}
+
+	// Build IN clause placeholders and args safely
+	placeholders := make([]string, len(names))
+	args := make([]any, 0, len(names)+1)
+	for i, n := range names {
+		placeholders[i] = "?"
+		args = append(args, n)
+	}
+
+	// Static base with parameterized placeholders; append job filter as parameter, not as formatted value
+	base := fmt.Sprintf(`
+        SELECT c.name, c.type, c.help, c.unit,
+               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
+        FROM metrics_catalog AS c
+        LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
+        WHERE c.name IN (%s)
+    `, strings.Join(placeholders, ","))
+
+	var query string
+	if job != "" {
+		query = base + " AND EXISTS (SELECT 1 FROM metrics_job_index j WHERE j.name = c.name AND j.job = ?)"
+		args = append(args, job)
+	} else {
+		query = base
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query series metadata by names: %w", err)
+	}
+	defer CloseResource(rows)
+
+	type row struct {
+		name, mtype, help, unit     string
+		alert, record, dash, qcount int
+		last                        sql.NullTime
+	}
+
+	results := make([]models.MetricMetadata, 0, len(names))
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		mm := models.MetricMetadata{
+			Name:           r.name,
+			Type:           r.mtype,
+			Help:           r.help,
+			Unit:           r.unit,
+			AlertCount:     r.alert,
+			RecordCount:    r.record,
+			DashboardCount: r.dash,
+			QueryCount:     r.qcount,
+		}
+		if r.last.Valid {
+			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
+		}
+		results = append(results, mm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return results, nil
 }
 
 func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error {
