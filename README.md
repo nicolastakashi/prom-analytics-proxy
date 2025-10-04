@@ -4,11 +4,22 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/nicolastakashi/prom-analytics-proxy)](https://goreportcard.com/report/github.com/nicolastakashi/prom-analytics-proxy)
 
+> **⚠️ IMPORTANT: Configuration Required**
+>
+> `prom-analytics-proxy` is a **man-in-the-middle proxy** that sits between your query clients (Grafana, Perses, etc.) and your metrics backend (Prometheus, Thanos, Cortex).
+>
+> **You MUST reconfigure your query clients to point at the proxy** (default port `:9091`) instead of directly to your metrics backend. Without this reconfiguration, the proxy will not capture any query traffic and you will see no analytics data.
+
 ## Table of Contents
 
 - [Overview](#overview)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
 - [Features](#features)
 - [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [API Reference](#api-reference)
 
 ## Overview
 
@@ -20,17 +31,99 @@
 
 *Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup.*
 
+## Architecture
+
+`prom-analytics-proxy` works as an intercepting proxy that must be placed between your query clients and your metrics backend. Understanding this architecture is crucial for successful deployment.
+
+```mermaid
+graph TB
+    subgraph clients["Query Clients"]
+        A[Grafana]
+        B[Perses]
+        C[Custom Apps]
+    end
+    
+    subgraph proxy["prom-analytics-proxy :9091"]
+        D[Proxy Layer]
+        E[Analytics Collection]
+        F[Web Dashboard]
+    end
+    
+    subgraph storage["Storage Layer"]
+        G[(PostgreSQL/SQLite<br/>Query History)]
+    end
+    
+    subgraph backend["Metrics Backend"]
+        H[Prometheus/Thanos/Cortex<br/>:9090]
+    end
+    
+    A -->|"① Configure datasource to :9091"| D
+    B -->|"① Configure datasource to :9091"| D
+    C -->|"① Send queries to :9091"| D
+    D -->|"② Forward queries"| H
+    H -->|"③ Return results"| D
+    D -->|"④ Return results"| A
+    D -->|"Capture metadata"| E
+    E -->|"Store analytics"| G
+    F -->|"Display insights"| G
+```
+
+### How It Works
+
+1. **Query Interception**: Your query clients (Grafana, Perses, etc.) send PromQL queries to the proxy instead of directly to your metrics backend
+2. **Query Forwarding**: The proxy forwards these queries to your actual Prometheus/Thanos/Cortex instance
+3. **Analytics Capture**: While proxying, it captures query patterns, execution times, series counts, and other metadata
+4. **Result Passthrough**: Query results are returned to the client transparently, maintaining full compatibility
+5. **Data Storage**: Analytics data is stored in PostgreSQL or SQLite for analysis
+6. **Visualization**: The built-in web UI provides insights into your query patterns and performance
+
+### Key Points
+
+- The proxy adds minimal latency to queries (typically <10ms)
+- It's completely transparent to query clients - they see the same API as Prometheus
+- No changes are required to your metrics backend
+- The proxy supports all PromQL query types (instant, range, series, labels, etc.)
+- Works with Prometheus, Thanos, Cortex, and any Prometheus-compatible backend
+
 ## Quick Start
 
+Get up and running in 3 simple steps:
+
+### 1. Start the Proxy
+
 ```bash
-# Clone the repository
 git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
 cd prom-analytics-proxy
-
-# Build and run
 make build
 ./prom-analytics-proxy -upstream http://your-prometheus-server:9090
 ```
+
+The proxy listens on port `:9091` by default.
+
+### 2. Reconfigure Your Query Clients
+
+**Critical:** Update your query clients (Grafana, Perses, etc.) to send queries to the proxy at port `:9091` instead of directly to your metrics backend.
+
+Example for Grafana: Change your Prometheus datasource URL from `http://prometheus:9090` to `http://prom-analytics-proxy:9091`.
+
+### 3. Verify Data Collection
+
+Open `http://localhost:9091` and execute some queries through your clients. You should see analytics data appear in the UI.
+
+**📖 See the complete [Quick Start Guide](docs/quick-start.md) for detailed setup instructions, configuration examples, and deployment patterns.**
+
+### Try It Out with Docker Compose
+
+Want to see it in action? Use our ready-to-run example:
+
+```bash
+cd examples
+docker compose up -d
+```
+
+This starts a complete stack with Prometheus, the proxy, PostgreSQL, Perses dashboards, and Metrics Usage tracking. Access the proxy UI at `http://localhost:9091`.
+
+See the [examples/](examples/) directory for configuration templates and integration examples.
 
 ## Features
 
@@ -224,7 +317,7 @@ The `prom-analytics-proxy` application integrates with Perses Metrics Usage to g
 
 Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
 
-You can find a sample configuration file for the Metrics Usage integration in the `config` directory.
+**Try it out:** The [examples/docker-compose.yaml](examples/docker-compose.yaml) includes a complete setup with Metrics Usage integration. Configuration files are available in [examples/config/metrics-usage/](examples/config/metrics-usage/).
 
 ### Inventory Configuration
 
@@ -249,11 +342,36 @@ inventory:
 - Increase `run_timeout` proportionally when processing many jobs (e.g., 300s for 1000+ jobs)
 - Each worker processes one job at a time, so more workers = faster job index building
 
+## Troubleshooting
+
+### Common Issues
+
+**Not seeing any data in the UI?**
+
+The most common issue is that query clients are still connecting directly to your metrics backend instead of through the proxy. Make sure you've reconfigured your clients (Grafana, Perses, etc.) to use the proxy URL (`:9091`).
+
+**Context deadline exceeded errors?**
+
+Your metrics backend may be slow to respond. Increase timeout values, especially for large Thanos deployments:
+
+```bash
+./prom-analytics-proxy \
+  -upstream http://thanos:9090 \
+  -inventory-job-index-per-job-timeout 60s \
+  -inventory-run-timeout 10m
+```
+
+**Performance issues?**
+
+Tune the insert buffer settings and consider using PostgreSQL instead of SQLite for better concurrent write performance.
+
+**📖 See the complete [Troubleshooting Guide](docs/troubleshooting.md) for detailed solutions to common issues, performance tuning, and debugging tips.**
+
 ## API Reference
 
 The proxy provides several API endpoints for accessing query analytics and metrics inventory data:
 
-### Query Analytics
+### Query Analytics API
 
 - `GET /api/v1/queries` - Retrieve query analytics data with pagination and filtering
 
