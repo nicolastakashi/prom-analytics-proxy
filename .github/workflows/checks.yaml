@@ -128,7 +128,7 @@ jobs:
           name: ui-dist
           path: ui/dist
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.0
+        run: go install gotest.tools/gotestsum@v1.13.0
       - name: Install go-ctrf-json-reporter
         run: go install github.com/ctrf-io/go-ctrf-json-reporter/cmd/go-ctrf-json-reporter@latest
       - name: Run unit tests and produce CTRF JSON
