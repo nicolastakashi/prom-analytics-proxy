@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Upstream        UpstreamConfig  `yaml:"upstream,omitempty"`
 	Server          ServerConfig    `yaml:"server,omitempty"`
+	Ingester        IngesterConfig  `yaml:"ingester,omitempty"`
 	Database        DatabaseConfig  `yaml:"database,omitempty"`
 	Insert          InsertConfig    `yaml:"insert,omitempty"`
 	Tracing         *otlp.Config    `yaml:"tracing,omitempty"`
@@ -113,6 +114,40 @@ var DefaultConfig = &Config{
 	QueryProcessing: QueryProcessing{
 		ExtractHTTPHeaders: []string{"user-agent"},
 	},
+	Ingester: IngesterConfig{
+		Protocol: string(ProtocolOTLP),
+		OTLP: OtlpIngesterConfig{
+			ListenAddress: ":4317",
+		},
+		GracefulShutdownTimeout: 30 * time.Second,
+		DrainDelay:              2 * time.Second,
+	},
+}
+
+type OtlpIngesterConfig struct {
+	ListenAddress     string `yaml:"listen_address,omitempty"`
+	DownstreamAddress string `yaml:"downstream_address,omitempty"`
+}
+
+type MetricIngesterProtocol string
+
+const (
+	ProtocolOTLP MetricIngesterProtocol = "otlp"
+)
+
+type IngesterConfig struct {
+	Protocol string             `yaml:"protocol,omitempty"`
+	OTLP     OtlpIngesterConfig `yaml:"otlp,omitempty"`
+	// DryRun when true, performs filtering analysis and records metrics
+	// but does not actually drop any data
+	DryRun bool `yaml:"dry_run,omitempty"`
+	// GracefulShutdownTimeout bounds the time we wait for in-flight RPCs and
+	// internal buffers to drain before forcing shutdown.
+	GracefulShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout,omitempty"`
+	// DrainDelay is an optional delay after marking health as NOT_SERVING to
+	// allow external load balancers to stop sending new traffic before we
+	// begin graceful shutdown.
+	DrainDelay time.Duration `yaml:"drain_delay,omitempty"`
 }
 
 func LoadConfig(path string) error {
