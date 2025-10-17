@@ -216,6 +216,13 @@ insert-timeout: "1s"
 ```
 
 ```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
+Usage:
+  /Users/nicolastakashi/Library/Caches/go-build/3d/3dc310fed7ae020b75eb67459fa8a5c8c57608f8ad69b35274e01a777b772122-d/main [command] [flags]
+
+Commands:
+  api     Run the proxy server (default)
+
+Flags:
   -config-file string
     	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
