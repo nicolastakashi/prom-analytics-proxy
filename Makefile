@@ -63,12 +63,12 @@ fix-golang: $(GOLANGCILINTER_BINARY)
 	$(GOLANGCILINTER_BINARY) run --fix
 
 .PHONY: docs
-docs: $(MDOX_BINARY)
+docs: build $(MDOX_BINARY)
 	@echo ">> formatting and local/remote link check"
 	$(MDOX_BINARY) fmt --soft-wraps -l --links.validate.config-file=$(MDOX_VALIDATE_CONFIG) $(MD_FILES_TO_FORMAT)
 
 .PHONY: check-docs
-check-docs: $(MDOX_BINARY)
+check-docs: build $(MDOX_BINARY)
 	@echo ">> checking formatting and local/remote links"
 	$(MDOX_BINARY) fmt --soft-wraps --check -l --links.validate.config-file=$(MDOX_VALIDATE_CONFIG) $(MD_FILES_TO_FORMAT)
 

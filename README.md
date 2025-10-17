@@ -217,7 +217,7 @@ insert-timeout: "1s"
 
 ```bash mdox-exec="./bin/prom-analytics-proxy --help" mdox-expect-exit-code=0
 Usage:
-  prom-analytics-proxy [command] [flags]
+  ./bin/prom-analytics-proxy [command] [flags]
 
 Commands:
   api     Run the proxy server (default)
