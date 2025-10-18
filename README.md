@@ -215,7 +215,14 @@ insert-grace-period: "5s"
 insert-timeout: "1s"
 ```
 
-```bash mdox-exec="go run main.go --help" mdox-expect-exit-code=0
+```bash mdox-exec="./bin/prom-analytics-proxy --help" mdox-expect-exit-code=0
+Usage:
+  ./bin/prom-analytics-proxy [command] [flags]
+
+Commands:
+  api     Run the proxy server (default)
+
+Flags:
   -config-file string
     	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
