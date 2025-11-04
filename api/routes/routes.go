@@ -110,7 +110,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
 
-		mux.Handle("/api/v1/request", http.HandlerFunc(r.addRequest))
+		mux.Handle("/api/v1/backfill", http.HandlerFunc(r.backfill))
 		r.mux = mux
 	}
 }
@@ -270,7 +270,7 @@ func validateQuery(query db.Query) (db.Query, error) {
 	return query, nil
 }
 
-func (r *routes) addRequests(w http.ResponseWriter, req *http.Request) {
+func (r *routes) backfill(w http.ResponseWriter, req *http.Request) {
 	queries := []db.Query{}
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
