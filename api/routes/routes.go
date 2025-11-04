@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,8 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
+
+		mux.Handle("/api/v1/request", http.HandlerFunc(r.addRequest))
 		r.mux = mux
 	}
 }
@@ -231,6 +234,58 @@ func writeJSONResponse(req *http.Request, w http.ResponseWriter, response interf
 
 func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 	r.handler.ServeHTTP(w, req)
+}
+
+func validateQuery(query db.Query) (db.Query, error) {
+	if query.QueryParam == "" {
+		return query, fmt.Errorf("missing query parameter")
+	}
+	if query.TimeParam.IsZero() {
+		return query, fmt.Errorf("missing time parameter")
+	}
+	if !slices.Contains(db.KnownQueryTypes, query.Type) {
+		return query, fmt.Errorf("invalid query type: %s, only supported is %s", query.Type, db.KnownQueryTypes)
+	}
+	if http.StatusText(query.StatusCode) == "" {
+		return query, fmt.Errorf("invalid status code: %d", query.StatusCode)
+	}
+	if query.Duration < 0 {
+		return query, fmt.Errorf("invalid duration: %d", query.Duration)
+	}
+	if query.BodySize < 0 {
+		return query, fmt.Errorf("invalid body size: %d", query.BodySize)
+	}
+	if query.Start.IsZero() {
+		return query, fmt.Errorf("missing start parameter")
+	}
+	if query.End.IsZero() {
+		return query, fmt.Errorf("missing end parameter")
+	}
+	if query.Type == db.QueryTypeRange && query.End.Before(query.Start) {
+		return query, fmt.Errorf("invalid range: end before start")
+	}
+	if query.Type == db.QueryTypeRange && query.Step <= 0 {
+		return query, fmt.Errorf("invalid step: %d", query.Step)
+	}
+	return query, nil
+}
+
+func (r *routes) addRequests(w http.ResponseWriter, req *http.Request) {
+	queries := []db.Query{}
+	decoder := json.NewDecoder(req.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&queries); err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+	for _, query := range queries {
+		validatedQuery, err := validateQuery(query)
+		if err != nil {
+			writeErrorResponse(req, w, err, http.StatusBadRequest)
+			return
+		}
+		r.queryIngester.Ingest(validatedQuery)
+	}
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
