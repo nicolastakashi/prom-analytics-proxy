@@ -62,7 +62,7 @@ var (
 			Name: "ingester_export_metrics_dropped_total",
 			Help: "Total number of metrics dropped during filtering",
 		},
-		[]string{"protocol", "reason"},
+		[]string{"protocol"},
 	)
 
 	datapointsDroppedTotal = promauto.NewCounterVec(
@@ -70,7 +70,7 @@ var (
 			Name: "ingester_export_datapoints_dropped_total",
 			Help: "Total number of datapoints dropped during filtering",
 		},
-		[]string{"protocol", "reason"},
+		[]string{"protocol"},
 	)
 
 	lookupErrorsTotal = promauto.NewCounterVec(
@@ -98,6 +98,10 @@ var (
 		},
 		[]string{"protocol"},
 	)
+)
+
+const (
+	protocol = "otlp"
 )
 
 func NewOtlpIngester(config *config.Config, dbProvider db.Provider) *OtlpIngester {
@@ -194,10 +198,6 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 // See original implementation notes in the prior file; logic unchanged.
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
-	protocol := "otlp"
-	if i.config != nil && i.config.Ingester.Protocol != "" {
-		protocol = i.config.Ingester.Protocol
-	}
 	labels := prometheus.Labels{
 		"protocol": protocol,
 	}
@@ -304,21 +304,8 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		}
 	}
 
-	if droppedDatapoints > 0 {
-		dropLabels := prometheus.Labels{
-			"protocol": protocol,
-			"reason":   "unused",
-		}
-		datapointsDroppedTotal.With(dropLabels).Add(float64(droppedDatapoints))
-	}
-	if droppedMetrics > 0 {
-		dropLabels := prometheus.Labels{
-			"protocol": protocol,
-			"reason":   "unused",
-		}
-		metricsDroppedTotal.With(dropLabels).Add(float64(droppedMetrics))
-	}
-
+	datapointsDroppedTotal.With(labels).Add(float64(droppedDatapoints))
+	metricsDroppedTotal.With(labels).Add(float64(droppedMetrics))
 	exportDurationMs.With(labels).Observe(float64(time.Since(start).Milliseconds()))
 
 	if i.exporter == nil {
