@@ -1,6 +1,6 @@
 module github.com/nicolastakashi/promcon-2025/promqlsmith
 
-go 1.25.1
+go 1.25
 
 require (
 	github.com/cortexproject/promqlsmith v0.0.0-20250429034839-226ab9cf9540
