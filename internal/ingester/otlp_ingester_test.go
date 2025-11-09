@@ -21,35 +21,30 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
-
-	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
-
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
-
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 )
 
 type mockUsageProvider struct{ MockDBProvider }
 
-func buildGaugeMetric(name string, n int) *metricpb.Metric {
-	dps := make([]*metricpb.NumberDataPoint, 0, n)
+func buildGaugeMetric(name string, n int) *metricspb.Metric {
+	dps := make([]*metricspb.NumberDataPoint, 0, n)
 	for i := 0; i < n; i++ {
-		dps = append(dps, &metricpb.NumberDataPoint{Attributes: []*commonpb.KeyValue{}})
+		dps = append(dps, &metricspb.NumberDataPoint{Attributes: []*commonpb.KeyValue{}})
 	}
-	return &metricpb.Metric{
+	return &metricspb.Metric{
 		Name: name,
-		Data: &metricpb.Metric_Gauge{Gauge: &metricpb.Gauge{DataPoints: dps}},
+		Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: dps}},
 	}
 }
 
-func buildExportRequest(metrics ...*metricpb.Metric) *colmetricspb.ExportMetricsServiceRequest {
+func buildExportRequest(metrics ...*metricspb.Metric) *colmetricspb.ExportMetricsServiceRequest {
 	return &colmetricspb.ExportMetricsServiceRequest{
-		ResourceMetrics: []*metricpb.ResourceMetrics{
+		ResourceMetrics: []*metricspb.ResourceMetrics{
 			{
 				Resource:     &resourcepb.Resource{},
-				ScopeMetrics: []*metricpb.ScopeMetrics{{Metrics: metrics}},
+				ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: metrics}},
 			},
 		},
 	}
@@ -144,19 +139,19 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
-func buildGaugeMetricN(name string, dps int) *metricpb.Metric {
-	points := make([]*metricpb.NumberDataPoint, 0, dps)
+func buildGaugeMetricN(name string, dps int) *metricspb.Metric {
+	points := make([]*metricspb.NumberDataPoint, 0, dps)
 	for i := 0; i < dps; i++ {
-		points = append(points, &metricpb.NumberDataPoint{Attributes: []*commonpb.KeyValue{}})
+		points = append(points, &metricspb.NumberDataPoint{Attributes: []*commonpb.KeyValue{}})
 	}
-	return &metricpb.Metric{
+	return &metricspb.Metric{
 		Name: name,
-		Data: &metricpb.Metric_Gauge{Gauge: &metricpb.Gauge{DataPoints: points}},
+		Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: points}},
 	}
 }
 
 func buildRequestN(metricsCount, dpsPerMetric int) *colmetricspb.ExportMetricsServiceRequest {
-	ms := make([]*metricpb.Metric, 0, metricsCount)
+	ms := make([]*metricspb.Metric, 0, metricsCount)
 	for i := 0; i < metricsCount; i++ {
 		name := "metric_" + strconv.Itoa(i)
 		ms = append(ms, buildGaugeMetricN(name, dpsPerMetric))
@@ -282,10 +277,10 @@ func TestOTLPIngester_Integration_UnusedFiltering_PostgreSQL(t *testing.T) {
 	assert.NoError(t, prov.Insert(context.Background(), []db.Query{q}))
 	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}))
 
-	buildGauge := func(name string) *metricpb.Metric {
-		return &metricpb.Metric{Name: name, Data: &metricpb.Metric_Gauge{Gauge: &metricpb.Gauge{DataPoints: []*metricpb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
+	buildGauge := func(name string) *metricspb.Metric {
+		return &metricspb.Metric{Name: name, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
 	}
-	req := &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{Resource: &resourcepb.Resource{}, ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricpb.Metric{buildGauge("used_metric"), buildGauge("unused_metric")}}}}}}
+	req := &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{Resource: &resourcepb.Resource{}, ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricspb.Metric{buildGauge("used_metric"), buildGauge("unused_metric")}}}}}}
 
 	ing := NewOtlpIngester(config.DefaultConfig, prov)
 	ing.SetExporter(&captureExporter{})
@@ -326,8 +321,14 @@ service:
 		Image:        "otel/opentelemetry-collector:0.136.0",
 		ExposedPorts: []string{"4317/tcp"},
 		Cmd:          []string{"--config", "/etc/otelcol/config.yaml"},
-		Mounts:       testcontainers.Mounts(testcontainers.BindMount(tmp, "/etc/otelcol")),
-		WaitingFor:   wait.ForLog("Everything is ready").WithStartupTimeout(60 * time.Second),
+		Files: []testcontainers.ContainerFile{
+			{
+				HostFilePath:      cfgPath,
+				ContainerFilePath: "/etc/otelcol/config.yaml",
+				FileMode:          0644,
+			},
+		},
+		WaitingFor: wait.ForLog("Everything is ready").WithStartupTimeout(60 * time.Second),
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
@@ -348,7 +349,9 @@ service:
 		if err != nil {
 			return "", err
 		}
-		defer rc.Close()
+		defer func() {
+			_ = rc.Close()
+		}()
 		b, err := io.ReadAll(rc)
 		if err != nil {
 			return "", err
@@ -372,14 +375,16 @@ func TestOTLPIngester_Integration_DownstreamCollector(t *testing.T) {
 	assert.NoError(t, prov.Insert(context.Background(), []db.Query{{TS: now, QueryParam: "used_metric", TimeParam: now, Duration: 5 * time.Millisecond, StatusCode: 200, LabelMatchers: db.LabelMatchers{{"__name__": "used_metric"}}, Type: db.QueryTypeInstant}}))
 	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}))
 
-	buildGauge := func(name string) *metricpb.Metric {
-		return &metricpb.Metric{Name: name, Data: &metricpb.Metric_Gauge{Gauge: &metricpb.Gauge{DataPoints: []*metricpb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
+	buildGauge := func(name string) *metricspb.Metric {
+		return &metricspb.Metric{Name: name, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
 	}
-	req := &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{Resource: &resourcepb.Resource{}, ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricpb.Metric{buildGauge("used_metric"), buildGauge("unused_metric")}}}}}}
+	req := &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{Resource: &resourcepb.Resource{}, ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricspb.Metric{buildGauge("used_metric"), buildGauge("unused_metric")}}}}}}
 
 	exp, err := otlppkg.NewOTLPExporter(endpoint, string(config.ProtocolOTLP), nil)
 	assert.NoError(t, err)
-	defer exp.Close()
+	defer func() {
+		_ = exp.Close()
+	}()
 	ing := NewOtlpIngester(config.DefaultConfig, prov)
 	ing.SetExporter(exp)
 	_, err = ing.Export(context.Background(), req)
