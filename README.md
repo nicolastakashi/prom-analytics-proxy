@@ -48,15 +48,15 @@ graph TB
         E[Analytics Collection]
         F[Web Dashboard]
     end
-    
+
     subgraph storage["Storage Layer"]
         G[(PostgreSQL/SQLite<br/>Query History)]
     end
-    
+
     subgraph backend["Metrics Backend"]
         H[Prometheus/Thanos/Cortex<br/>:9090]
     end
-    
+
     A -->|"① Configure datasource to :9091"| D
     B -->|"① Configure datasource to :9091"| D
     C -->|"① Send queries to :9091"| D
@@ -439,6 +439,10 @@ curl "http://localhost:9091/api/v1/seriesMetadata?filter=http&type=counter"
   }
 }
 ```
+
+### Push Query Data using API
+
+- `POST /api/v1/query/push` - Push query data to the server, for cases when you have other means of collecting PromQL queries stats
 
 ### Metrics Discovery
 

@@ -110,7 +110,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
 
-		mux.Handle("/api/v1/backfill", http.HandlerFunc(r.backfill))
+		mux.Handle("/api/v1/query/push", http.HandlerFunc(r.queryPush))
 		r.mux = mux
 	}
 }
@@ -265,12 +265,16 @@ func validateQuery(query db.Query) (db.Query, error) {
 		return query, fmt.Errorf("invalid range: end before start")
 	}
 	if query.Type == db.QueryTypeRange && query.Step <= 0 {
-		return query, fmt.Errorf("invalid step: %d", query.Step)
+		return query, fmt.Errorf("invalid step: %f", query.Step)
 	}
 	return query, nil
 }
 
-func (r *routes) backfill(w http.ResponseWriter, req *http.Request) {
+func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		writeErrorResponse(req, w, fmt.Errorf("invalid request method: %s", req.Method), http.StatusMethodNotAllowed)
+		return
+	}
 	queries := []db.Query{}
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
