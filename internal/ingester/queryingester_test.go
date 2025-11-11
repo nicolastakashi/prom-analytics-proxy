@@ -281,6 +281,7 @@ func TestQueryIngester_NewQueryIngester_WithOptions(t *testing.T) {
 	mockDB := new(MockDBProvider)
 
 	ingester := NewQueryIngester(
+		nil,
 		mockDB,
 		WithBufferSize(100),
 		WithIngestTimeout(2*time.Second),
@@ -300,7 +301,7 @@ func TestQueryIngester_NewQueryIngester_WithOptions(t *testing.T) {
 func TestQueryIngester_NewQueryIngester_WithDefaults(t *testing.T) {
 	mockDB := new(MockDBProvider)
 
-	ingester := NewQueryIngester(mockDB)
+	ingester := NewQueryIngester(nil, mockDB)
 
 	assert.Equal(t, mockDB, ingester.dbProvider)
 	assert.Equal(t, 0, cap(ingester.queriesC)) // Default channel size
