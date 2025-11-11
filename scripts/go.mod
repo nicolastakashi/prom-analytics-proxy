@@ -1,6 +1,6 @@
 module github.com/nicolastakashi/prom-analytics-proxy/tooling
 
-go 1.25.3
+go 1.25
 
 require (
 	github.com/bwplotka/mdox v0.9.0
