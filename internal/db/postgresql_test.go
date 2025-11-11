@@ -1,5 +1,4 @@
 //go:build docker
-
 package db
 
 import (
