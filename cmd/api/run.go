@@ -79,6 +79,7 @@ func Run(uiFS fs.FS) error {
 	}()
 
 	queryIngester := ingester.NewQueryIngester(
+		reg,
 		dbProvider,
 		ingester.WithBufferSize(config.DefaultConfig.Insert.BufferSize),
 		ingester.WithIngestTimeout(config.DefaultConfig.Insert.Timeout),

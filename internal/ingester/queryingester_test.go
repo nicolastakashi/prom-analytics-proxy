@@ -8,6 +8,7 @@ import (
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -156,14 +157,15 @@ func (m *MockDBProvider) GetSeriesMetadataByNames(ctx context.Context, names []s
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           2,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(2),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -186,14 +188,15 @@ func TestQueryIngester_Run(t *testing.T) {
 func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           2,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithIngestTimeout(1*time.Second),
+		WithShutdownGracePeriod(1*time.Second),
+		WithBatchSize(2),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -218,14 +221,15 @@ func TestQueryIngester_Run_ShutdownGracePeriod(t *testing.T) {
 func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           10,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(10),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -245,11 +249,12 @@ func TestQueryIngester_Run_BatchFlushInterval(t *testing.T) {
 
 func TestQueryIngester_Ingest_WhenClosed(t *testing.T) {
 	mockDB := new(MockDBProvider)
-	ingester := &QueryIngester{
-		dbProvider: mockDB,
-		queriesC:   make(chan db.Query, 1),
-		closed:     true,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+	)
+	ingester.queriesC = make(chan db.Query, 1)
+	ingester.closed = true
 
 	query := db.Query{QueryParam: "up"}
 	ingester.Ingest(query)
@@ -260,11 +265,12 @@ func TestQueryIngester_Ingest_WhenClosed(t *testing.T) {
 
 func TestQueryIngester_Ingest_WhenBufferFull(t *testing.T) {
 	mockDB := new(MockDBProvider)
-	ingester := &QueryIngester{
-		dbProvider: mockDB,
-		queriesC:   make(chan db.Query, 1), // Small buffer
-		closed:     false,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+	)
+	ingester.queriesC = make(chan db.Query, 1) // Small buffer
+	ingester.closed = false
 
 	// Fill the buffer
 	query1 := db.Query{QueryParam: "up"}
@@ -281,6 +287,7 @@ func TestQueryIngester_NewQueryIngester_WithOptions(t *testing.T) {
 	mockDB := new(MockDBProvider)
 
 	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
 		mockDB,
 		WithBufferSize(100),
 		WithIngestTimeout(2*time.Second),
@@ -300,7 +307,7 @@ func TestQueryIngester_NewQueryIngester_WithOptions(t *testing.T) {
 func TestQueryIngester_NewQueryIngester_WithDefaults(t *testing.T) {
 	mockDB := new(MockDBProvider)
 
-	ingester := NewQueryIngester(mockDB)
+	ingester := NewQueryIngester(prometheus.NewRegistry(), mockDB)
 
 	assert.Equal(t, mockDB, ingester.dbProvider)
 	assert.Equal(t, 0, cap(ingester.queriesC)) // Default channel size
@@ -448,14 +455,15 @@ func TestLabelMatchersFromQuery_InvalidQueries(t *testing.T) {
 func TestQueryIngester_Run_WithDatabaseError(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           2,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(2),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -479,14 +487,15 @@ func TestQueryIngester_Run_WithDatabaseError(t *testing.T) {
 func TestQueryIngester_Run_WithTimeout(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       100 * time.Millisecond, // Short timeout
-		batchSize:           2,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(100*time.Millisecond), // Short timeout
+		WithBatchSize(2),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -512,14 +521,15 @@ func TestQueryIngester_Run_WithTimeout(t *testing.T) {
 func TestQueryIngester_Run_EmptyBatch(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           2,
-		batchFlushInterval:  500 * time.Millisecond,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(2),
+		WithBatchFlushInterval(500*time.Millisecond),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -536,14 +546,15 @@ func TestQueryIngester_Run_EmptyBatch(t *testing.T) {
 func TestQueryIngester_Run_LargeBatch(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 1 * time.Second,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           3,
-		batchFlushInterval:  1 * time.Second,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(1*time.Second),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(3),
+		WithBatchFlushInterval(1*time.Second),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -576,14 +587,15 @@ func TestQueryIngester_Run_LargeBatch(t *testing.T) {
 func TestQueryIngester_DrainWithGracePeriod(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
-	ingester := &QueryIngester{
-		dbProvider:          mockDB,
-		queriesC:            queriesC,
-		shutdownGracePeriod: 500 * time.Millisecond,
-		ingestTimeout:       1 * time.Second,
-		batchSize:           2,
-		batchFlushInterval:  1 * time.Second,
-	}
+	ingester := NewQueryIngester(
+		prometheus.NewRegistry(),
+		mockDB,
+		WithShutdownGracePeriod(500*time.Millisecond),
+		WithIngestTimeout(1*time.Second),
+		WithBatchSize(2),
+		WithBatchFlushInterval(1*time.Second),
+	)
+	ingester.queriesC = queriesC
 
 	ctx, cancel := context.WithCancel(context.Background())
 
