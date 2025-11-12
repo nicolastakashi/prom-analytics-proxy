@@ -27,8 +27,8 @@ type QueryIngester struct {
 	batchSize           int
 	batchFlushInterval  time.Duration
 
-	droppedQueriesTotal  *prometheus.CounterVec
-	batchSizeHistogram   prometheus.Histogram
+	droppedQueriesTotal *prometheus.CounterVec
+	batchSizeHistogram  prometheus.Histogram
 }
 
 type QueryIngesterOption func(*QueryIngester)
@@ -82,11 +82,16 @@ func NewQueryIngester(reg prometheus.Registerer, dbProvider db.Provider, opts ..
 		},
 		[]string{"reason"},
 	)
+	bucketCount := 10
+	maxBucket := 100
+	if qi.batchSize > bucketCount {
+		maxBucket = qi.batchSize
+	}
 	qi.batchSizeHistogram = promauto.With(reg).NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "query_ingester_batch_size",
 			Help:    "Histogram of batch sizes ingested",
-			Buckets: prometheus.ExponentialBucketsRange(1, float64(qi.batchSize), 10),
+			Buckets: prometheus.ExponentialBucketsRange(1, float64(maxBucket), bucketCount),
 		},
 	)
 
@@ -163,7 +168,7 @@ func (i *QueryIngester) drainWithGracePeriod(batch []db.Query) {
 func (i *QueryIngester) ingest(ctx context.Context, queries []db.Query) {
 	ingestCtx, ingestCancel := context.WithTimeout(ctx, i.ingestTimeout)
 	defer ingestCancel()
-	
+
 	i.batchSizeHistogram.Observe(float64(len(queries)))
 	traceContext, span := otel.Tracer("query-ingester").Start(ingestCtx, "ingest")
 	defer span.End()
