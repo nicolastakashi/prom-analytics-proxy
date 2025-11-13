@@ -243,6 +243,7 @@ func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 }
 
 func validateQuery(query db.Query) (db.Query, error) {
+	query.TS = time.Now().UTC()
 	if query.QueryParam == "" {
 		return query, fmt.Errorf("missing query parameter")
 	}

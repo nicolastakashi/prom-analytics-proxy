@@ -273,6 +273,7 @@ func TestValidateQuery(t *testing.T) {
 				if err != nil {
 					t.Errorf("validateQuery() unexpected error = %v", err)
 				}
+				tt.query.TS = result.TS
 				assert.Equal(t, tt.query, result, "validateQuery() result mismatch")
 			}
 		})
