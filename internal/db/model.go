@@ -14,23 +14,27 @@ const (
 	SQLite           DatabaseProvider = "sqlite"
 )
 
+var (
+	KnownQueryTypes = []QueryType{QueryTypeRange, QueryTypeInstant}
+)
+
 type LabelMatchers []map[string]string
 
 type Query struct {
-	TS                    time.Time
-	QueryParam            string
-	TimeParam             time.Time
-	Duration              time.Duration
-	StatusCode            int
-	BodySize              int
-	LabelMatchers         LabelMatchers
-	Fingerprint           string
-	Type                  QueryType
-	Step                  float64
-	Start                 time.Time
-	End                   time.Time
-	TotalQueryableSamples int
-	PeakSamples           int
+	TS                    time.Time     `json:"-"`
+	QueryParam            string        `json:"query_param"`
+	TimeParam             time.Time     `json:"time_param"`
+	Duration              time.Duration `json:"duration"`
+	StatusCode            int           `json:"status_code"`
+	BodySize              int           `json:"body_size"`
+	LabelMatchers         LabelMatchers `json:"-"`
+	Fingerprint           string        `json:"-"`
+	Type                  QueryType     `json:"type"`
+	Step                  float64       `json:"step"`
+	Start                 time.Time     `json:"start"`
+	End                   time.Time     `json:"end"`
+	TotalQueryableSamples int           `json:"total_queryable_samples"`
+	PeakSamples           int           `json:"peak_samples"`
 }
 
 type QueryTypesResult struct {

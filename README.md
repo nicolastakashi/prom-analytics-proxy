@@ -42,21 +42,21 @@ graph TB
         B[Perses]
         C[Custom Apps]
     end
-    
+
     subgraph proxy["prom-analytics-proxy :9091"]
         D[Proxy Layer]
         E[Analytics Collection]
         F[Web Dashboard]
     end
-    
+
     subgraph storage["Storage Layer"]
         G[(PostgreSQL/SQLite<br/>Query History)]
     end
-    
+
     subgraph backend["Metrics Backend"]
         H[Prometheus/Thanos/Cortex<br/>:9090]
     end
-    
+
     A -->|"① Configure datasource to :9091"| D
     B -->|"① Configure datasource to :9091"| D
     C -->|"① Send queries to :9091"| D
@@ -438,6 +438,31 @@ curl "http://localhost:9091/api/v1/seriesMetadata?filter=http&type=counter"
     "totalPages": 8
   }
 }
+```
+
+### Push Query Data using API
+
+`POST /api/v1/query/push` Push query data to the server, for cases when you have other means of collecting PromQL queries stats.
+
+#### Request Format
+
+```jsonnet
+[
+  {
+    "type": "instant",                     // REQUIRED Type of the query, one of `range` or `instant`
+    "query_param": "up{job='foobar'}",     // REQUIRED The PromQL expression of the query
+    "time_param": "2024-01-15T10:30:00Z",  // The time when the query was evaluated, only for type `instant` in RFC 3339 format
+    "duration": 250000000,                 // Duration of the query in nanoseconds
+    "status_code": 200,                    // REQUIRED Valid HTTP status code, see https://go.dev/src/net/http/status.go
+    "body_size": 512,                      // Response body size in bytes
+    "step": 15,                            // REQUIRED(for type `range`) Range query step in seconds
+    "start": "2024-01-15T10:30:00Z",       // REQUIRED(for type `range`) Range query start time in RFC 3339 format
+    "end": "2024-01-15T10:30:00Z",         // REQUIRED(for type `range`) Range query end in RFC 3339 format
+    "total_queryable_samples": 1000,       // Total samples that were queryable
+    "peak_samples": 1000,                  // Maximum samples processed at any point in time
+  },
+  ...
+]
 ```
 
 ### Metrics Discovery
