@@ -21,7 +21,7 @@ var (
 type LabelMatchers []map[string]string
 
 type Query struct {
-	TS                    time.Time     `json:"timestamp"`
+	TS                    time.Time     `json:"-"`
 	QueryParam            string        `json:"query_param"`
 	TimeParam             time.Time     `json:"time_param"`
 	Duration              time.Duration `json:"duration"`
