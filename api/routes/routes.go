@@ -180,6 +180,11 @@ func (r *routes) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mux.ServeHTTP(w, req)
 }
 
+// Default/fallback to current UTC time.
+func defaultTimeParam() time.Time {
+	return time.Now().UTC()
+}
+
 func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		// Attempt RFC3339 parsing first.
@@ -203,16 +208,17 @@ func getTimeParam(req *http.Request, param string) time.Time {
 		slog.Error("failed to parse time parameter", "param", param, "value", timeParam)
 	}
 
-	// Default/fallback to current UTC time.
-	return time.Now().UTC()
+	return defaultTimeParam()
 }
+
+const defaultStep = 15.0
 
 func getStepParam(req *http.Request) float64 {
 	if stepParam := req.FormValue("step"); stepParam != "" {
 		step, _ := strconv.ParseFloat(stepParam, 64)
 		return step
 	}
-	return 15
+	return defaultStep
 }
 
 func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int, error) {
@@ -241,7 +247,13 @@ func validateQuery(query db.Query) (db.Query, error) {
 		return query, fmt.Errorf("missing query parameter")
 	}
 	if query.TimeParam.IsZero() {
-		return query, fmt.Errorf("missing time parameter")
+		query.TimeParam = defaultTimeParam()
+	}
+	if query.BodySize < 0 {
+		return query, fmt.Errorf("invalid body size: %d", query.BodySize)
+	}
+	if query.Duration < 0 {
+		return query, fmt.Errorf("invalid duration: %s", query.Duration)
 	}
 	if !slices.Contains(db.KnownQueryTypes, query.Type) {
 		return query, fmt.Errorf("invalid query type: %s, only supported is %s", query.Type, db.KnownQueryTypes)
@@ -249,24 +261,33 @@ func validateQuery(query db.Query) (db.Query, error) {
 	if http.StatusText(query.StatusCode) == "" {
 		return query, fmt.Errorf("invalid status code: %d", query.StatusCode)
 	}
-	if query.Duration < 0 {
-		return query, fmt.Errorf("invalid duration: %d", query.Duration)
-	}
-	if query.BodySize < 0 {
-		return query, fmt.Errorf("invalid body size: %d", query.BodySize)
-	}
-	if query.Start.IsZero() {
-		return query, fmt.Errorf("missing start parameter")
-	}
-	if query.End.IsZero() {
-		return query, fmt.Errorf("missing end parameter")
-	}
-	if query.Type == db.QueryTypeRange && query.End.Before(query.Start) {
-		return query, fmt.Errorf("invalid range: end before start")
-	}
-	if query.Type == db.QueryTypeRange && query.Step <= 0 {
+	if query.Step < 0 {
 		return query, fmt.Errorf("invalid step: %f", query.Step)
 	}
+
+	switch query.Type {
+	case db.QueryTypeRange:
+		if query.Step <= 0 {
+			query.Step = defaultStep
+		}
+		if query.Start.IsZero() {
+			return query, fmt.Errorf("missing start parameter")
+		}
+		if query.End.IsZero() {
+			return query, fmt.Errorf("missing end parameter")
+		}
+		if query.End.Before(query.Start) {
+			return query, fmt.Errorf("invalid range: end before start")
+		}
+	case db.QueryTypeInstant:
+		if query.Start.IsZero() {
+			query.Start = query.TimeParam
+		}
+		if query.End.IsZero() {
+			query.End = query.TimeParam
+		}
+	}
+
 	return query, nil
 }
 
@@ -452,7 +473,6 @@ func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Reques
 }
 
 func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
-
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 	metric_name := req.FormValue("metricName")

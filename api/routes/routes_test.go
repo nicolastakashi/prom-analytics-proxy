@@ -136,21 +136,6 @@ func TestValidateQuery(t *testing.T) {
 			errorMsg:  "missing query parameter",
 		},
 		{
-			name: "missing time parameter",
-			query: db.Query{
-				QueryParam: "up",
-				TimeParam:  time.Time{},
-				Type:       db.QueryTypeInstant,
-				StatusCode: 200,
-				Duration:   100 * time.Millisecond,
-				BodySize:   1024,
-				Start:      now.Add(-1 * time.Hour),
-				End:        now,
-			},
-			wantError: true,
-			errorMsg:  "missing time parameter",
-		},
-		{
 			name: "invalid query type",
 			query: db.Query{
 				QueryParam: "up",
@@ -211,11 +196,11 @@ func TestValidateQuery(t *testing.T) {
 			errorMsg:  "invalid body size",
 		},
 		{
-			name: "missing start parameter",
+			name: "missing start parameter for range query",
 			query: db.Query{
 				QueryParam: "up",
 				TimeParam:  now,
-				Type:       db.QueryTypeInstant,
+				Type:       db.QueryTypeRange,
 				StatusCode: 200,
 				Duration:   100 * time.Millisecond,
 				BodySize:   1024,
@@ -226,11 +211,11 @@ func TestValidateQuery(t *testing.T) {
 			errorMsg:  "missing start parameter",
 		},
 		{
-			name: "missing end parameter",
+			name: "missing end parameter for range query",
 			query: db.Query{
 				QueryParam: "up",
 				TimeParam:  now,
-				Type:       db.QueryTypeInstant,
+				Type:       db.QueryTypeRange,
 				StatusCode: 200,
 				Duration:   100 * time.Millisecond,
 				BodySize:   1024,
@@ -255,22 +240,6 @@ func TestValidateQuery(t *testing.T) {
 			},
 			wantError: true,
 			errorMsg:  "invalid range: end before start",
-		},
-		{
-			name: "range query with zero step",
-			query: db.Query{
-				QueryParam: "up",
-				TimeParam:  now,
-				Type:       db.QueryTypeRange,
-				StatusCode: 200,
-				Duration:   100 * time.Millisecond,
-				BodySize:   1024,
-				Start:      now.Add(-1 * time.Hour),
-				End:        now,
-				Step:       0,
-			},
-			wantError: true,
-			errorMsg:  "invalid step",
 		},
 		{
 			name: "range query with negative step",
