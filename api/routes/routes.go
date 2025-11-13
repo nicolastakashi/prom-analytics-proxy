@@ -364,6 +364,10 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	query.StatusCode = recw.GetStatusCode()
 	query.BodySize = recw.GetBodySize()
 
+	for _, header := range r.config.QueryProcessing.ExtractHTTPHeaders {
+		query.Metadata[header] = req.Header.Get(header)
+	}
+
 	r.queryIngester.Ingest(query)
 }
 

@@ -11,15 +11,20 @@ import (
 )
 
 type Config struct {
-	Upstream      UpstreamConfig  `yaml:"upstream,omitempty"`
-	Server        ServerConfig    `yaml:"server,omitempty"`
-	Database      DatabaseConfig  `yaml:"database,omitempty"`
-	Insert        InsertConfig    `yaml:"insert,omitempty"`
-	Tracing       *otlp.Config    `yaml:"tracing,omitempty"`
-	MetadataLimit uint64          `yaml:"metadata_limit,omitempty"`
-	SeriesLimit   uint64          `yaml:"series_limit,omitempty"`
-	CORS          CORSConfig      `yaml:"cors,omitempty"`
-	Inventory     InventoryConfig `yaml:"inventory,omitempty"`
+	Upstream        UpstreamConfig  `yaml:"upstream,omitempty"`
+	Server          ServerConfig    `yaml:"server,omitempty"`
+	Database        DatabaseConfig  `yaml:"database,omitempty"`
+	Insert          InsertConfig    `yaml:"insert,omitempty"`
+	Tracing         *otlp.Config    `yaml:"tracing,omitempty"`
+	MetadataLimit   uint64          `yaml:"metadata_limit,omitempty"`
+	SeriesLimit     uint64          `yaml:"series_limit,omitempty"`
+	CORS            CORSConfig      `yaml:"cors,omitempty"`
+	Inventory       InventoryConfig `yaml:"inventory,omitempty"`
+	QueryProcessing QueryProcessing `yaml:"query_processing,omitempty"`
+}
+
+type QueryProcessing struct {
+	ExtractHTTPHeaders []string `yaml:"extract_http_headers,omitempty"`
 }
 
 type DatabaseConfig struct {

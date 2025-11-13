@@ -21,20 +21,21 @@ var (
 type LabelMatchers []map[string]string
 
 type Query struct {
-	TS                    time.Time     `json:"-"`
-	QueryParam            string        `json:"query_param"`
-	TimeParam             time.Time     `json:"time_param"`
-	Duration              time.Duration `json:"duration"`
-	StatusCode            int           `json:"status_code"`
-	BodySize              int           `json:"body_size"`
-	LabelMatchers         LabelMatchers `json:"-"`
-	Fingerprint           string        `json:"-"`
-	Type                  QueryType     `json:"type"`
-	Step                  float64       `json:"step"`
-	Start                 time.Time     `json:"start"`
-	End                   time.Time     `json:"end"`
-	TotalQueryableSamples int           `json:"total_queryable_samples"`
-	PeakSamples           int           `json:"peak_samples"`
+	TS                    time.Time         `json:"-"`
+	QueryParam            string            `json:"query_param"`
+	TimeParam             time.Time         `json:"time_param"`
+	Duration              time.Duration     `json:"duration"`
+	StatusCode            int               `json:"status_code"`
+	BodySize              int               `json:"body_size"`
+	LabelMatchers         LabelMatchers     `json:"-"`
+	Fingerprint           string            `json:"-"`
+	Type                  QueryType         `json:"type"`
+	Step                  float64           `json:"step"`
+	Start                 time.Time         `json:"start"`
+	End                   time.Time         `json:"end"`
+	TotalQueryableSamples int               `json:"total_queryable_samples"`
+	PeakSamples           int               `json:"peak_samples"`
+	Metadata              map[string]string `json:"metadata"`
 }
 
 type QueryTypesResult struct {

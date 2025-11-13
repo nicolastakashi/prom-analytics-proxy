@@ -116,7 +116,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 		// Use lower-case identifiers because pq.CopyIn will quote them
 		"ts", "queryparam", "timeparam", "duration", "statuscode", "bodysize",
 		"fingerprint", "labelmatchers", "type", "step", "start", "end",
-		"totalqueryablesamples", "peaksamples",
+		"totalqueryablesamples", "peaksamples", "metadata",
 	))
 	if err != nil {
 		_ = tx.Rollback()
@@ -129,6 +129,12 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			_ = stmt.Close()
 			_ = tx.Rollback()
 			return QueryError(err, "marshal label matchers", "")
+		}
+		metadataJSON, err := json.Marshal(q.Metadata)
+		if err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return QueryError(err, "marshal metadata", "")
 		}
 		if _, err := stmt.ExecContext(
 			ctx,
@@ -146,6 +152,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			q.End,
 			q.TotalQueryableSamples,
 			q.PeakSamples,
+			string(metadataJSON),
 		); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
@@ -196,23 +203,23 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 		WHERE
 			labelMatchers @> $1::jsonb
 			AND ts BETWEEN $2 AND $3
-			AND CASE 
-				WHEN $4 != '' THEN 
+			AND CASE
+				WHEN $4 != '' THEN
 					queryParam ILIKE '%' || $4 || '%'
-				ELSE 
+				ELSE
 					TRUE
 				END
 		GROUP BY
 			queryParam
 	),
 	counted_queries AS (
-		SELECT COUNT(*) as total_count 
+		SELECT COUNT(*) as total_count
 		FROM filtered_queries
 	)
-	SELECT 
+	SELECT
 		q.*,
 		cq.total_count
-	FROM 
+	FROM
 		filtered_queries q,
 		counted_queries cq
 	`
@@ -382,13 +389,13 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	countQuery := `
         SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
         FROM RulesUsage
-        WHERE serie = $1 
+        WHERE serie = $1
         AND kind = $2
         AND first_seen_at <= $4 AND last_seen_at >= $3
-        AND CASE 
-            WHEN $5 != '' THEN 
+        AND CASE
+            WHEN $5 != '' THEN
                 (name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
-            ELSE 
+            ELSE
                 TRUE
             END;
     `
@@ -403,7 +410,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 
 	baseQuery := `
         WITH overlapped AS (
-            SELECT 
+            SELECT
                 serie,
                 group_name,
                 name,
@@ -413,20 +420,20 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
                 created_at,
                 last_seen_at,
                 ROW_NUMBER() OVER (
-                    PARTITION BY serie, kind, group_name, name 
+                    PARTITION BY serie, kind, group_name, name
                     ORDER BY last_seen_at DESC
                 ) AS rank
             FROM RulesUsage
-            WHERE serie = $1 AND kind = $2 
+            WHERE serie = $1 AND kind = $2
             AND first_seen_at <= $4 AND last_seen_at >= $3
-            AND CASE 
-                WHEN $5 != '' THEN 
+            AND CASE
+                WHEN $5 != '' THEN
                     (name ILIKE '%' || $5 || '%' OR expression ILIKE '%' || $5 || '%')
-                ELSE 
+                ELSE
                     TRUE
                 END
         )
-        SELECT 
+        SELECT
             serie,
             group_name,
             name,
@@ -581,10 +588,10 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
         FROM DashboardUsage
         WHERE serie = $1
         AND first_seen_at <= $3 AND last_seen_at >= $2
-        AND CASE 
-            WHEN $4 != '' THEN 
+        AND CASE
+            WHEN $4 != '' THEN
                 (name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
-            ELSE 
+            ELSE
                 TRUE
             END;
     `
@@ -599,7 +606,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 
 	baseQuery := `
         WITH overlapped AS (
-            SELECT 
+            SELECT
                 id,
                 serie,
                 name,
@@ -610,16 +617,16 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
                     PARTITION BY serie, id ORDER BY last_seen_at DESC
                 ) AS rank
             FROM DashboardUsage
-            WHERE serie = $1 
+            WHERE serie = $1
             AND first_seen_at <= $3 AND last_seen_at >= $2
-            AND CASE 
-                WHEN $4 != '' THEN 
+            AND CASE
+                WHEN $4 != '' THEN
                     (name ILIKE '%' || $4 || '%' OR url ILIKE '%' || $4 || '%')
-                ELSE 
+                ELSE
                     TRUE
                 END
         )
-        SELECT 
+        SELECT
             id,
             serie,
             name,
@@ -1580,12 +1587,12 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 
 func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
 	query := `
-		SELECT 
+		SELECT
 			COUNT(*) as total_queries,
 			ROUND(AVG(totalQueryableSamples)::numeric, 2) as average_samples,
 			MAX(peakSamples) as peak_samples,
 			ROUND(AVG(duration)::numeric, 2) as average_duration
-		FROM queries 
+		FROM queries
 		WHERE labelMatchers @> $1::jsonb
 		AND ts BETWEEN $2 AND $3;
 	`
