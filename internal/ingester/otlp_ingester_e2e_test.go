@@ -69,23 +69,13 @@ func TestOTLPIngester_E2E_GRPC_FilterAndForward(t *testing.T) {
 		errCh <- ing.Run(ctx)
 	}()
 
-	var conn *grpc.ClientConn
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		c, dErr := grpc.DialContext(ctx, addr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
-			grpc.WithTimeout(2*time.Second),
-		)
-		if dErr == nil {
-			conn = c
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	if conn == nil {
+	conn, dErr := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if dErr != nil {
 		cancel()
-		t.Fatalf("grpc dial failed")
+		t.Fatalf("grpc client: %v", dErr)
 	}
 	defer func() { _ = conn.Close() }()
 
