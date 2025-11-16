@@ -10,6 +10,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -31,6 +32,10 @@ type OtlpIngester struct {
 	exporter      MetricsExporter
 	exportTimeout time.Duration
 }
+
+const (
+	protocol = "otlp"
+)
 
 var (
 	exportRequestsTotal = promauto.NewCounterVec(
@@ -98,10 +103,10 @@ var (
 		},
 		[]string{"protocol"},
 	)
-)
 
-const (
-	protocol = "otlp"
+	labels = prometheus.Labels{
+		"protocol": protocol,
+	}
 )
 
 func NewOtlpIngester(config *config.Config, dbProvider db.Provider) *OtlpIngester {
@@ -198,25 +203,9 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 // See original implementation notes in the prior file; logic unchanged.
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
-	labels := prometheus.Labels{
-		"protocol": protocol,
-	}
 	exportRequestsTotal.With(labels).Inc()
 
-	namesSet := make(map[string]struct{})
-	var beforeMetricsCount int64
-	var seenDatapoints int64
-	for _, rm := range req.ResourceMetrics {
-		for _, sm := range rm.ScopeMetrics {
-			beforeMetricsCount += int64(len(sm.Metrics))
-			for _, m := range sm.Metrics {
-				if name := m.GetName(); name != "" {
-					namesSet[name] = struct{}{}
-				}
-				seenDatapoints += int64(countMetricDatapoints(m))
-			}
-		}
-	}
+	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
 
 	if beforeMetricsCount > 0 {
 		metricsSeenTotal.With(labels).Add(float64(beforeMetricsCount))
@@ -229,38 +218,8 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	unused := make(map[string]struct{})
-	const chunkSize = 500
-	batch := make([]string, 0, chunkSize)
-	flush := func() bool {
-		if len(batch) == 0 {
-			return true
-		}
-		t0 := time.Now()
-		metas, err := i.db.GetSeriesMetadataByNames(ctx, batch, "")
-		if err != nil {
-			slog.Error("ingester: GetSeriesMetadataByNames failed, skipping drops", "err", err)
-			lookupErrorsTotal.With(labels).Inc()
-			return false
-		}
-		lookupLatencySeconds.With(labels).Observe(float64(time.Since(t0).Seconds()))
-		for _, mm := range metas {
-			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
-				unused[mm.Name] = struct{}{}
-			}
-		}
-		batch = batch[:0]
-		return true
-	}
-	for n := range namesSet {
-		batch = append(batch, n)
-		if len(batch) == chunkSize {
-			if ok := flush(); !ok {
-				return &metricspb.ExportMetricsServiceResponse{}, nil
-			}
-		}
-	}
-	if ok := flush(); !ok {
+	unused, ok := i.lookupUnused(ctx, namesSet)
+	if !ok {
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -271,36 +230,11 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	var droppedMetrics int64
 
 	if len(unused) > 0 {
+		allowedSet, deniedSet := i.allowedDeniedSets()
 		if dryRun {
-			// Only compute what would be dropped; do not mutate req
-			for _, rm := range req.ResourceMetrics {
-				for _, sm := range rm.ScopeMetrics {
-					for _, m := range sm.Metrics {
-						if name := m.GetName(); name != "" {
-							if _, shouldDrop := unused[name]; shouldDrop {
-								droppedMetrics++
-								droppedDatapoints += int64(countMetricDatapoints(m))
-							}
-						}
-					}
-				}
-			}
+			droppedMetrics, droppedDatapoints = i.countWouldDrop(req, unused, allowedSet, deniedSet)
 		} else {
-			cfg := FilterConfig{
-				MetricKeep: func(ctx FilterContext) bool {
-					name := ctx.Metric.GetName()
-					_, drop := unused[name]
-					return !drop
-				},
-			}
-			droppedDatapoints = int64(FilterExport(req, cfg))
-			var afterMetricsCount int64
-			for _, rm := range req.ResourceMetrics {
-				for _, sm := range rm.ScopeMetrics {
-					afterMetricsCount += int64(len(sm.Metrics))
-				}
-			}
-			droppedMetrics = beforeMetricsCount - afterMetricsCount
+			droppedMetrics, droppedDatapoints = i.filterUnused(req, unused, allowedSet, deniedSet, beforeMetricsCount)
 		}
 	}
 
@@ -346,3 +280,143 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 
 // SetExporter allows tests to inject a custom exporter.
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
+
+// ----- helpers -----
+
+func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, int64, int64) {
+	names := make(map[string]struct{})
+	var metricsCount int64
+	var datapoints int64
+	for _, rm := range req.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			metricsCount += int64(len(sm.Metrics))
+			for _, m := range sm.Metrics {
+				if name := m.GetName(); name != "" {
+					names[name] = struct{}{}
+				}
+				datapoints += int64(countMetricDatapoints(m))
+			}
+		}
+	}
+	return names, metricsCount, datapoints
+}
+
+func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}) (map[string]struct{}, bool) {
+	unused := make(map[string]struct{})
+	const chunkSize = 500
+	batch := make([]string, 0, chunkSize)
+	flush := func() bool {
+		if len(batch) == 0 {
+			return true
+		}
+		t0 := time.Now()
+		metas, err := i.db.GetSeriesMetadataByNames(ctx, batch, "")
+		if err != nil {
+			slog.Error("ingester: GetSeriesMetadataByNames failed, skipping drops", "err", err)
+			lookupErrorsTotal.With(labels).Inc()
+			return false
+		}
+		lookupLatencySeconds.With(labels).Observe(float64(time.Since(t0).Seconds()))
+		for _, mm := range metas {
+			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
+				unused[mm.Name] = struct{}{}
+			}
+		}
+		batch = batch[:0]
+		return true
+	}
+	for n := range names {
+		batch = append(batch, n)
+		if len(batch) == chunkSize {
+			if ok := flush(); !ok {
+				return nil, false
+			}
+		}
+	}
+	if ok := flush(); !ok {
+		return nil, false
+	}
+	return unused, true
+}
+
+func (i *OtlpIngester) allowedDeniedSets() (map[string]struct{}, map[string]struct{}) {
+	toSet := func(xs []string) map[string]struct{} {
+		if len(xs) == 0 {
+			return nil
+		}
+		m := make(map[string]struct{}, len(xs))
+		for _, s := range xs {
+			if s == "" {
+				continue
+			}
+			m[s] = struct{}{}
+		}
+		return m
+	}
+	if i.config == nil {
+		return nil, nil
+	}
+	return toSet(i.config.Ingester.OTLP.AllowedJobs), toSet(i.config.Ingester.OTLP.DeniedJobs)
+}
+
+func resolveJob(res *resourcepb.Resource) string {
+	job := AttrView(res.GetAttributes()).Get("service.name")
+	if job == "" {
+		job = AttrView(res.GetAttributes()).Get("job")
+	}
+	return job
+}
+
+func isUnusedDropActive(job string, allowed, denied map[string]struct{}) bool {
+	if len(allowed) > 0 {
+		if _, ok := allowed[job]; !ok {
+			return false
+		}
+	}
+	if _, ok := denied[job]; ok {
+		return false
+	}
+	return true
+}
+
+func shouldDropUnused(res *resourcepb.Resource, metricName string, unused, allowed, denied map[string]struct{}) bool {
+	if _, unusedMetric := unused[metricName]; !unusedMetric {
+		return false
+	}
+	return isUnusedDropActive(resolveJob(res), allowed, denied)
+}
+
+func (i *OtlpIngester) countWouldDrop(req *metricspb.ExportMetricsServiceRequest, unused, allowed, denied map[string]struct{}) (int64, int64) {
+	var droppedMetrics int64
+	var droppedDatapoints int64
+	for _, rm := range req.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				if name := m.GetName(); name != "" {
+					if shouldDropUnused(rm.Resource, name, unused, allowed, denied) {
+						droppedMetrics++
+						droppedDatapoints += int64(countMetricDatapoints(m))
+					}
+				}
+			}
+		}
+	}
+	return droppedMetrics, droppedDatapoints
+}
+
+func (i *OtlpIngester) filterUnused(req *metricspb.ExportMetricsServiceRequest, unused, allowed, denied map[string]struct{}, beforeMetricsCount int64) (int64, int64) {
+	cfg := FilterConfig{
+		MetricKeep: func(ctx FilterContext) bool {
+			return !shouldDropUnused(ctx.Resource, ctx.Metric.GetName(), unused, allowed, denied)
+		},
+	}
+	droppedDatapoints := int64(FilterExport(req, cfg))
+	var afterMetricsCount int64
+	for _, rm := range req.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			afterMetricsCount += int64(len(sm.Metrics))
+		}
+	}
+	droppedMetrics := beforeMetricsCount - afterMetricsCount
+	return droppedMetrics, droppedDatapoints
+}

@@ -43,7 +43,7 @@ func buildExportRequest(metrics ...*metricspb.Metric) *colmetricspb.ExportMetric
 	return &colmetricspb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricspb.ResourceMetrics{
 			{
-				Resource:     &resourcepb.Resource{},
+				Resource:     &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{Key: "service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "default"}}}}},
 				ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: metrics}},
 			},
 		},
@@ -81,6 +81,96 @@ func TestExport_DropsUnusedMetrics_KeepsUsedAndUnknown(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
+func buildExportRequestForJobs(jobs []string, metrics [][]*metricspb.Metric) *colmetricspb.ExportMetricsServiceRequest {
+	rms := make([]*metricspb.ResourceMetrics, 0, len(jobs))
+	for i, job := range jobs {
+		mset := []*metricspb.Metric{}
+		if i < len(metrics) && metrics[i] != nil {
+			mset = metrics[i]
+		}
+		rms = append(rms, &metricspb.ResourceMetrics{
+			Resource:     &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{Key: "service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: job}}}}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: mset}},
+		})
+	}
+	return &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: rms}
+}
+
+func TestExport_AllowedJobs_ScopesUnusedDrop(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{AllowedJobs: []string{"prometheus"}},
+		},
+	}
+	ing := NewOtlpIngester(cfg, mp)
+
+	// DB: mark "unused_metric" as unused globally
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	req := buildExportRequestForJobs(
+		[]string{"prometheus", "node"},
+		[][]*metricspb.Metric{
+			{buildGaugeMetric("unused_metric", 1)}, // should drop (allowed job)
+			{buildGaugeMetric("unused_metric", 1)}, // should keep (not allowed job)
+		},
+	)
+	_, err := ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	rms := req.ResourceMetrics
+	// prometheus resource should be removed (empty after drop)
+	assert.Len(t, rms, 1)
+	assert.Equal(t, "node", commonpbAttrString(rms[0].Resource.Attributes, "service.name"))
+	assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1)
+	assert.Equal(t, "unused_metric", rms[0].ScopeMetrics[0].Metrics[0].GetName())
+}
+
+func TestExport_DeniedJobs_DisablesUnusedDrop(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{DeniedJobs: []string{"prometheus"}},
+		},
+	}
+	ing := NewOtlpIngester(cfg, mp)
+
+	// DB: mark "unused_metric" as unused globally
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	req := buildExportRequestForJobs(
+		[]string{"prometheus", "node"},
+		[][]*metricspb.Metric{
+			{buildGaugeMetric("unused_metric", 1)}, // should keep (denied job disables drop)
+			{buildGaugeMetric("unused_metric", 1)}, // should drop (default behavior)
+		},
+	)
+	_, err := ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Equal(t, "prometheus", commonpbAttrString(rms[0].Resource.Attributes, "service.name"))
+	assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1)
+	assert.Equal(t, "unused_metric", rms[0].ScopeMetrics[0].Metrics[0].GetName())
+}
+
+func commonpbAttrString(attrs []*commonpb.KeyValue, key string) string {
+	for _, kv := range attrs {
+		if kv.Key == key {
+			if v := kv.GetValue(); v != nil {
+				if sv, ok := v.Value.(*commonpb.AnyValue_StringValue); ok {
+					return sv.StringValue
+				}
+			}
+		}
+	}
+	return ""
+}
 func TestExport_DBError_FailOpen(t *testing.T) {
 	mp := &mockUsageProvider{}
 	ing := NewOtlpIngester(nil, mp)

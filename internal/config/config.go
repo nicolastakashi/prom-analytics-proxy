@@ -127,6 +127,8 @@ var DefaultConfig = &Config{
 type OtlpIngesterConfig struct {
 	ListenAddress     string `yaml:"listen_address,omitempty"`
 	DownstreamAddress string `yaml:"downstream_address,omitempty"`
+	AllowedJobs       []string `yaml:"allowed_jobs,omitempty"`
+	DeniedJobs        []string `yaml:"denied_jobs,omitempty"`
 }
 
 type MetricIngesterProtocol string
