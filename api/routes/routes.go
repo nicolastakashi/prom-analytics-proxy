@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,8 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
+
+		mux.Handle("/api/v1/query/push", http.HandlerFunc(r.queryPush))
 		r.mux = mux
 	}
 }
@@ -177,6 +180,11 @@ func (r *routes) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mux.ServeHTTP(w, req)
 }
 
+// Default/fallback to current UTC time.
+func defaultTimeParam() time.Time {
+	return time.Now().UTC()
+}
+
 func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		// Attempt RFC3339 parsing first.
@@ -200,16 +208,17 @@ func getTimeParam(req *http.Request, param string) time.Time {
 		slog.Error("failed to parse time parameter", "param", param, "value", timeParam)
 	}
 
-	// Default/fallback to current UTC time.
-	return time.Now().UTC()
+	return defaultTimeParam()
 }
+
+const defaultStep = 15.0
 
 func getStepParam(req *http.Request) float64 {
 	if stepParam := req.FormValue("step"); stepParam != "" {
 		step, _ := strconv.ParseFloat(stepParam, 64)
 		return step
 	}
-	return 15
+	return defaultStep
 }
 
 func getQueryParamAsInt(req *http.Request, param string, defaultValue int) (int, error) {
@@ -231,6 +240,88 @@ func writeJSONResponse(req *http.Request, w http.ResponseWriter, response interf
 
 func (r *routes) passthrough(w http.ResponseWriter, req *http.Request) {
 	r.handler.ServeHTTP(w, req)
+}
+
+func validateQuery(query db.Query) (db.Query, error) {
+	query.TS = time.Now().UTC()
+	if query.QueryParam == "" {
+		return query, fmt.Errorf("missing query parameter")
+	}
+	if query.TimeParam.IsZero() {
+		query.TimeParam = defaultTimeParam()
+	}
+	if query.BodySize < 0 {
+		return query, fmt.Errorf("invalid body size: %d", query.BodySize)
+	}
+	if query.Duration < 0 {
+		return query, fmt.Errorf("invalid duration: %s", query.Duration)
+	}
+	if !slices.Contains(db.KnownQueryTypes, query.Type) {
+		return query, fmt.Errorf("invalid query type: %s, only supported is %s", query.Type, db.KnownQueryTypes)
+	}
+	if http.StatusText(query.StatusCode) == "" {
+		return query, fmt.Errorf("invalid status code: %d", query.StatusCode)
+	}
+	if query.Step < 0 {
+		return query, fmt.Errorf("invalid step: %f", query.Step)
+	}
+
+	switch query.Type {
+	case db.QueryTypeRange:
+		if query.Step <= 0 {
+			query.Step = defaultStep
+		}
+		if query.Start.IsZero() {
+			return query, fmt.Errorf("missing start parameter")
+		}
+		if query.End.IsZero() {
+			return query, fmt.Errorf("missing end parameter")
+		}
+		if query.End.Before(query.Start) {
+			return query, fmt.Errorf("invalid range: end before start")
+		}
+	case db.QueryTypeInstant:
+		if query.Start.IsZero() {
+			query.Start = query.TimeParam
+		}
+		if query.End.IsZero() {
+			query.End = query.TimeParam
+		}
+	}
+
+	return query, nil
+}
+
+func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		writeErrorResponse(req, w, fmt.Errorf("invalid request method: %s", req.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	queries := []db.Query{}
+	decoder := json.NewDecoder(req.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&queries); err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+		return
+	}
+	errs := []string{}
+	for i := range queries {
+		var err error
+		queries[i], err = validateQuery(queries[i])
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("query id %d: %s", i, err.Error()))
+		}
+	}
+
+	if len(errs) > 0 {
+
+		writeErrorResponse(req, w, fmt.Errorf("validation errors: %s", strings.Join(errs, ", ")), http.StatusBadRequest)
+		return
+	}
+
+	for _, query := range queries {
+		r.queryIngester.Ingest(query)
+	}
 }
 
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
@@ -393,7 +484,6 @@ func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Reques
 }
 
 func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
-
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
 	metric_name := req.FormValue("metricName")
