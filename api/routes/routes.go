@@ -304,11 +304,13 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 		writeErrorResponse(req, w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
-	var errs []string
+	errs := []string{}
 	for i := range queries {
 		var err error
 		queries[i], err = validateQuery(queries[i])
-		errs = append(errs, fmt.Sprintf("query id %d: %s", i, err.Error()))
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("query id %d: %s", i, err.Error()))
+		}
 	}
 
 	if len(errs) > 0 {
