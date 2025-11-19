@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -305,15 +304,16 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 		writeErrorResponse(req, w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
-	var errs []error
+	var errs []string
 	for i := range queries {
 		var err error
 		queries[i], err = validateQuery(queries[i])
-		errs = append(errs, err)
+		errs = append(errs, fmt.Sprintf("query id %d: %s", i, err.Error()))
 	}
 
 	if len(errs) > 0 {
-		writeErrorResponse(req, w, fmt.Errorf("validation errors: %w", errors.Join(errs...)), http.StatusBadRequest)
+
+		writeErrorResponse(req, w, fmt.Errorf("validation errors: %s", strings.Join(errs, ", ")), http.StatusBadRequest)
 		return
 	}
 
