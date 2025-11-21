@@ -87,7 +87,6 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 			prometheus.Labels{"handler": "query_range"},
 			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
-		// TODO vratit v nejakym endpintu pro test
 		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
 		mux.Handle("/api/v1/query/average_duration", http.HandlerFunc(r.averageDuration))
 		mux.Handle("/api/v1/query/rate", http.HandlerFunc(r.queryRate))
