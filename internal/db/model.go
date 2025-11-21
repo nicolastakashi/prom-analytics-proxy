@@ -63,11 +63,12 @@ type PagedResult struct {
 }
 
 type QueriesBySerieNameResult struct {
-	Query           string    `json:"query"`
-	AvgDuration     float64   `json:"avgDuration"`
-	AvgPeakySamples float64   `json:"avgPeakySamples"`
-	MaxPeakSamples  int       `json:"maxPeakSamples"`
-	TS              time.Time `json:"ts"`
+	Query           string            `json:"query"`
+	AvgDuration     float64           `json:"avgDuration"`
+	AvgPeakySamples float64           `json:"avgPeakySamples"`
+	MaxPeakSamples  int               `json:"maxPeakSamples"`
+	Metadata        map[string]string `json:"metadata"`
+	TS              time.Time         `json:"ts"`
 }
 
 type QueryStatusDistributionResult struct {
@@ -175,10 +176,10 @@ type MetricQueryPerformanceStatistics struct {
 
 // QueryExpression aggregates query metrics grouped by fingerprint
 type QueryExpression struct {
-	Fingerprint      string  `json:"fingerprint"`
-	Query            string  `json:"query"`
-	Executions       int     `json:"executions"`
-	AvgDuration      float64 `json:"avgDuration"`
-	ErrorRatePercent float64 `json:"errorRatePercent"`
-	PeakSamples      int     `json:"peakSamples"`
+	Fingerprint      string            `json:"fingerprint"`
+	Query            string            `json:"query"`
+	Executions       int               `json:"executions"`
+	AvgDuration      float64           `json:"avgDuration"`
+	ErrorRatePercent float64           `json:"errorRatePercent"`
+	PeakSamples      int               `json:"peakSamples"`
 }

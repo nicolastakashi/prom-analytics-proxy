@@ -87,6 +87,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 			prometheus.Labels{"handler": "query_range"},
 			otelhttp.NewHandler(http.HandlerFunc(r.query_range), "/api/v1/query_range"),
 		))
+		// TODO vratit v nejakym endpintu pro test
 		mux.Handle("/api/v1/query/types", http.HandlerFunc(r.queryTypes))
 		mux.Handle("/api/v1/query/average_duration", http.HandlerFunc(r.averageDuration))
 		mux.Handle("/api/v1/query/rate", http.HandlerFunc(r.queryRate))
@@ -314,7 +315,6 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if len(errs) > 0 {
-
 		writeErrorResponse(req, w, fmt.Errorf("validation errors: %s", strings.Join(errs, ", ")), http.StatusBadRequest)
 		return
 	}
@@ -327,8 +327,9 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
-		TS:   start,
-		Type: db.QueryTypeInstant,
+		TS:       start,
+		Type:     db.QueryTypeInstant,
+		Metadata: make(map[string]string),
 	}
 
 	if req.Method == http.MethodPost {
@@ -365,7 +366,10 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	query.BodySize = recw.GetBodySize()
 
 	for _, header := range r.config.QueryProcessing.ExtractHTTPHeaders {
-		query.Metadata[header] = req.Header.Get(header)
+		val := req.Header.Get(header)
+		if val != "" {
+			query.Metadata[header] = val
+		}
 	}
 
 	r.queryIngester.Ingest(query)
@@ -374,8 +378,9 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
-		TS:   start,
-		Type: db.QueryTypeRange,
+		TS:       start,
+		Type:     db.QueryTypeRange,
+		Metadata: make(map[string]string),
 	}
 
 	if req.Method == http.MethodPost {
@@ -415,6 +420,13 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	query.Duration = time.Since(start)
 	query.StatusCode = recw.GetStatusCode()
 	query.BodySize = recw.GetBodySize()
+
+	for _, header := range r.config.QueryProcessing.ExtractHTTPHeaders {
+		val := req.Header.Get(header)
+		if val != "" {
+			query.Metadata[header] = val
+		}
+	}
 
 	r.queryIngester.Ingest(query)
 }

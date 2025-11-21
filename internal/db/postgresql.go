@@ -1472,7 +1472,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 
 	base := `
         WITH filtered AS (
-            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step
+            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step, metadata
             FROM queries
             WHERE ts BETWEEN $1 AND $2
               AND fingerprint = $3
@@ -1482,7 +1482,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
         )
         SELECT ts, statusCode, duration, samples, type,
                COALESCE(step, 0) AS steps,
-               total_count
+               metadata, total_count
         FROM filtered, counted
     `
 
@@ -1503,6 +1503,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 		samples    int
 		typ        string
 		steps      float64
+		metadata   []byte
 		totalCount int
 	}
 	var (
@@ -1511,10 +1512,16 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	)
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.totalCount); err != nil {
+		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.metadata, &r.totalCount); err != nil {
 			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
-		results = append(results, QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps})
+		res := QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps}
+		if len(r.metadata) > 0 {
+			if err := json.Unmarshal(r.metadata, &res.Metadata); err != nil {
+				return PagedResult{}, fmt.Errorf("unmarshal metadata: %w", err)
+			}
+		}
+		results = append(results, res)
 		total = r.totalCount
 	}
 	if err := rows.Err(); err != nil {
