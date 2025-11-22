@@ -1,18 +1,26 @@
-import { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { Input } from "@/components/ui/input"
-import { DataTable, DataTableColumnHeader } from "@/components/data-table"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { useDateRange } from "@/contexts/date-range-context"
-import { useDebounce } from "@/hooks/use-debounce"
-import { getQueryExpressions } from "@/api/queries"
-import { LoadingState } from "./loading"
-import type { PagedResult, QueryExpression, TableState } from "@/lib/types"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { QueryDetails } from "@/components/query-details"
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { DataTable, DataTableColumnHeader } from "@/components/data-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import { useDateRange } from "@/contexts/date-range-context";
+import { useDebounce } from "@/hooks/use-debounce";
+import { getQueryExpressions } from "@/api/queries";
+import { LoadingState } from "./loading";
+import type { PagedResult, QueryExpression, TableState } from "@/lib/types";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { QueryDetails } from "@/components/query-details";
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
-type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number }
+type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+  maxWidth?: string | number;
+};
 
 const columns: ExtendedColumnDef<QueryExpression>[] = [
   {
@@ -29,8 +37,8 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
       <DataTableColumnHeader column={column} title="Executions" />
     ),
     cell: ({ row }) => {
-      const value = Number(row.getValue("executions"))
-      return <div className="text-right">{value.toLocaleString()}</div>
+      const value = Number(row.getValue("executions"));
+      return <div className="text-right">{value.toLocaleString()}</div>;
     },
   },
   {
@@ -39,8 +47,8 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
       <DataTableColumnHeader column={column} title="Avg Duration" />
     ),
     cell: ({ row }) => {
-      const value = Number(row.getValue("avgDuration"))
-      return <div className="text-right">{value}ms</div>
+      const value = Number(row.getValue("avgDuration"));
+      return <div className="text-right">{value}ms</div>;
     },
   },
   {
@@ -49,8 +57,8 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
       <DataTableColumnHeader column={column} title="Error Rate %" />
     ),
     cell: ({ row }) => {
-      const value = Number(row.getValue("errorRatePercent"))
-      return <div className="text-right">{value}%</div>
+      const value = Number(row.getValue("errorRatePercent"));
+      return <div className="text-right">{value}%</div>;
     },
   },
   {
@@ -59,19 +67,19 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
       <DataTableColumnHeader column={column} title="Peak Samples" />
     ),
     cell: ({ row }) => {
-      const value = Number(row.getValue("peakSamples"))
-      return <div className="text-right">{value.toLocaleString()}</div>
+      const value = Number(row.getValue("peakSamples"));
+      return <div className="text-right">{value.toLocaleString()}</div>;
     },
   },
-]
+];
 
 export default function QueriesPage() {
-  const { dateRange } = useDateRange()
-  const fromISO = dateRange?.from?.toISOString()
-  const toISO = dateRange?.to?.toISOString()
-  const [selectedQuery, setSelectedQuery] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const debouncedSearch = useDebounce(searchQuery, 750)
+  const { dateRange } = useDateRange();
+  const fromISO = dateRange?.from?.toISOString();
+  const toISO = dateRange?.to?.toISOString();
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 750);
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
     pageSize: 10,
@@ -79,35 +87,35 @@ export default function QueriesPage() {
     sortOrder: "desc",
     filter: "",
     type: "all",
-  })
+  });
   const [sorting, setSorting] = useState<SortingState>([
     { id: tableState.sortBy, desc: tableState.sortOrder === "desc" },
-  ])
+  ]);
 
   const handleSortingChange = (newSorting: SortingState) => {
-    setSorting(newSorting)
+    setSorting(newSorting);
     if (newSorting.length > 0) {
-      setTableState(prev => ({
+      setTableState((prev) => ({
         ...prev,
         page: 1,
         sortBy: newSorting[0].id,
         sortOrder: newSorting[0].desc ? "desc" : "asc",
-      }))
+      }));
     }
-  }
+  };
 
   const handleFilterChange = (value: string) => {
-    setSearchQuery(value)
-    setTableState(prev => ({ ...prev, page: 1, filter: value }))
-  }
+    setSearchQuery(value);
+    setTableState((prev) => ({ ...prev, page: 1, filter: value }));
+  };
 
   const handlePaginationChange = (page: number) => {
-    setTableState(prev => ({ ...prev, page }))
-  }
+    setTableState((prev) => ({ ...prev, page }));
+  };
 
   const { data, isLoading } = useQuery<PagedResult<QueryExpression>>({
-    queryKey: ["queryExpressions", fromISO, toISO, tableState.page, tableState.pageSize, tableState.sortBy, tableState.sortOrder, debouncedSearch],
-    queryFn: () => getQueryExpressions(
+    queryKey: [
+      "queryExpressions",
       fromISO,
       toISO,
       tableState.page,
@@ -115,28 +123,44 @@ export default function QueriesPage() {
       tableState.sortBy,
       tableState.sortOrder,
       debouncedSearch,
-    ),
+    ],
+    queryFn: () =>
+      getQueryExpressions(
+        fromISO,
+        toISO,
+        tableState.page,
+        tableState.pageSize,
+        tableState.sortBy,
+        tableState.sortOrder,
+        debouncedSearch
+      ),
     enabled: Boolean(fromISO && toISO),
-  })
+  });
 
   const parsedSelectedQuery = useMemo(() => {
-    if (!selectedQuery) return null
+    if (!selectedQuery) return null;
     try {
-      return JSON.parse(selectedQuery) as { query: string; fingerprint?: string }
+      return JSON.parse(selectedQuery) as {
+        query: string;
+        fingerprint?: string;
+      };
     } catch {
-      return null
+      return null;
     }
-  }, [selectedQuery])
+  }, [selectedQuery]);
 
   if (isLoading) {
-    return <LoadingState />
+    return <LoadingState />;
   }
 
   return (
     <div className="p-4">
       <div className="mb-4">
         <h1 className="text-2xl font-bold">Queries</h1>
-        <p className="text-sm text-muted-foreground">Aggregated view of query fingerprints with executions, latency, errors, and peak samples.</p>
+        <p className="text-sm text-muted-foreground">
+          Aggregated view of query fingerprints with executions, latency,
+          errors, and peak samples.
+        </p>
       </div>
       <div className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -161,14 +185,22 @@ export default function QueriesPage() {
           onSortingChange={handleSortingChange}
           onFilterChange={handleFilterChange}
           onPaginationChange={handlePaginationChange}
-          onRowClick={(row) => setSelectedQuery(JSON.stringify({ query: row.query, fingerprint: row.fingerprint }))}
+          onRowClick={(row) =>
+            setSelectedQuery(
+              JSON.stringify({ query: row.query, fingerprint: row.fingerprint })
+            )
+          }
         />
-        <Sheet open={!!selectedQuery} onOpenChange={() => setSelectedQuery(null)}>
+        <Sheet
+          open={!!selectedQuery}
+          onOpenChange={() => setSelectedQuery(null)}
+        >
           <SheetContent className="w-[1200px] sm:max-w-[1200px]">
             <SheetHeader>
               <SheetTitle>Query Fingerprint Details</SheetTitle>
               <SheetDescription>
-                Detailed analysis and performance metrics for the selected query pattern
+                Detailed analysis and performance metrics for the selected query
+                pattern
               </SheetDescription>
             </SheetHeader>
             {parsedSelectedQuery && (
@@ -182,7 +214,5 @@ export default function QueriesPage() {
         </Sheet>
       </div>
     </div>
-  )
+  );
 }
-
-

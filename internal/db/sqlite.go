@@ -85,19 +85,23 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 
 	query := `
 		INSERT INTO queries (
-			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples
+			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples, httpHeaders
 		) VALUES `
 
 	// Get SQLite placeholder format
 	qc := NewSQLiteQueryContext()
-	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
+	placeholders, _, _ := qc.CreateInsertPlaceholders(15, len(queries))
 	query += placeholders
 
-	values := make([]interface{}, 0, len(queries)*14)
+	values := make([]interface{}, 0, len(queries)*15)
 	for _, q := range queries {
 		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
 			return QueryError(err, "marshaling label matchers", "")
+		}
+		httpHeadersJSON, err := json.Marshal(q.HTTPHeaders)
+		if err != nil {
+			return QueryError(err, "marshaling httpHeaders", "")
 		}
 
 		values = append(values,
@@ -115,6 +119,7 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 			q.End,
 			q.TotalQueryableSamples,
 			q.PeakSamples,
+			httpHeadersJSON,
 		)
 	}
 
@@ -152,23 +157,23 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		WHERE
 			json_extract(labelMatchers, '$[0].__name__') = ?
 			AND ts BETWEEN ? AND ?
-			AND CASE 
-				WHEN ? != '' THEN 
+			AND CASE
+				WHEN ? != '' THEN
 					queryParam LIKE '%' || ? || '%'
-				ELSE 
+				ELSE
 					1=1
 				END
 		GROUP BY
 			queryParam
 	),
 	counted_queries AS (
-		SELECT COUNT(*) as total_count 
+		SELECT COUNT(*) as total_count
 		FROM filtered_queries
 	)
-	SELECT 
+	SELECT
 		q.*,
 		cq.total_count
-	FROM 
+	FROM
 		filtered_queries q,
 		counted_queries cq
 	ORDER BY
@@ -366,13 +371,13 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	countQuery := `
         SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
         FROM RulesUsage
-        WHERE serie = ? 
+        WHERE serie = ?
         AND kind = ?
         AND first_seen_at <= ? AND last_seen_at >= ?
-        AND CASE 
-            WHEN ? != '' THEN 
+        AND CASE
+            WHEN ? != '' THEN
                 (name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
-            ELSE 
+            ELSE
                 1=1
             END;
     `
@@ -387,7 +392,7 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 
 	query := `
         WITH overlapped AS (
-            SELECT 
+            SELECT
                 serie,
                 group_name,
                 name,
@@ -397,20 +402,20 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
                 created_at,
                 last_seen_at,
                 ROW_NUMBER() OVER (
-                    PARTITION BY serie, kind, group_name, name 
+                    PARTITION BY serie, kind, group_name, name
                     ORDER BY last_seen_at DESC
                 ) AS rank
             FROM RulesUsage
-            WHERE serie = ? AND kind = ? 
+            WHERE serie = ? AND kind = ?
             AND first_seen_at <= ? AND last_seen_at >= ?
-            AND CASE 
-                WHEN ? != '' THEN 
+            AND CASE
+                WHEN ? != '' THEN
                     (name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%')
-                ELSE 
+                ELSE
                     1=1
                 END
         )
-        SELECT 
+        SELECT
             serie,
             group_name,
             name,
@@ -583,13 +588,13 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	countQuery := `
         SELECT COUNT(DISTINCT id)
         FROM DashboardUsage
-        WHERE serie = ? 
+        WHERE serie = ?
         AND first_seen_at <= datetime(?)
         AND last_seen_at  >= datetime(?)
-        AND CASE 
-            WHEN ? != '' THEN 
+        AND CASE
+            WHEN ? != '' THEN
                 (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
-            ELSE 
+            ELSE
                 1=1
             END;
     `
@@ -605,7 +610,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 
 	query := `
         WITH overlapped AS (
-            SELECT 
+            SELECT
                 id,
                 serie,
                 name,
@@ -616,17 +621,17 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
                     PARTITION BY serie, id ORDER BY last_seen_at DESC
                 ) AS rank
             FROM DashboardUsage
-            WHERE serie = ? 
+            WHERE serie = ?
             AND first_seen_at <= datetime(?)
             AND last_seen_at  >= datetime(?)
-            AND CASE 
-                WHEN ? != '' THEN 
+            AND CASE
+                WHEN ? != '' THEN
                     (name LIKE '%' || ? || '%' COLLATE NOCASE OR url LIKE '%' || ? || '%' COLLATE NOCASE)
-                ELSE 
+                ELSE
                     1=1
                 END
         )
-        SELECT 
+        SELECT
             id,
             serie,
             name,
@@ -1026,19 +1031,19 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange, finger
 			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 		),
 		types AS (
-			SELECT 
+			SELECT
 				COUNT(CASE WHEN type = 'instant' THEN 1 END) AS instant_count,
 				COUNT(CASE WHEN type = 'range' THEN 1 END) AS range_count
 			FROM queries
 			WHERE ts BETWEEN ? AND ?
 			AND   CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 		)
-		SELECT 
+		SELECT
 			t.count,
 			CASE WHEN t.count > 0 THEN ROUND(ty.instant_count * 100.0 / t.count, 2) ELSE 0 END,
 			CASE WHEN t.count > 0 THEN ROUND(ty.range_count * 100.0 / t.count, 2) ELSE 0 END
-		FROM 
-			total t, 
+		FROM
+			total t,
 			types ty;
 	`
 
@@ -1082,7 +1087,7 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange, f
 		)
 		SELECT
 			ROUND(avg_current, 2),
-			CASE 
+			CASE
 				WHEN avg_previous IS NULL OR avg_previous = 0 THEN 0
 				ELSE ROUND(((avg_current - avg_previous) * 100.0) / avg_previous, 2)
 			END AS delta_percent
@@ -1131,16 +1136,16 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 			) AS error_rate_percent
 		FROM queries
 		WHERE ts BETWEEN datetime(?) AND datetime(?)
-		AND CASE 
-			WHEN ? != '' THEN 
+		AND CASE
+			WHEN ? != '' THEN
 				json_extract(labelMatchers, '$[0].__name__') = ?
-			ELSE 
+			ELSE
 				1=1
 			END
-		AND CASE 
-			WHEN ? != '' THEN 
+		AND CASE
+			WHEN ? != '' THEN
 				fingerprint = ?
-			ELSE 
+			ELSE
 				1=1
 			END;
 	`
@@ -1176,14 +1181,14 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
-		SELECT 
+		SELECT
 			strftime('%Y-%m-%d %H:%M:00', ?) as bucket_start,
 			strftime('%Y-%m-%d %H:%M:00', datetime(?, ?)) as bucket_end
 		UNION ALL
-		SELECT 
+		SELECT
 			bucket_end,
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
-		FROM time_buckets 
+		FROM time_buckets
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
 	),
 	filtered AS (
@@ -1193,14 +1198,14 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 		      BETWEEN julianday(?) AND julianday(?)
 		  AND CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
 	)
-	SELECT 
+	SELECT
 		b.bucket_start as time,
 		SUM(CASE WHEN q.statusCode >= 200 AND q.statusCode < 300 THEN 1 ELSE 0 END) as status2xx,
 		SUM(CASE WHEN q.statusCode >= 400 AND q.statusCode < 500 THEN 1 ELSE 0 END) as status4xx,
 		SUM(CASE WHEN q.statusCode >= 500 AND q.statusCode < 600 THEN 1 ELSE 0 END) as status5xx
 	FROM time_buckets b
-	LEFT JOIN filtered q ON 
-		q.ts >= b.bucket_start AND 
+	LEFT JOIN filtered q ON
+		q.ts >= b.bucket_start AND
 		q.ts < b.bucket_end
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
@@ -1238,45 +1243,45 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
-		SELECT 
+		SELECT
 			strftime('%Y-%m-%d %H:%M:00', ?) as bucket_start,
 			strftime('%Y-%m-%d %H:%M:00', datetime(?, ?)) as bucket_end
 		UNION ALL
-		SELECT 
+		SELECT
 			bucket_end,
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
-		FROM time_buckets 
+		FROM time_buckets
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
 	)
-	SELECT 
+	SELECT
 		b.bucket_start as time,
 		COALESCE(ROUND(AVG(t.duration), 2), 0) as value,
-		COALESCE(MAX(CASE 
-			WHEN row_num > CAST((total_rows * 0.95) AS INTEGER) THEN t.duration 
-			ELSE 0 
+		COALESCE(MAX(CASE
+			WHEN row_num > CAST((total_rows * 0.95) AS INTEGER) THEN t.duration
+			ELSE 0
 		END), 0) as p95
 	FROM time_buckets b
 	LEFT JOIN (
-		SELECT 
+		SELECT
 			ts,
 			duration,
 			ROW_NUMBER() OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts) ORDER BY duration) as row_num,
 			COUNT(*) OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts)) as total_rows
 		FROM queries
-		WHERE CASE 
-			WHEN ? != '' THEN 
+		WHERE CASE
+			WHEN ? != '' THEN
 				json_extract(labelMatchers, '$[0].__name__') = ?
-			ELSE 
+			ELSE
 				1=1
 			END
-		AND CASE 
-			WHEN ? != '' THEN 
+		AND CASE
+			WHEN ? != '' THEN
 				fingerprint = ?
-			ELSE 
+			ELSE
 				1=1
 			END
-	) t ON 
-		t.ts >= b.bucket_start AND 
+	) t ON
+		t.ts >= b.bucket_start AND
 		t.ts < b.bucket_end
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
@@ -1311,22 +1316,22 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
-		SELECT 
+		SELECT
 			strftime('%Y-%m-%d %H:%M:00', ?) as bucket_start,
 			strftime('%Y-%m-%d %H:%M:00', datetime(?, ?)) as bucket_end
 		UNION ALL
-		SELECT 
+		SELECT
 			bucket_end,
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
-		FROM time_buckets 
+		FROM time_buckets
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
 	)
-	SELECT 
+	SELECT
 		b.bucket_start as time,
 		COALESCE(COUNT(t.ts), 0) as value
 	FROM time_buckets b
-	LEFT JOIN queries t ON 
-		t.ts >= b.bucket_start AND 
+	LEFT JOIN queries t ON
+		t.ts >= b.bucket_start AND
 		t.ts < b.bucket_end
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
@@ -1361,25 +1366,25 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 
 	query := `
 	WITH RECURSIVE time_buckets AS (
-		SELECT 
+		SELECT
 			strftime('%Y-%m-%d %H:%M:00', ?) as bucket_start,
 			strftime('%Y-%m-%d %H:%M:00', datetime(?, ?)) as bucket_end
 		UNION ALL
-		SELECT 
+		SELECT
 			bucket_end,
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
-		FROM time_buckets 
+		FROM time_buckets
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
 	)
-	SELECT 
+	SELECT
 		b.bucket_start as time,
-		COALESCE(SUM(CASE 
-			WHEN q.statusCode >= 400 THEN 1 
-			ELSE 0 
+		COALESCE(SUM(CASE
+			WHEN q.statusCode >= 400 THEN 1
+			ELSE 0
 		END), 0) as value
 	FROM time_buckets b
-	LEFT JOIN queries q ON 
-		q.ts >= b.bucket_start AND 
+	LEFT JOIN queries q ON
+		q.ts >= b.bucket_start AND
 		q.ts < b.bucket_end
 		AND CASE WHEN ? != '' THEN q.fingerprint = ? ELSE 1=1 END
 	GROUP BY b.bucket_start
@@ -1589,7 +1594,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 
 	query := `
         WITH filtered AS (
-            SELECT 
+            SELECT
                 ts,
                 statusCode,
                 duration,
@@ -1598,6 +1603,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
                 start,
                 "end",
                 step,
+				httpHeaders,
                 julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19)) AS nts
             FROM queries
             WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
@@ -1607,12 +1613,13 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
         ), counted AS (
             SELECT COUNT(*) AS total_count FROM filtered
         )
-        SELECT 
-            ts, 
+        SELECT
+            ts,
             statusCode,
             duration,
             samples,
             type,
+			httpHeaders,
             COALESCE(step, 0) AS steps,
             total_count
         FROM filtered, counted
@@ -1662,10 +1669,17 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 		var samples int
 		var typ string
 		var steps float64
-		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &steps, &totalCount); err != nil {
+		var httpHeadersJSON string
+		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &steps, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
-		results = append(results, QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps})
+		r := QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps}
+		if httpHeadersJSON != "" {
+			if err := json.Unmarshal([]byte(httpHeadersJSON), &r.HTTPHeaders); err != nil {
+				return PagedResult{}, fmt.Errorf("failed to unmarshal httpHeaders: %w", err)
+			}
+		}
+		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
 		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
@@ -1735,12 +1749,12 @@ func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName str
 
 func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
 	query := `
-		SELECT 
+		SELECT
 			COUNT(*) as total_queries,
 			ROUND(AVG(peakSamples), 2) as average_samples,
 			MAX(peakSamples) as peak_samples,
 			ROUND(AVG(duration), 2) as average_duration
-		FROM queries 
+		FROM queries
 		WHERE json_extract(labelMatchers, '$[0].__name__') = ?
 		AND ts BETWEEN datetime(?) AND datetime(?);
 	`

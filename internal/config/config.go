@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
@@ -11,15 +12,20 @@ import (
 )
 
 type Config struct {
-	Upstream      UpstreamConfig  `yaml:"upstream,omitempty"`
-	Server        ServerConfig    `yaml:"server,omitempty"`
-	Database      DatabaseConfig  `yaml:"database,omitempty"`
-	Insert        InsertConfig    `yaml:"insert,omitempty"`
-	Tracing       *otlp.Config    `yaml:"tracing,omitempty"`
-	MetadataLimit uint64          `yaml:"metadata_limit,omitempty"`
-	SeriesLimit   uint64          `yaml:"series_limit,omitempty"`
-	CORS          CORSConfig      `yaml:"cors,omitempty"`
-	Inventory     InventoryConfig `yaml:"inventory,omitempty"`
+	Upstream        UpstreamConfig  `yaml:"upstream,omitempty"`
+	Server          ServerConfig    `yaml:"server,omitempty"`
+	Database        DatabaseConfig  `yaml:"database,omitempty"`
+	Insert          InsertConfig    `yaml:"insert,omitempty"`
+	Tracing         *otlp.Config    `yaml:"tracing,omitempty"`
+	MetadataLimit   uint64          `yaml:"metadata_limit,omitempty"`
+	SeriesLimit     uint64          `yaml:"series_limit,omitempty"`
+	CORS            CORSConfig      `yaml:"cors,omitempty"`
+	Inventory       InventoryConfig `yaml:"inventory,omitempty"`
+	QueryProcessing QueryProcessing `yaml:"query_processing,omitempty"`
+}
+
+type QueryProcessing struct {
+	ExtractHTTPHeaders []string `yaml:"extract_http_headers,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -104,6 +110,9 @@ var DefaultConfig = &Config{
 		JobIndexPerJobTimeout: 30 * time.Second,
 		JobIndexWorkers:       10,
 	},
+	QueryProcessing: QueryProcessing{
+		ExtractHTTPHeaders: []string{"user-agent"},
+	},
 }
 
 func LoadConfig(path string) error {
@@ -115,6 +124,10 @@ func LoadConfig(path string) error {
 	err = yaml.Unmarshal(f, DefaultConfig)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal config file: %w", err)
+	}
+	// Converts the http header names to lowercase for consistency since it is case insensitive anyway
+	for i, header := range DefaultConfig.QueryProcessing.ExtractHTTPHeaders {
+		DefaultConfig.QueryProcessing.ExtractHTTPHeaders[i] = strings.ToLower(header)
 	}
 	return nil
 }

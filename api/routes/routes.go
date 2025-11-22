@@ -314,7 +314,6 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if len(errs) > 0 {
-
 		writeErrorResponse(req, w, fmt.Errorf("validation errors: %s", strings.Join(errs, ", ")), http.StatusBadRequest)
 		return
 	}
@@ -324,11 +323,32 @@ func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// extractHeaders extracts http headers from request and response based on the provided header names.
+// It takes only the first value of the header if multiple values are present and request header takes precedence over response header.
+func extractHeaders(req *http.Request, resp http.ResponseWriter, headerNames []string) map[string]string {
+	headers := make(map[string]string)
+	for _, header := range headerNames {
+		// Try to get from request headers
+		val := req.Header.Get(header)
+		if val != "" {
+			headers[header] = val
+			continue
+		}
+		// Try to get from response headers
+		val = resp.Header().Get(header)
+		if val != "" {
+			headers[header] = val
+		}
+	}
+	return headers
+}
+
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
-		TS:   start,
-		Type: db.QueryTypeInstant,
+		TS:          start,
+		Type:        db.QueryTypeInstant,
+		HTTPHeaders: make(map[string]string),
 	}
 
 	if req.Method == http.MethodPost {
@@ -363,6 +383,8 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	query.Duration = time.Since(start)
 	query.StatusCode = recw.GetStatusCode()
 	query.BodySize = recw.GetBodySize()
+
+	query.HTTPHeaders = extractHeaders(req, recw, r.config.QueryProcessing.ExtractHTTPHeaders)
 
 	r.queryIngester.Ingest(query)
 }
@@ -370,8 +392,9 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
-		TS:   start,
-		Type: db.QueryTypeRange,
+		TS:          start,
+		Type:        db.QueryTypeRange,
+		HTTPHeaders: make(map[string]string),
 	}
 
 	if req.Method == http.MethodPost {
@@ -411,6 +434,8 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	query.Duration = time.Since(start)
 	query.StatusCode = recw.GetStatusCode()
 	query.BodySize = recw.GetBodySize()
+
+	query.HTTPHeaders = extractHeaders(req, recw, r.config.QueryProcessing.ExtractHTTPHeaders)
 
 	r.queryIngester.Ingest(query)
 }
