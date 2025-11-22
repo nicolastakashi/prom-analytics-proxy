@@ -115,7 +115,7 @@ require (
 	github.com/metalmatze/signal v0.0.0-20210307161603-1c9aa721a97a
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.67.2
+	github.com/prometheus/common v0.67.4
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rs/cors v1.11.1
 	github.com/thanos-io/thanos v0.40.1
@@ -123,5 +123,5 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	modernc.org/sqlite v1.40.0
+	modernc.org/sqlite v1.40.1
 )
