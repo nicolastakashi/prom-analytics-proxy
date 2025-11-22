@@ -151,7 +151,10 @@ func (m *MockDBProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 
 func (m *MockDBProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
 	args := m.Called(ctx, names, job)
-	return args.Get(0).([]models.MetricMetadata), args.Error(1)
+	if v := args.Get(0); v != nil {
+		return v.([]models.MetricMetadata), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func TestQueryIngester_Run(t *testing.T) {
