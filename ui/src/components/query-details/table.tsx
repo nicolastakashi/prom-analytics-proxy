@@ -31,11 +31,11 @@ const generateColorForValue = (value: string): string => {
   return `hsl(${hue}, 75%, 75%)`;
 };
 
-const MetadataChips: React.FC<{ metadata: Record<string, string> }> = ({
-  metadata,
+const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
+  httpHeaders,
 }) => {
   // Filter out entries with empty keys or values
-  const entries = Object.entries(metadata).filter(
+  const entries = Object.entries(httpHeaders).filter(
     ([key, value]) => key.trim() !== "" && value.trim() !== ""
   );
   const maxVisibleChips = 3;
@@ -208,18 +208,18 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     cell: ({ row }) => String(row.getValue("steps")),
   },
   {
-    accessorKey: "metadata",
+    accessorKey: "httpHeaders",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Labels" />
+      <DataTableColumnHeader column={column} title="HTTP Headers" />
     ),
     cell: ({ row }) => {
-      const metadata = row.getValue("metadata") as
+      const httpHeaders = row.getValue("httpHeaders") as
         | Record<string, string>
         | undefined;
-      if (!metadata || Object.keys(metadata).length === 0) {
+      if (!httpHeaders || Object.keys(httpHeaders).length === 0) {
         return <span className="text-muted-foreground">-</span>;
       }
-      return <MetadataChips metadata={metadata} />;
+      return <HTTPHeadersChips httpHeaders={httpHeaders} />;
     },
   },
 ];

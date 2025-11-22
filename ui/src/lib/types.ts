@@ -126,5 +126,5 @@ export interface QueryExecution {
   samples: number;
   type: "instant" | "range";
   steps: number;
-  metadata: Record<string, string>;
+  httpHeaders: Record<string, string>;
 }

@@ -260,13 +260,13 @@ type QueryExecutionsParams struct {
 
 // QueryExecutionRow represents a single query execution row returned from the DB
 type QueryExecutionRow struct {
-	Timestamp time.Time         `json:"timestamp"`
-	Status    int               `json:"status"`
-	Duration  int64             `json:"duration"`
-	Samples   int               `json:"samples"`
-	Type      string            `json:"type"`
-	Steps     float64           `json:"steps"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Status      int               `json:"status"`
+	Duration    int64             `json:"duration"`
+	Samples     int               `json:"samples"`
+	Type        string            `json:"type"`
+	Steps       float64           `json:"steps"`
+	HTTPHeaders map[string]string `json:"httpHeaders,omitempty"`
 }
 
 type SeriesMetadataParams struct {

@@ -35,7 +35,7 @@ type Query struct {
 	End                   time.Time         `json:"end"`
 	TotalQueryableSamples int               `json:"total_queryable_samples"`
 	PeakSamples           int               `json:"peak_samples"`
-	Metadata              map[string]string `json:"metadata"`
+	HTTPHeaders           map[string]string `json:"http_headers,omitempty"`
 }
 
 type QueryTypesResult struct {
@@ -67,7 +67,7 @@ type QueriesBySerieNameResult struct {
 	AvgDuration     float64           `json:"avgDuration"`
 	AvgPeakySamples float64           `json:"avgPeakySamples"`
 	MaxPeakSamples  int               `json:"maxPeakSamples"`
-	Metadata        map[string]string `json:"metadata"`
+	HTTPHeaders     map[string]string `json:"httpHeaders"`
 	TS              time.Time         `json:"ts"`
 }
 
@@ -176,10 +176,10 @@ type MetricQueryPerformanceStatistics struct {
 
 // QueryExpression aggregates query metrics grouped by fingerprint
 type QueryExpression struct {
-	Fingerprint      string            `json:"fingerprint"`
-	Query            string            `json:"query"`
-	Executions       int               `json:"executions"`
-	AvgDuration      float64           `json:"avgDuration"`
-	ErrorRatePercent float64           `json:"errorRatePercent"`
-	PeakSamples      int               `json:"peakSamples"`
+	Fingerprint      string  `json:"fingerprint"`
+	Query            string  `json:"query"`
+	Executions       int     `json:"executions"`
+	AvgDuration      float64 `json:"avgDuration"`
+	ErrorRatePercent float64 `json:"errorRatePercent"`
+	PeakSamples      int     `json:"peakSamples"`
 }

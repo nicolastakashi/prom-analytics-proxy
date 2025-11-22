@@ -116,7 +116,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 		// Use lower-case identifiers because pq.CopyIn will quote them
 		"ts", "queryparam", "timeparam", "duration", "statuscode", "bodysize",
 		"fingerprint", "labelmatchers", "type", "step", "start", "end",
-		"totalqueryablesamples", "peaksamples", "metadata",
+		"totalqueryablesamples", "peaksamples", "httpheaders",
 	))
 	if err != nil {
 		_ = tx.Rollback()
@@ -130,11 +130,11 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			_ = tx.Rollback()
 			return QueryError(err, "marshal label matchers", "")
 		}
-		metadataJSON, err := json.Marshal(q.Metadata)
+		httpHeadersJSON, err := json.Marshal(q.HTTPHeaders)
 		if err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
-			return QueryError(err, "marshal metadata", "")
+			return QueryError(err, "marshal httpHeaders", "")
 		}
 		if _, err := stmt.ExecContext(
 			ctx,
@@ -152,7 +152,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			q.End,
 			q.TotalQueryableSamples,
 			q.PeakSamples,
-			string(metadataJSON),
+			string(httpHeadersJSON),
 		); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
@@ -1472,7 +1472,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 
 	base := `
         WITH filtered AS (
-            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step, metadata
+            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step, httpHeaders
             FROM queries
             WHERE ts BETWEEN $1 AND $2
               AND fingerprint = $3
@@ -1482,7 +1482,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
         )
         SELECT ts, statusCode, duration, samples, type,
                COALESCE(step, 0) AS steps,
-               metadata, total_count
+               httpHeaders, total_count
         FROM filtered, counted
     `
 
@@ -1503,7 +1503,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 		samples    int
 		typ        string
 		steps      float64
-		metadata   []byte
+		httpHeaders   []byte
 		totalCount int
 	}
 	var (
@@ -1512,13 +1512,13 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	)
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.metadata, &r.totalCount); err != nil {
+		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.httpHeaders, &r.totalCount); err != nil {
 			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
 		res := QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps}
-		if len(r.metadata) > 0 {
-			if err := json.Unmarshal(r.metadata, &res.Metadata); err != nil {
-				return PagedResult{}, fmt.Errorf("unmarshal metadata: %w", err)
+		if len(r.httpHeaders) > 0 {
+			if err := json.Unmarshal(r.httpHeaders, &res.HTTPHeaders); err != nil {
+				return PagedResult{}, fmt.Errorf("unmarshal httpHeaders: %w", err)
 			}
 		}
 		results = append(results, res)

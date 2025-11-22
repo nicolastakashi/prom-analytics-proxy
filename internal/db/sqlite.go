@@ -85,23 +85,23 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 
 	query := `
 		INSERT INTO queries (
-			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples, metadata
+			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples, httpHeaders
 		) VALUES `
 
 	// Get SQLite placeholder format
 	qc := NewSQLiteQueryContext()
-	placeholders, _, _ := qc.CreateInsertPlaceholders(14, len(queries))
+	placeholders, _, _ := qc.CreateInsertPlaceholders(15, len(queries))
 	query += placeholders
 
-	values := make([]interface{}, 0, len(queries)*14)
+	values := make([]interface{}, 0, len(queries)*15)
 	for _, q := range queries {
 		labelMatchersJSON, err := json.Marshal(q.LabelMatchers)
 		if err != nil {
 			return QueryError(err, "marshaling label matchers", "")
 		}
-		metadataJSON, err := json.Marshal(q.Metadata)
+		httpHeadersJSON, err := json.Marshal(q.HTTPHeaders)
 		if err != nil {
-			return QueryError(err, "marshaling label metadata", "")
+			return QueryError(err, "marshaling httpHeaders", "")
 		}
 
 		values = append(values,
@@ -119,7 +119,7 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 			q.End,
 			q.TotalQueryableSamples,
 			q.PeakSamples,
-			metadataJSON,
+			httpHeadersJSON,
 		)
 	}
 
@@ -1603,6 +1603,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
                 start,
                 "end",
                 step,
+				httpHeaders,
                 julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19)) AS nts
             FROM queries
             WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
@@ -1618,6 +1619,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
             duration,
             samples,
             type,
+			httpHeaders,
             COALESCE(step, 0) AS steps,
             total_count
         FROM filtered, counted
@@ -1667,10 +1669,17 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 		var samples int
 		var typ string
 		var steps float64
-		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &steps, &totalCount); err != nil {
+		var httpHeadersJSON string
+		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &steps, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
-		results = append(results, QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps})
+		r := QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps}
+		if httpHeadersJSON != "" {
+			if err := json.Unmarshal([]byte(httpHeadersJSON), &r.HTTPHeaders); err != nil {
+				return PagedResult{}, fmt.Errorf("failed to unmarshal httpHeaders: %w", err)
+			}
+		}
+		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
 		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)

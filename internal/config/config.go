@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
@@ -109,6 +110,9 @@ var DefaultConfig = &Config{
 		JobIndexPerJobTimeout: 30 * time.Second,
 		JobIndexWorkers:       10,
 	},
+	QueryProcessing: QueryProcessing{
+		ExtractHTTPHeaders: []string{"user-agent"},
+	},
 }
 
 func LoadConfig(path string) error {
@@ -120,6 +124,10 @@ func LoadConfig(path string) error {
 	err = yaml.Unmarshal(f, DefaultConfig)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal config file: %w", err)
+	}
+	// Converts the http header names to lowercase for consistency since it is case insensitive anyway
+	for i, header := range DefaultConfig.QueryProcessing.ExtractHTTPHeaders {
+		DefaultConfig.QueryProcessing.ExtractHTTPHeaders[i] = strings.ToLower(header)
 	}
 	return nil
 }
