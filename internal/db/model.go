@@ -21,20 +21,21 @@ var (
 type LabelMatchers []map[string]string
 
 type Query struct {
-	TS                    time.Time     `json:"-"`
-	QueryParam            string        `json:"query_param"`
-	TimeParam             time.Time     `json:"time_param"`
-	Duration              time.Duration `json:"duration"`
-	StatusCode            int           `json:"status_code"`
-	BodySize              int           `json:"body_size"`
-	LabelMatchers         LabelMatchers `json:"-"`
-	Fingerprint           string        `json:"-"`
-	Type                  QueryType     `json:"type"`
-	Step                  float64       `json:"step"`
-	Start                 time.Time     `json:"start"`
-	End                   time.Time     `json:"end"`
-	TotalQueryableSamples int           `json:"total_queryable_samples"`
-	PeakSamples           int           `json:"peak_samples"`
+	TS                    time.Time         `json:"-"`
+	QueryParam            string            `json:"query_param"`
+	TimeParam             time.Time         `json:"time_param"`
+	Duration              time.Duration     `json:"duration"`
+	StatusCode            int               `json:"status_code"`
+	BodySize              int               `json:"body_size"`
+	LabelMatchers         LabelMatchers     `json:"-"`
+	Fingerprint           string            `json:"-"`
+	Type                  QueryType         `json:"type"`
+	Step                  float64           `json:"step"`
+	Start                 time.Time         `json:"start"`
+	End                   time.Time         `json:"end"`
+	TotalQueryableSamples int               `json:"total_queryable_samples"`
+	PeakSamples           int               `json:"peak_samples"`
+	HTTPHeaders           map[string]string `json:"http_headers,omitempty"`
 }
 
 type QueryTypesResult struct {
@@ -62,11 +63,12 @@ type PagedResult struct {
 }
 
 type QueriesBySerieNameResult struct {
-	Query           string    `json:"query"`
-	AvgDuration     float64   `json:"avgDuration"`
-	AvgPeakySamples float64   `json:"avgPeakySamples"`
-	MaxPeakSamples  int       `json:"maxPeakSamples"`
-	TS              time.Time `json:"ts"`
+	Query           string            `json:"query"`
+	AvgDuration     float64           `json:"avgDuration"`
+	AvgPeakySamples float64           `json:"avgPeakySamples"`
+	MaxPeakSamples  int               `json:"maxPeakSamples"`
+	HTTPHeaders     map[string]string `json:"httpHeaders"`
+	TS              time.Time         `json:"ts"`
 }
 
 type QueryStatusDistributionResult struct {

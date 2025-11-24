@@ -1,122 +1,122 @@
 export interface QueryTypesResponse {
-	total_queries: number
-	instant_percent: number
-	range_percent: number
+  total_queries: number;
+  instant_percent: number;
+  range_percent: number;
 }
 
 export interface AverageDurationResponse {
-	avg_duration: number
-	delta_percent: number
+  avg_duration: number;
+  delta_percent: number;
 }
 
 export interface QueryRateResponse {
-	success_total: number
-	error_total: number
-	success_rate_percent: number
-	error_rate_percent: number
+  success_total: number;
+  error_total: number;
+  success_rate_percent: number;
+  error_rate_percent: number;
 }
 
 export interface DateRange {
-	from?: Date;
-	to?: Date;
+  from?: Date;
+  to?: Date;
 }
 
 export interface QueryStatusDistributionResult {
-	hour: string;
-	status2xx: number;
-	status4xx: number;
-	status5xx: number;
+  hour: string;
+  status2xx: number;
+  status4xx: number;
+  status5xx: number;
 }
 
 export interface QueryLatencyTrendsResult {
-	time: string;
-	value: number;
-	p95: number;
+  time: string;
+  value: number;
+  p95: number;
 }
 
 export interface QueryThroughputAnalysisResult {
-	time: string;
-	value: number;
+  time: string;
+  value: number;
 }
 
 export interface QueryErrorAnalysisResult {
-	time: string;
-	value: number;
+  time: string;
+  value: number;
 }
 
 export interface QueryTimeRangeDistributionResult {
-	label: string;
-	count: number;
-	percent: number;
+  label: string;
+  count: number;
+  percent: number;
 }
 
 export interface PagedResult<T> {
-	total: number;
-	totalPages: number;
-	data: T[];
+  total: number;
+  totalPages: number;
+  data: T[];
 }
 
-export type TimeGranularity = "15m" | "30m" | "1h" | "1d"
+export type TimeGranularity = "15m" | "30m" | "1h" | "1d";
 
 export interface TimeRange {
-    from: Date
-    to: Date
-    label: string
+  from: Date;
+  to: Date;
+  label: string;
 }
 
 export interface TableState {
   page: number;
   pageSize: number;
   sortBy: string;
-  sortOrder: 'asc' | 'desc';
+  sortOrder: "asc" | "desc";
   filter: string;
   type: string;
 }
 
 export interface MetricMetadata {
-	name: string;
-	type: string;
-	help: string;
-	unit: string;
-	alertCount?: number;
-	recordCount?: number;
-	dashboardCount?: number;
-	queryCount?: number;
-	lastQueriedAt?: string;
+  name: string;
+  type: string;
+  help: string;
+  unit: string;
+  alertCount?: number;
+  recordCount?: number;
+  dashboardCount?: number;
+  queryCount?: number;
+  lastQueriedAt?: string;
 }
 
 export interface Producer {
-	job: string;
-	series: number;
+  job: string;
+  series: number;
 }
 
 export interface MetricStatistics {
-	serieCount: number;
-	labelCount: number;
-	alertCount: number;
-	recordCount: number;
-	dashboardCount: number;
-	totalAlerts: number;
-	totalRecords: number;
-	totalDashboards: number;
-	producers: Producer[];
+  serieCount: number;
+  labelCount: number;
+  alertCount: number;
+  recordCount: number;
+  dashboardCount: number;
+  totalAlerts: number;
+  totalRecords: number;
+  totalDashboards: number;
+  producers: Producer[];
 }
 
 export interface MetricQueryPerformanceStatistics {
-	queryRate: QueryRateResponse;
-	totalQueries: number;
-	averageSamples: number;
-	peakSamples: number;
-	averageDuration: number;
+  queryRate: QueryRateResponse;
+  totalQueries: number;
+  averageSamples: number;
+  peakSamples: number;
+  averageDuration: number;
 }
 
 export interface QueryExpression {
-	fingerprint: string;
-	query: string;
-	executions: number;
-	avgDuration: number;
-	errorRatePercent: number;
-	peakSamples: number;
+  fingerprint: string;
+  query: string;
+  executions: number;
+  avgDuration: number;
+  errorRatePercent: number;
+  peakSamples: number;
 }
 
 export interface QueryExecution {
@@ -124,6 +124,7 @@ export interface QueryExecution {
   status: number;
   duration: number;
   samples: number;
-  type: 'instant' | 'range';
+  type: "instant" | "range";
   steps: number;
+  httpHeaders: Record<string, string>;
 }
