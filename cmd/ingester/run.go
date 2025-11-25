@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,37 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	fs.StringVar(&config.DefaultConfig.Ingester.OTLP.DownstreamAddress, "otlp-downstream-address", "", "Optional downstream OTLP gRPC address to forward filtered metrics")
 	fs.StringVar(&config.DefaultConfig.Ingester.MetricsListenAddress, "ingester-metrics-listen-address", config.DefaultConfig.Ingester.MetricsListenAddress, "The HTTP address to expose Prometheus metrics")
 	fs.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for retrieving query data. Supported values: postgresql, sqlite.")
+	fs.BoolVar(&config.DefaultConfig.Ingester.DryRun, "ingester-dry-run", false, "When true, performs filtering analysis and records metrics but does not actually drop any data")
+	fs.Func("ingester-allowed-jobs", "Comma-separated list of allowed jobs to ingest metrics from", func(v string) error {
+		if v == "" {
+			config.DefaultConfig.Ingester.OTLP.AllowedJobs = nil
+			return nil
+		}
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				out = append(out, s)
+			}
+		}
+		config.DefaultConfig.Ingester.OTLP.AllowedJobs = out
+		return nil
+	})
+	fs.Func("ingester-denied-jobs", "Comma-separated list of denied jobs to ingest metrics from", func(v string) error {
+		if v == "" {
+			config.DefaultConfig.Ingester.OTLP.DeniedJobs = nil
+			return nil
+		}
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				out = append(out, s)
+			}
+		}
+		config.DefaultConfig.Ingester.OTLP.DeniedJobs = out
+		return nil
+	})
 
 	db.RegisterPostGreSQLFlags(fs)
 	db.RegisterSqliteFlags(fs)
