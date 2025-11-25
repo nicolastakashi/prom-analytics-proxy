@@ -104,6 +104,14 @@ var (
 		[]string{"protocol"},
 	)
 
+	emptyJobTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_empty_job_total",
+			Help: "Total number of occurrences where service.name or job are missing",
+		},
+		[]string{"protocol"},
+	)
+
 	labels = prometheus.Labels{
 		"protocol": protocol,
 	}
@@ -360,9 +368,12 @@ func (i *OtlpIngester) allowedDeniedSets() (map[string]struct{}, map[string]stru
 }
 
 func resolveJob(res *resourcepb.Resource) string {
-	job := AttrView(res.GetAttributes()).Get("service.name")
+	job := AttrView(res.GetAttributes()).Get("job")
 	if job == "" {
-		job = AttrView(res.GetAttributes()).Get("job")
+		job = AttrView(res.GetAttributes()).Get("service.name")
+	}
+	if job == "" {
+		emptyJobTotal.With(labels).Inc()
 	}
 	return job
 }
