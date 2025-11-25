@@ -31,6 +31,45 @@ const generateColorForValue = (value: string): string => {
   return `hsl(${hue}, 75%, 75%)`;
 };
 
+// Format time range duration in human-readable form
+const formatTimeRangeDuration = (start: string, end: string): string => {
+  try {
+    const startTime = new Date(start).getTime();
+    const endTime = new Date(end).getTime();
+    const diffMs = endTime - startTime;
+
+    if (diffMs < 0) return "-";
+
+    const seconds = Math.floor(diffMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      const remainingHours = hours % 24;
+      return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+    }
+    if (hours > 0) {
+      const remainingMinutes = minutes % 60;
+      return remainingMinutes > 0
+        ? `${hours}h ${remainingMinutes}m`
+        : `${hours}h`;
+    }
+    if (minutes > 0) {
+      const remainingSeconds = seconds % 60;
+      return remainingSeconds > 0
+        ? `${minutes}m ${remainingSeconds}s`
+        : `${minutes}m`;
+    }
+    if (seconds > 0) {
+      return `${seconds}s`;
+    }
+    return `${diffMs}ms`;
+  } catch {
+    return "-";
+  }
+};
+
 const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
   httpHeaders,
 }) => {
@@ -198,6 +237,77 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
           {Number.isFinite(v) ? v.toLocaleString() : "-"}
         </div>
       );
+    },
+  },
+  {
+    accessorKey: "timeRange",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Time Range" />
+    ),
+    cell: ({ row }) => {
+      const type = String(row.original.type);
+      const start = row.original.start;
+      const end = row.original.end;
+
+      const renderTooltip = (
+        content: React.ReactNode,
+        tooltipContent: React.ReactNode
+      ) => (
+        <Tooltip>
+          <TooltipTrigger asChild>{content}</TooltipTrigger>
+          <TooltipContent
+            side="top"
+            className="bg-slate-900 text-white border-slate-700 px-3 py-2"
+          >
+            {tooltipContent}
+          </TooltipContent>
+        </Tooltip>
+      );
+
+      // Show "-" for instant queries with tooltip showing the start time
+      if (type === "instant") {
+        if (start) {
+          try {
+            const formattedStart = formatUTCtoLocal(
+              start,
+              "dd/MM/yyyy HH:mm:ss"
+            );
+            return renderTooltip(
+              <span className="text-muted-foreground cursor-help">-</span>,
+              <span className="font-mono text-xs">{formattedStart}</span>
+            );
+          } catch {
+            return <span className="text-muted-foreground">-</span>;
+          }
+        }
+        return <span className="text-muted-foreground">-</span>;
+      }
+
+      // Show duration for range queries if we have both start and end
+      if (start && end) {
+        try {
+          const formattedStart = formatUTCtoLocal(start, "dd/MM/yyyy HH:mm:ss");
+          const formattedEnd = formatUTCtoLocal(end, "dd/MM/yyyy HH:mm:ss");
+          const duration = formatTimeRangeDuration(start, end);
+
+          return renderTooltip(
+            <span className="font-medium cursor-help">{duration}</span>,
+            <div className="font-mono text-xs">
+              <div>{formattedStart}</div>
+              <div className="text-slate-400">to</div>
+              <div>{formattedEnd}</div>
+            </div>
+          );
+        } catch {
+          return (
+            <span className="font-medium">
+              {formatTimeRangeDuration(start, end)}
+            </span>
+          );
+        }
+      }
+
+      return <span className="text-muted-foreground">-</span>;
     },
   },
   {

@@ -1620,6 +1620,8 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
             samples,
             type,
 			httpHeaders,
+			start,
+			"end",
             COALESCE(step, 0) AS steps,
             total_count
         FROM filtered, counted
@@ -1669,11 +1671,13 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 		var samples int
 		var typ string
 		var steps float64
+		var start time.Time
+		var end time.Time
 		var httpHeadersJSON string
-		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &steps, &totalCount); err != nil {
+		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &start, &end, &steps, &totalCount); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
-		r := QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps}
+		r := QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps, Start: start, End: end}
 		if httpHeadersJSON != "" {
 			if err := json.Unmarshal([]byte(httpHeadersJSON), &r.HTTPHeaders); err != nil {
 				return PagedResult{}, fmt.Errorf("failed to unmarshal httpHeaders: %w", err)
