@@ -119,14 +119,15 @@ var DefaultConfig = &Config{
 		OTLP: OtlpIngesterConfig{
 			ListenAddress: ":4317",
 		},
+		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
 		DrainDelay:              2 * time.Second,
 	},
 }
 
 type OtlpIngesterConfig struct {
-	ListenAddress     string `yaml:"listen_address,omitempty"`
-	DownstreamAddress string `yaml:"downstream_address,omitempty"`
+	ListenAddress     string   `yaml:"listen_address,omitempty"`
+	DownstreamAddress string   `yaml:"downstream_address,omitempty"`
 	AllowedJobs       []string `yaml:"allowed_jobs,omitempty"`
 	DeniedJobs        []string `yaml:"denied_jobs,omitempty"`
 }
@@ -140,6 +141,8 @@ const (
 type IngesterConfig struct {
 	Protocol string             `yaml:"protocol,omitempty"`
 	OTLP     OtlpIngesterConfig `yaml:"otlp,omitempty"`
+	// MetricsListenAddress is the HTTP address where Prometheus metrics are exposed.
+	MetricsListenAddress string `yaml:"metrics_listen_address,omitempty"`
 	// DryRun when true, performs filtering analysis and records metrics
 	// but does not actually drop any data
 	DryRun bool `yaml:"dry_run,omitempty"`
