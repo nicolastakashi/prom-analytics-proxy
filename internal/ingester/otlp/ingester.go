@@ -86,15 +86,6 @@ var (
 		[]string{"protocol"},
 	)
 
-	exportDurationMs = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingester_export_duration_ms",
-			Help:    "Duration of export requests in milliseconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"protocol"},
-	)
-
 	lookupLatencySeconds = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "ingester_lookup_latency_seconds",
