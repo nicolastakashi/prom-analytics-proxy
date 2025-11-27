@@ -118,6 +118,11 @@ var DefaultConfig = &Config{
 		Protocol: string(ProtocolOTLP),
 		OTLP: OtlpIngesterConfig{
 			ListenAddress: ":4317",
+			// Defaults to 10MiB, configurable via YAML/flags
+			GRPCMaxRecvMsgSizeBytes:           10 * 1024 * 1024,
+			GRPCMaxSendMsgSizeBytes:           10 * 1024 * 1024,
+			DownstreamGRPCMaxRecvMsgSizeBytes: 10 * 1024 * 1024,
+			DownstreamGRPCMaxSendMsgSizeBytes: 10 * 1024 * 1024,
 		},
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
@@ -130,6 +135,18 @@ type OtlpIngesterConfig struct {
 	DownstreamAddress string   `yaml:"downstream_address,omitempty"`
 	AllowedJobs       []string `yaml:"allowed_jobs,omitempty"`
 	DeniedJobs        []string `yaml:"denied_jobs,omitempty"`
+	// GRPCMaxRecvMsgSizeBytes controls the maximum size of a single gRPC message
+	// the OTLP server will accept.
+	GRPCMaxRecvMsgSizeBytes int `yaml:"grpc_max_recv_msg_size_bytes,omitempty"`
+	// GRPCMaxSendMsgSizeBytes controls the maximum size of a single gRPC message
+	// the OTLP server will send.
+	GRPCMaxSendMsgSizeBytes int `yaml:"grpc_max_send_msg_size_bytes,omitempty"`
+	// DownstreamGRPCMaxRecvMsgSizeBytes controls the maximum receive size used
+	// by the downstream OTLP client when forwarding data.
+	DownstreamGRPCMaxRecvMsgSizeBytes int `yaml:"downstream_grpc_max_recv_msg_size_bytes,omitempty"`
+	// DownstreamGRPCMaxSendMsgSizeBytes controls the maximum send size used
+	// by the downstream OTLP client when forwarding data.
+	DownstreamGRPCMaxSendMsgSizeBytes int `yaml:"downstream_grpc_max_send_msg_size_bytes,omitempty"`
 }
 
 type MetricIngesterProtocol string
