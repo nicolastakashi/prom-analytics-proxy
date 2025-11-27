@@ -326,6 +326,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		}
 		lookupLatencySeconds.With(labels).Observe(float64(time.Since(t0).Seconds()))
 		for _, mm := range metas {
+			slog.Debug("ingester:metric metadata", "metric.name", mm.Name, "metric.alertCount", mm.AlertCount, "metric.recordCount", mm.RecordCount, "metric.dashboardCount", mm.DashboardCount, "metric.queryCount", mm.QueryCount)
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
 				slog.Debug("ingester:metric is unused", "metric.name", mm.Name)
