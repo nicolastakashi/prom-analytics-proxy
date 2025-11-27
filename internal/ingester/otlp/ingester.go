@@ -328,6 +328,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		for _, mm := range metas {
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
+				slog.Debug("ingester:metric is unused", "metric.name", mm.Name)
 			}
 		}
 		batch = batch[:0]
