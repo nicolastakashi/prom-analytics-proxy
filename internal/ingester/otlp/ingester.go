@@ -104,6 +104,57 @@ var (
 		[]string{"protocol"},
 	)
 
+	exportInflight = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ingester_export_inflight",
+			Help: "Current in-flight Export requests",
+		},
+		[]string{"protocol", "rpc_method"},
+	)
+
+	exportSuccessTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_export_success_total",
+			Help: "Total successful Export responses",
+		},
+		[]string{"protocol", "rpc_method"},
+	)
+
+	exportFailureTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_export_failure_total",
+			Help: "Total Export failures",
+		},
+		[]string{"protocol", "rpc_method", "grpc_status_code"},
+	)
+
+	exportDurationSeconds = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingester_export_duration_seconds",
+			Help:    "Duration of export requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"protocol", "rpc_method"},
+	)
+
+	exportMetricsPerRequest = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingester_export_metrics_per_request",
+			Help:    "Number of metrics per request by stage",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"protocol", "stage"},
+	)
+
+	exportDatapointsPerRequest = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingester_export_datapoints_per_request",
+			Help:    "Number of datapoints per request by stage",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"protocol", "stage"},
+	)
+
 	emptyJobTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ingester_empty_job_total",
@@ -128,8 +179,18 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	}
 
 	serverOpts := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(64 * 1024 * 1024),
-		grpc.MaxSendMsgSize(64 * 1024 * 1024),
+		grpc.MaxRecvMsgSize(func() int {
+			if i.config != nil && i.config.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes > 0 {
+				return i.config.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes
+			}
+			return 10 * 1024 * 1024
+		}()),
+		grpc.MaxSendMsgSize(func() int {
+			if i.config != nil && i.config.Ingester.OTLP.GRPCMaxSendMsgSizeBytes > 0 {
+				return i.config.Ingester.OTLP.GRPCMaxSendMsgSizeBytes
+			}
+			return 10 * 1024 * 1024
+		}()),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     5 * time.Minute,
 			MaxConnectionAge:      0,
@@ -148,7 +209,10 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	// Downstream exporter (optional)
 	downstreamEndpoint := i.config.Ingester.OTLP.DownstreamAddress
 	if downstreamEndpoint != "" {
-		exp, err := NewOTLPExporter(downstreamEndpoint, i.config.Ingester.Protocol, nil)
+		exp, err := NewOTLPExporter(downstreamEndpoint, i.config.Ingester.Protocol, &ExporterOptions{
+			MaxSendMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+			MaxRecvMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+		})
 		if err != nil {
 			return err
 		}
@@ -212,8 +276,17 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
 	exportRequestsTotal.With(labels).Inc()
+	const rpcMethod = "Export"
+	methodLabels := prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod}
+	exportInflight.With(methodLabels).Inc()
+	defer func() {
+		exportInflight.With(methodLabels).Dec()
+		exportDurationSeconds.With(methodLabels).Observe(time.Since(start).Seconds())
+	}()
 
 	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
+	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "before"}).Observe(float64(beforeMetricsCount))
+	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "before"}).Observe(float64(seenDatapoints))
 
 	if beforeMetricsCount > 0 {
 		metricsSeenTotal.With(labels).Add(float64(beforeMetricsCount))
@@ -223,11 +296,27 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	}
 
 	if len(namesSet) == 0 {
+		exportSuccessTotal.With(methodLabels).Inc()
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
+	lookupStart := time.Now()
 	unused, ok := i.lookupUnused(ctx, namesSet)
 	if !ok {
+		exportSuccessTotal.With(methodLabels).Inc()
+		slog.Debug("ingester.export.lookup_failed",
+			"rpc.system", "grpc",
+			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+			"rpc.method", rpcMethod,
+			"export.duration_ms", time.Since(start).Milliseconds(),
+			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+			"seen.metrics", beforeMetricsCount,
+			"seen.datapoints", seenDatapoints,
+			"dropped.metrics", int64(0),
+			"dropped.datapoints", int64(0),
+			"dry_run", i.config != nil && i.config.Ingester.DryRun,
+			"downstream.enabled", i.exporter != nil,
+		)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -244,13 +333,38 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		} else {
 			droppedMetrics, droppedDatapoints = i.filterUnused(req, unused, allowedSet, deniedSet, beforeMetricsCount)
 		}
+		exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "dropped"}).Observe(float64(droppedMetrics))
+		exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "dropped"}).Observe(float64(droppedDatapoints))
 	}
+	afterMetricsCount := beforeMetricsCount - droppedMetrics
+	afterDatapoints := seenDatapoints - droppedDatapoints
+	if afterMetricsCount < 0 {
+		afterMetricsCount = 0
+	}
+	if afterDatapoints < 0 {
+		afterDatapoints = 0
+	}
+	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "after"}).Observe(float64(afterMetricsCount))
+	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "after"}).Observe(float64(afterDatapoints))
 
 	datapointsDroppedTotal.With(labels).Add(float64(droppedDatapoints))
 	metricsDroppedTotal.With(labels).Add(float64(droppedMetrics))
-	exportDurationMs.With(labels).Observe(float64(time.Since(start).Milliseconds()))
 
 	if i.exporter == nil {
+		exportSuccessTotal.With(methodLabels).Inc()
+		slog.Debug("ingester.export.success_no_downstream",
+			"rpc.system", "grpc",
+			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+			"rpc.method", rpcMethod,
+			"export.duration_ms", time.Since(start).Milliseconds(),
+			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+			"seen.metrics", beforeMetricsCount,
+			"seen.datapoints", seenDatapoints,
+			"dropped.metrics", droppedMetrics,
+			"dropped.datapoints", droppedDatapoints,
+			"dry_run", dryRun,
+			"downstream.enabled", false,
+		)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -271,18 +385,91 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-fctx.Done():
+			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(fctx.Err()).String()}).Inc()
+			slog.Error("ingester.export.retry_timeout",
+				"rpc.system", "grpc",
+				"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+				"rpc.method", rpcMethod,
+				"export.duration_ms", time.Since(start).Milliseconds(),
+				"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+				"seen.metrics", beforeMetricsCount,
+				"seen.datapoints", seenDatapoints,
+				"dropped.metrics", droppedMetrics,
+				"dropped.datapoints", droppedDatapoints,
+				"dry_run", dryRun,
+				"downstream.enabled", true,
+				"grpc.status_code", status.Code(fctx.Err()).String(),
+			)
 			return nil, fctx.Err()
 		}
 		fctx2, cancel2 := context.WithTimeout(ctx, tout)
 		defer cancel2()
 		if err2 := i.exporter.Export(fctx2, req); err2 != nil {
+			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(err2).String()}).Inc()
+			slog.Error("ingester.export.retry_failed",
+				"rpc.system", "grpc",
+				"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+				"rpc.method", rpcMethod,
+				"export.duration_ms", time.Since(start).Milliseconds(),
+				"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+				"seen.metrics", beforeMetricsCount,
+				"seen.datapoints", seenDatapoints,
+				"dropped.metrics", droppedMetrics,
+				"dropped.datapoints", droppedDatapoints,
+				"dry_run", dryRun,
+				"downstream.enabled", true,
+				"grpc.status_code", status.Code(err2).String(),
+			)
 			return nil, err2
 		}
+		exportSuccessTotal.With(methodLabels).Inc()
+		slog.Debug("ingester.export.success_retry",
+			"rpc.system", "grpc",
+			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+			"rpc.method", rpcMethod,
+			"export.duration_ms", time.Since(start).Milliseconds(),
+			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+			"seen.metrics", beforeMetricsCount,
+			"seen.datapoints", seenDatapoints,
+			"dropped.metrics", droppedMetrics,
+			"dropped.datapoints", droppedDatapoints,
+			"dry_run", dryRun,
+			"downstream.enabled", true,
+		)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	} else if err != nil {
+		exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(err).String()}).Inc()
+		slog.Warn("ingester.export.failure",
+			"rpc.system", "grpc",
+			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+			"rpc.method", rpcMethod,
+			"export.duration_ms", time.Since(start).Milliseconds(),
+			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+			"seen.metrics", beforeMetricsCount,
+			"seen.datapoints", seenDatapoints,
+			"dropped.metrics", droppedMetrics,
+			"dropped.datapoints", droppedDatapoints,
+			"dry_run", dryRun,
+			"downstream.enabled", true,
+			"grpc.status_code", status.Code(err).String(),
+		)
 		return nil, err
 	}
 
+	exportSuccessTotal.With(methodLabels).Inc()
+	slog.Debug("ingester.export.success_downstream",
+		"rpc.system", "grpc",
+		"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
+		"rpc.method", rpcMethod,
+		"export.duration_ms", time.Since(start).Milliseconds(),
+		"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
+		"seen.metrics", beforeMetricsCount,
+		"seen.datapoints", seenDatapoints,
+		"dropped.metrics", droppedMetrics,
+		"dropped.datapoints", droppedDatapoints,
+		"dry_run", dryRun,
+		"downstream.enabled", true,
+	)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }
 

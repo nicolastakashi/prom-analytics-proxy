@@ -25,6 +25,11 @@ var (
 		prometheus.CounterOpts{Name: "ingester_downstream_export_failures_total", Help: "Total downstream export failures"},
 		[]string{"protocol", "code"},
 	)
+
+	downstreamExportSuccessTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{Name: "ingester_downstream_export_success_total", Help: "Total downstream export successes"},
+		[]string{"protocol"},
+	)
 )
 
 type MetricsExporter interface {
@@ -46,10 +51,18 @@ type RetryPolicy struct {
 	RetryableStatusCodes []string
 }
 
-type ExporterOptions struct{ Retry RetryPolicy }
+type ExporterOptions struct {
+	Retry               RetryPolicy
+	MaxSendMsgSizeBytes int
+	MaxRecvMsgSizeBytes int
+}
 
 func defaultExporterOptions() ExporterOptions {
-	return ExporterOptions{Retry: RetryPolicy{MaxAttempts: 2, InitialBackoff: 250 * time.Millisecond, MaxBackoff: 1 * time.Second, BackoffMultiplier: 1.6, RetryableStatusCodes: []string{"UNAVAILABLE"}}}
+	return ExporterOptions{
+		Retry:               RetryPolicy{MaxAttempts: 2, InitialBackoff: 250 * time.Millisecond, MaxBackoff: 1 * time.Second, BackoffMultiplier: 1.6, RetryableStatusCodes: []string{"UNAVAILABLE"}},
+		MaxSendMsgSizeBytes: 10 * 1024 * 1024,
+		MaxRecvMsgSizeBytes: 10 * 1024 * 1024,
+	}
 }
 
 type grpcServiceConfigJSON struct {
@@ -96,7 +109,20 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 		endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(64*1024*1024), grpc.MaxCallRecvMsgSize(64*1024*1024)),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallSendMsgSize(func() int {
+				if o.MaxSendMsgSizeBytes > 0 {
+					return o.MaxSendMsgSizeBytes
+				}
+				return 10 * 1024 * 1024
+			}()),
+			grpc.MaxCallRecvMsgSize(func() int {
+				if o.MaxRecvMsgSizeBytes > 0 {
+					return o.MaxRecvMsgSizeBytes
+				}
+				return 10 * 1024 * 1024
+			}()),
+		),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 2 * time.Minute, Timeout: 20 * time.Second, PermitWithoutStream: true}),
 	)
 	if err != nil {
@@ -113,6 +139,7 @@ func (e *otlpExporter) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		downstreamExportFailuresTotal.With(prometheus.Labels{"protocol": e.protocol, "code": status.Code(err).String()}).Inc()
 		return err
 	}
+	downstreamExportSuccessTotal.With(prometheus.Labels{"protocol": e.protocol}).Inc()
 	return nil
 }
 

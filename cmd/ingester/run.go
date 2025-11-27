@@ -27,6 +27,10 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	fs.StringVar(&config.DefaultConfig.Ingester.MetricsListenAddress, "ingester-metrics-listen-address", config.DefaultConfig.Ingester.MetricsListenAddress, "The HTTP address to expose Prometheus metrics")
 	fs.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for retrieving query data. Supported values: postgresql, sqlite.")
 	fs.BoolVar(&config.DefaultConfig.Ingester.DryRun, "ingester-dry-run", false, "When true, performs filtering analysis and records metrics but does not actually drop any data")
+	fs.IntVar(&config.DefaultConfig.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes, "otlp-max-recv-bytes", config.DefaultConfig.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes, "Max gRPC receive message size for OTLP server (bytes)")
+	fs.IntVar(&config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "otlp-max-send-bytes", config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "Max gRPC send message size for OTLP server (bytes)")
+	fs.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "otlp-downstream-max-recv-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "Max gRPC receive message size for downstream OTLP client (bytes)")
+	fs.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "otlp-downstream-max-send-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "Max gRPC send message size for downstream OTLP client (bytes)")
 	fs.Func("ingester-allowed-jobs", "Comma-separated list of allowed jobs to ingest metrics from", func(v string) error {
 		if v == "" {
 			config.DefaultConfig.Ingester.OTLP.AllowedJobs = nil
