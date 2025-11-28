@@ -70,7 +70,8 @@ func TestOTLPIngester_E2E_GRPC_FilterAndForward(t *testing.T) {
 		errCh <- ing.Run(ctx)
 	}()
 
-	conn, dErr := grpc.NewClient(
+	conn, dErr := grpc.DialContext(
+		ctx,
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
