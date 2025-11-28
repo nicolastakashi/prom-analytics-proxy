@@ -220,9 +220,10 @@ Usage:
   ./bin/prom-analytics-proxy [command] [flags]
 
 Commands:
-  api     Run the proxy server (default)
+  api       Run the proxy server (default)
+  ingester  Run metrics ingester (experimental)
 
-Flags:
+Flags (api):
   -config-file string
     	Path to the configuration file, it takes precedence over the command line flags.
   -database-provider string
@@ -285,6 +286,68 @@ Flags:
     	Path to the sqlite database. (default "prom-analytics-proxy.db")
   -upstream string
     	The URL of the upstream prometheus API.
+
+Flags (metrics ingester):
+  -config-file string
+    	Path to the configuration file, it takes precedence over the command line flags.
+  -database-provider string
+    	The provider of database to use for retrieving query data. Supported values: postgresql, sqlite.
+  -ingester-allowed-jobs value
+    	Comma-separated list of allowed jobs to ingest metrics from
+  -ingester-denied-jobs value
+    	Comma-separated list of denied jobs to ingest metrics from
+  -ingester-drain-delay duration
+    	Delay after marking NOT_SERVING before shutdown begins (default 2s)
+  -ingester-dry-run
+    	When true, performs filtering analysis and records metrics but does not actually drop any data
+  -ingester-graceful-timeout duration
+    	Max time to wait for graceful shutdown (default 30s)
+  -ingester-metrics-listen-address string
+    	The HTTP address to expose Prometheus metrics (default ":9090")
+  -ingester-protocol string
+    	Metrics ingestion protocol (otlp) (default "otlp")
+  -log-format string
+    	Log format (text, json) (default "text")
+  -log-level string
+    	Log level (default "INFO")
+  -otlp-downstream-address string
+    	Optional downstream OTLP gRPC address to forward filtered metrics
+  -otlp-downstream-max-recv-bytes int
+    	Max gRPC receive message size for downstream OTLP client (bytes) (default 10485760)
+  -otlp-downstream-max-send-bytes int
+    	Max gRPC send message size for downstream OTLP client (bytes) (default 10485760)
+  -otlp-downstream-retry-backoff-multiplier float
+    	Downstream OTLP retry backoff multiplier (default 1.6)
+  -otlp-downstream-retry-codes value
+    	Comma-separated gRPC status codes to retry (e.g., UNAVAILABLE,RESOURCE_EXHAUSTED)
+  -otlp-downstream-retry-initial-backoff duration
+    	Downstream OTLP retry initial backoff (duration) (default 250ms)
+  -otlp-downstream-retry-max-attempts int
+    	Downstream OTLP retry max attempts (default 2)
+  -otlp-downstream-retry-max-backoff duration
+    	Downstream OTLP retry max backoff (duration) (default 1s)
+  -otlp-listen-address string
+    	The address the metrics ingester should listen on. (default ":4317")
+  -otlp-max-recv-bytes int
+    	Max gRPC receive message size for OTLP server (bytes) (default 10485760)
+  -otlp-max-send-bytes int
+    	Max gRPC send message size for OTLP server (bytes) (default 10485760)
+  -postgresql-addr string
+    	Address of the postgresql server. (default "localhost")
+  -postgresql-database string
+    	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
+  -postgresql-dial-timeout duration
+    	Timeout to dial postgresql. (default 5s)
+  -postgresql-password string
+    	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
+  -postgresql-port int
+    	Port of the postgresql server. (default 5432)
+  -postgresql-sslmode string
+    	SSL mode for the postgresql server. (default "disable")
+  -postgresql-user string
+    	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+  -sqlite-database-path string
+    	Path to the sqlite database. (default "prom-analytics-proxy.db")
 ```
 
 ### Tracing Support
