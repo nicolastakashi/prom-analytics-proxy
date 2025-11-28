@@ -115,6 +115,8 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		close(serveErrCh)
 	}()
 
+	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
 	select {
 	case <-ctx.Done():
 		healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
