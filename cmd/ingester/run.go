@@ -64,7 +64,8 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 
 func Run() error {
 	var g run.Group
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	dbProvider, err := db.GetDbProvider(ctx, db.DatabaseProvider(config.DefaultConfig.Database.Provider))
 	if err != nil {
@@ -79,10 +80,8 @@ func Run() error {
 
 	switch config.DefaultConfig.Ingester.Protocol {
 	case string(config.ProtocolOTLP):
-		ctx, cancel := context.WithCancel(ctx)
 		otlp, err := internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
 		if err != nil {
-			cancel()
 			return fmt.Errorf("create otlp ingester: %w", err)
 		}
 		g.Add(func() error {
