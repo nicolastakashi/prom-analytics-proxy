@@ -77,7 +77,7 @@ func buildJobSets(cfg *config.Config) (map[string]struct{}, map[string]struct{})
 		}
 		return m
 	}
-	return toSet(cfg.Ingester.OTLP.AllowedJobs), toSet(cfg.Ingester.OTLP.DeniedJobs)
+	return toSet(cfg.Ingester.AllowedJobs), toSet(cfg.Ingester.DeniedJobs)
 }
 
 func (i *OtlpIngester) Run(ctx context.Context) error {
@@ -253,7 +253,6 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 
 	unused, ok := i.lookupUnused(ctx, namesSet)
 	if !ok {
-		exportSuccessTotal.With(methodLabels).Inc()
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -286,7 +285,6 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	metricsDroppedTotal.With(labels).Add(float64(droppedMetrics))
 
 	if i.exporter == nil {
-		exportSuccessTotal.With(methodLabels).Inc()
 		logExportSuccess(false, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}

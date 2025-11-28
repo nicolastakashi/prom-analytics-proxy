@@ -102,7 +102,7 @@ func TestExport_AllowedJobs_ScopesUnusedDrop(t *testing.T) {
 	mp := &mockUsageProvider{}
 	cfg := &config.Config{
 		Ingester: config.IngesterConfig{
-			OTLP: config.OtlpIngesterConfig{AllowedJobs: []string{"prometheus"}},
+			AllowedJobs: []string{"prometheus"},
 		},
 	}
 	ing, err := NewOtlpIngester(cfg, mp)
@@ -135,7 +135,7 @@ func TestExport_DeniedJobs_DisablesUnusedDrop(t *testing.T) {
 	mp := &mockUsageProvider{}
 	cfg := &config.Config{
 		Ingester: config.IngesterConfig{
-			OTLP: config.OtlpIngesterConfig{DeniedJobs: []string{"prometheus"}},
+			DeniedJobs: []string{"prometheus"},
 		},
 	}
 	ing, err := NewOtlpIngester(cfg, mp)
