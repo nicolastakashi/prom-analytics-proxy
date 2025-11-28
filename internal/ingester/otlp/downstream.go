@@ -72,13 +72,16 @@ type grpcMethodConfigJSON struct {
 	Name        []grpcNameJSON      `json:"name"`
 	RetryPolicy grpcRetryPolicyJSON `json:"retryPolicy"`
 }
-type grpcNameJSON struct{ Service, Method string }
+type grpcNameJSON struct {
+	Service string `json:"service"`
+	Method  string `json:"method"`
+}
 type grpcRetryPolicyJSON struct {
-	MaxAttempts          int      `json:"MaxAttempts"`
-	InitialBackoff       string   `json:"InitialBackoff"`
-	MaxBackoff           string   `json:"MaxBackoff"`
-	BackoffMultiplier    float64  `json:"BackoffMultiplier"`
-	RetryableStatusCodes []string `json:"RetryableStatusCodes"`
+	MaxAttempts          int      `json:"maxAttempts"`
+	InitialBackoff       string   `json:"initialBackoff"`
+	MaxBackoff           string   `json:"maxBackoff"`
+	BackoffMultiplier    float64  `json:"backoffMultiplier"`
+	RetryableStatusCodes []string `json:"retryableStatusCodes"`
 }
 
 func buildServiceConfigJSON(o ExporterOptions) (string, error) {
@@ -99,7 +102,28 @@ func buildServiceConfigJSON(o ExporterOptions) (string, error) {
 func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (MetricsExporter, error) {
 	o := defaultExporterOptions()
 	if opts != nil {
-		o = *opts
+		// Merge provided options with defaults so Retry policy remains valid
+		if opts.MaxSendMsgSizeBytes > 0 {
+			o.MaxSendMsgSizeBytes = opts.MaxSendMsgSizeBytes
+		}
+		if opts.MaxRecvMsgSizeBytes > 0 {
+			o.MaxRecvMsgSizeBytes = opts.MaxRecvMsgSizeBytes
+		}
+		if opts.Retry.MaxAttempts > 0 {
+			o.Retry.MaxAttempts = opts.Retry.MaxAttempts
+		}
+		if opts.Retry.InitialBackoff > 0 {
+			o.Retry.InitialBackoff = opts.Retry.InitialBackoff
+		}
+		if opts.Retry.MaxBackoff > 0 {
+			o.Retry.MaxBackoff = opts.Retry.MaxBackoff
+		}
+		if opts.Retry.BackoffMultiplier > 0 {
+			o.Retry.BackoffMultiplier = opts.Retry.BackoffMultiplier
+		}
+		if len(opts.Retry.RetryableStatusCodes) > 0 {
+			o.Retry.RetryableStatusCodes = opts.Retry.RetryableStatusCodes
+		}
 	}
 	serviceConfig, err := buildServiceConfigJSON(o)
 	if err != nil {
