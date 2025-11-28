@@ -136,10 +136,8 @@ var DefaultConfig = &Config{
 }
 
 type OtlpIngesterConfig struct {
-	ListenAddress     string   `yaml:"listen_address,omitempty"`
-	DownstreamAddress string   `yaml:"downstream_address,omitempty"`
-	AllowedJobs       []string `yaml:"allowed_jobs,omitempty"`
-	DeniedJobs        []string `yaml:"denied_jobs,omitempty"`
+	ListenAddress     string `yaml:"listen_address,omitempty"`
+	DownstreamAddress string `yaml:"downstream_address,omitempty"`
 	// GRPCMaxRecvMsgSizeBytes controls the maximum size of a single gRPC message
 	// the OTLP server will accept.
 	GRPCMaxRecvMsgSizeBytes int `yaml:"grpc_max_recv_msg_size_bytes,omitempty"`
@@ -181,6 +179,12 @@ type IngesterConfig struct {
 	// allow external load balancers to stop sending new traffic before we
 	// begin graceful shutdown.
 	DrainDelay time.Duration `yaml:"drain_delay,omitempty"`
+	// AllowedJobs is a list of job names that are allowed to have unused metrics dropped.
+	// If empty, all jobs are subject to unused metric dropping (unless denied).
+	AllowedJobs []string `yaml:"allowed_jobs,omitempty"`
+	// DeniedJobs is a list of job names that are excluded from unused metric dropping.
+	// Metrics from these jobs will never be dropped, even if unused.
+	DeniedJobs []string `yaml:"denied_jobs,omitempty"`
 }
 
 func LoadConfig(path string) error {

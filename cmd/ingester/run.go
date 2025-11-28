@@ -28,7 +28,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	fs.BoolVar(&config.DefaultConfig.Ingester.DryRun, "ingester-dry-run", false, "When true, performs filtering analysis and records metrics but does not actually drop any data")
 	fs.Func("ingester-allowed-jobs", "Comma-separated list of allowed jobs to ingest metrics from", func(v string) error {
 		if v == "" {
-			config.DefaultConfig.Ingester.OTLP.AllowedJobs = nil
+			config.DefaultConfig.Ingester.AllowedJobs = nil
 			return nil
 		}
 		parts := strings.Split(v, ",")
@@ -38,12 +38,12 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 				out = append(out, s)
 			}
 		}
-		config.DefaultConfig.Ingester.OTLP.AllowedJobs = out
+		config.DefaultConfig.Ingester.AllowedJobs = out
 		return nil
 	})
 	fs.Func("ingester-denied-jobs", "Comma-separated list of denied jobs to ingest metrics from", func(v string) error {
 		if v == "" {
-			config.DefaultConfig.Ingester.OTLP.DeniedJobs = nil
+			config.DefaultConfig.Ingester.DeniedJobs = nil
 			return nil
 		}
 		parts := strings.Split(v, ",")
@@ -53,7 +53,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 				out = append(out, s)
 			}
 		}
-		config.DefaultConfig.Ingester.OTLP.DeniedJobs = out
+		config.DefaultConfig.Ingester.DeniedJobs = out
 		return nil
 	})
 
