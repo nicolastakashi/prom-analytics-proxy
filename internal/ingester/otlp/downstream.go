@@ -129,8 +129,7 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.DialContext(
-		context.Background(),
+	conn, err := grpc.NewClient(
 		endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),

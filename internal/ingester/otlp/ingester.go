@@ -385,6 +385,10 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 }
 
 func resolveJob(res *resourcepb.Resource) string {
+	if res == nil {
+		emptyJobTotal.With(labels).Inc()
+		return ""
+	}
 	job := AttrView(res.GetAttributes()).Get("job")
 	if job == "" {
 		job = AttrView(res.GetAttributes()).Get("service.name")
