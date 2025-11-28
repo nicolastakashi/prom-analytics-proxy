@@ -3,8 +3,11 @@ package otlp
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
@@ -13,8 +16,6 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -24,6 +25,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	rpcMethodExport = "Export"
+	rpcService      = "opentelemetry.proto.collector.metrics.v1.MetricsService"
+	stageBefore     = "before"
+	stageDropped    = "dropped"
+	stageAfter      = "after"
+)
+
 type OtlpIngester struct {
 	metricspb.UnimplementedMetricsServiceServer
 	config *config.Config
@@ -31,136 +40,44 @@ type OtlpIngester struct {
 
 	exporter      MetricsExporter
 	exportTimeout time.Duration
+
+	allowedJobs map[string]struct{}
+	deniedJobs  map[string]struct{}
 }
 
-const (
-	protocol = "otlp"
-)
-
-var (
-	exportRequestsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_requests_total",
-			Help: "Total number of export requests received",
-		},
-		[]string{"protocol"},
-	)
-
-	metricsSeenTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_metrics_seen_total",
-			Help: "Total number of metrics seen in export requests",
-		},
-		[]string{"protocol"},
-	)
-
-	datapointsSeenTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_datapoints_seen_total",
-			Help: "Total number of datapoints seen in export requests",
-		},
-		[]string{"protocol"},
-	)
-
-	metricsDroppedTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_metrics_dropped_total",
-			Help: "Total number of metrics dropped during filtering",
-		},
-		[]string{"protocol"},
-	)
-
-	datapointsDroppedTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_datapoints_dropped_total",
-			Help: "Total number of datapoints dropped during filtering",
-		},
-		[]string{"protocol"},
-	)
-
-	lookupErrorsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_lookup_errors_total",
-			Help: "Total number of database lookup errors",
-		},
-		[]string{"protocol"},
-	)
-
-	lookupLatencySeconds = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingester_lookup_latency_seconds",
-			Help:    "Duration of database lookups in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"protocol"},
-	)
-
-	exportInflight = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "ingester_export_inflight",
-			Help: "Current in-flight Export requests",
-		},
-		[]string{"protocol", "rpc_method"},
-	)
-
-	exportSuccessTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_success_total",
-			Help: "Total successful Export responses",
-		},
-		[]string{"protocol", "rpc_method"},
-	)
-
-	exportFailureTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_export_failure_total",
-			Help: "Total Export failures",
-		},
-		[]string{"protocol", "rpc_method", "grpc_status_code"},
-	)
-
-	exportDurationSeconds = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingester_export_duration_seconds",
-			Help:    "Duration of export requests in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"protocol", "rpc_method"},
-	)
-
-	exportMetricsPerRequest = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingester_export_metrics_per_request",
-			Help:    "Number of metrics per request by stage",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"protocol", "stage"},
-	)
-
-	exportDatapointsPerRequest = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "ingester_export_datapoints_per_request",
-			Help:    "Number of datapoints per request by stage",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"protocol", "stage"},
-	)
-
-	emptyJobTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ingester_empty_job_total",
-			Help: "Total number of occurrences where service.name or job are missing",
-		},
-		[]string{"protocol"},
-	)
-
-	labels = prometheus.Labels{
-		"protocol": protocol,
+func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngester, error) {
+	if config == nil {
+		return nil, fmt.Errorf("config cannot be nil")
 	}
-)
+	if dbProvider == nil {
+		return nil, fmt.Errorf("db provider cannot be nil")
+	}
 
-func NewOtlpIngester(config *config.Config, dbProvider db.Provider) *OtlpIngester {
-	return &OtlpIngester{config: config, db: dbProvider, exportTimeout: 5 * time.Second}
+	allowedJobs, deniedJobs := buildJobSets(config)
+	return &OtlpIngester{
+		config:        config,
+		db:            dbProvider,
+		exportTimeout: 5 * time.Second,
+		allowedJobs:   allowedJobs,
+		deniedJobs:    deniedJobs,
+	}, nil
+}
+
+func buildJobSets(cfg *config.Config) (map[string]struct{}, map[string]struct{}) {
+	toSet := func(xs []string) map[string]struct{} {
+		if len(xs) == 0 {
+			return nil
+		}
+		m := make(map[string]struct{}, len(xs))
+		for _, s := range xs {
+			if s == "" {
+				continue
+			}
+			m[s] = struct{}{}
+		}
+		return m
+	}
+	return toSet(cfg.Ingester.OTLP.AllowedJobs), toSet(cfg.Ingester.OTLP.DeniedJobs)
 }
 
 func (i *OtlpIngester) Run(ctx context.Context) error {
@@ -169,53 +86,16 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		return err
 	}
 
-	serverOpts := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(func() int {
-			if i.config != nil && i.config.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes > 0 {
-				return i.config.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes
-			}
-			return 10 * 1024 * 1024
-		}()),
-		grpc.MaxSendMsgSize(func() int {
-			if i.config != nil && i.config.Ingester.OTLP.GRPCMaxSendMsgSizeBytes > 0 {
-				return i.config.Ingester.OTLP.GRPCMaxSendMsgSizeBytes
-			}
-			return 10 * 1024 * 1024
-		}()),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			MaxConnectionIdle:     5 * time.Minute,
-			MaxConnectionAge:      0,
-			MaxConnectionAgeGrace: 30 * time.Second,
-			Time:                  2 * time.Minute,
-			Timeout:               20 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             1 * time.Minute,
-			PermitWithoutStream: true,
-		}),
-	}
-
+	serverOpts := grpcServerOptions(i.config)
 	grpcServer := grpc.NewServer(serverOpts...)
 
-	// Downstream exporter (optional)
-	downstreamEndpoint := i.config.Ingester.OTLP.DownstreamAddress
-	if downstreamEndpoint != "" {
-		exp, err := NewOTLPExporter(downstreamEndpoint, i.config.Ingester.Protocol, &ExporterOptions{
-			MaxSendMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
-			MaxRecvMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
-			Retry: RetryPolicy{
-				MaxAttempts:          i.config.Ingester.OTLP.DownstreamRetryMaxAttempts,
-				InitialBackoff:       i.config.Ingester.OTLP.DownstreamRetryInitialBackoff,
-				MaxBackoff:           i.config.Ingester.OTLP.DownstreamRetryMaxBackoff,
-				BackoffMultiplier:    i.config.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
-				RetryableStatusCodes: i.config.Ingester.OTLP.DownstreamRetryCodes,
-			},
-		})
-		if err != nil {
-			return err
-		}
+	exp, err := initDownstreamExporter(i.config)
+	if err != nil {
+		return err
+	}
+	if exp != nil {
 		i.exporter = exp
-		slog.Info("ingester: connected to downstream OTLP", "endpoint", downstreamEndpoint)
+		slog.Info("ingester: connected to downstream OTLP", "endpoint", i.config.Ingester.OTLP.DownstreamAddress)
 	} else {
 		slog.Info("ingester: downstream disabled (no config ingester.otlp.downstream_address)")
 	}
@@ -269,13 +149,86 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	}
 }
 
-// Export receives OTLP metrics and removes globally unused metrics before forwarding.
-// See original implementation notes in the prior file; logic unchanged.
+func grpcServerOptions(cfg *config.Config) []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(func() int {
+			if cfg != nil && cfg.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes > 0 {
+				return cfg.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes
+			}
+			return 10 * 1024 * 1024
+		}()),
+		grpc.MaxSendMsgSize(func() int {
+			if cfg != nil && cfg.Ingester.OTLP.GRPCMaxSendMsgSizeBytes > 0 {
+				return cfg.Ingester.OTLP.GRPCMaxSendMsgSizeBytes
+			}
+			return 10 * 1024 * 1024
+		}()),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      0,
+			MaxConnectionAgeGrace: 30 * time.Second,
+			Time:                  2 * time.Minute,
+			Timeout:               20 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             1 * time.Minute,
+			PermitWithoutStream: true,
+		}),
+	}
+}
+
+func initDownstreamExporter(cfg *config.Config) (MetricsExporter, error) {
+	downstreamEndpoint := cfg.Ingester.OTLP.DownstreamAddress
+	if downstreamEndpoint == "" {
+		return nil, nil
+	}
+	return NewOTLPExporter(downstreamEndpoint, cfg.Ingester.Protocol, &ExporterOptions{
+		MaxSendMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+		MaxRecvMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+		Retry: RetryPolicy{
+			MaxAttempts:          cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
+			InitialBackoff:       cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
+			MaxBackoff:           cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,
+			BackoffMultiplier:    cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
+			RetryableStatusCodes: cfg.Ingester.OTLP.DownstreamRetryCodes,
+		},
+	})
+}
+
+func computeExportTimeout(ctx context.Context, base time.Duration) time.Duration {
+	tout := base
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < tout {
+			tout = d - 50*time.Millisecond
+			if tout <= 0 {
+				tout = 50 * time.Millisecond
+			}
+		}
+	}
+	return tout
+}
+
+func logExportSuccess(downstreamEnabled, dryRun bool) {
+	slog.Debug("ingester.export.success",
+		"rpc.method", rpcMethodExport,
+		"downstream.enabled", downstreamEnabled,
+		"dry_run", dryRun,
+	)
+}
+
+func logExportFailure(err error, downstreamEnabled bool) {
+	slog.Error("ingester.export.failure",
+		"rpc.method", rpcMethodExport,
+		"grpc.status_code", status.Code(err).String(),
+		"err", err,
+		"downstream.enabled", downstreamEnabled,
+	)
+}
+
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
 	exportRequestsTotal.With(labels).Inc()
-	const rpcMethod = "Export"
-	methodLabels := prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod}
+	methodLabels := prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport}
 	exportInflight.With(methodLabels).Inc()
 	defer func() {
 		exportInflight.With(methodLabels).Dec()
@@ -283,8 +236,8 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	}()
 
 	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
-	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "before"}).Observe(float64(beforeMetricsCount))
-	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "before"}).Observe(float64(seenDatapoints))
+	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageBefore}).Observe(float64(beforeMetricsCount))
+	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageBefore}).Observe(float64(seenDatapoints))
 
 	if beforeMetricsCount > 0 {
 		metricsSeenTotal.With(labels).Add(float64(beforeMetricsCount))
@@ -298,41 +251,25 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	lookupStart := time.Now()
 	unused, ok := i.lookupUnused(ctx, namesSet)
 	if !ok {
 		exportSuccessTotal.With(methodLabels).Inc()
-		slog.Debug("ingester.export.lookup_failed",
-			"rpc.system", "grpc",
-			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-			"rpc.method", rpcMethod,
-			"export.duration_ms", time.Since(start).Milliseconds(),
-			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-			"seen.metrics", beforeMetricsCount,
-			"seen.datapoints", seenDatapoints,
-			"dropped.metrics", int64(0),
-			"dropped.datapoints", int64(0),
-			"dry_run", i.config != nil && i.config.Ingester.DryRun,
-			"downstream.enabled", i.exporter != nil,
-		)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	// Determine if we're in dry-run mode
 	dryRun := i.config != nil && i.config.Ingester.DryRun
 
 	var droppedDatapoints int64
 	var droppedMetrics int64
 
 	if len(unused) > 0 {
-		allowedSet, deniedSet := i.allowedDeniedSets()
 		if dryRun {
-			droppedMetrics, droppedDatapoints = i.countWouldDrop(req, unused, allowedSet, deniedSet)
+			droppedMetrics, droppedDatapoints = i.countWouldDrop(req, unused, i.allowedJobs, i.deniedJobs)
 		} else {
-			droppedMetrics, droppedDatapoints = i.filterUnused(req, unused, allowedSet, deniedSet, beforeMetricsCount)
+			droppedMetrics, droppedDatapoints = i.filterUnused(req, unused, i.allowedJobs, i.deniedJobs, beforeMetricsCount)
 		}
-		exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "dropped"}).Observe(float64(droppedMetrics))
-		exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "dropped"}).Observe(float64(droppedDatapoints))
+		exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageDropped}).Observe(float64(droppedMetrics))
+		exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageDropped}).Observe(float64(droppedDatapoints))
 	}
 	afterMetricsCount := beforeMetricsCount - droppedMetrics
 	afterDatapoints := seenDatapoints - droppedDatapoints
@@ -342,39 +279,19 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	if afterDatapoints < 0 {
 		afterDatapoints = 0
 	}
-	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "after"}).Observe(float64(afterMetricsCount))
-	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": "after"}).Observe(float64(afterDatapoints))
+	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageAfter}).Observe(float64(afterMetricsCount))
+	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageAfter}).Observe(float64(afterDatapoints))
 
 	datapointsDroppedTotal.With(labels).Add(float64(droppedDatapoints))
 	metricsDroppedTotal.With(labels).Add(float64(droppedMetrics))
 
 	if i.exporter == nil {
 		exportSuccessTotal.With(methodLabels).Inc()
-		slog.Debug("ingester.export.success_no_downstream",
-			"rpc.system", "grpc",
-			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-			"rpc.method", rpcMethod,
-			"export.duration_ms", time.Since(start).Milliseconds(),
-			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-			"seen.metrics", beforeMetricsCount,
-			"seen.datapoints", seenDatapoints,
-			"dropped.metrics", droppedMetrics,
-			"dropped.datapoints", droppedDatapoints,
-			"dry_run", dryRun,
-			"downstream.enabled", false,
-		)
+		logExportSuccess(false, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	tout := i.exportTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		if d := time.Until(deadline); d > 0 && d < tout {
-			tout = d - 50*time.Millisecond
-			if tout <= 0 {
-				tout = 50 * time.Millisecond
-			}
-		}
-	}
+	tout := computeExportTimeout(ctx, i.exportTimeout)
 	fctx, cancel := context.WithTimeout(ctx, tout)
 	defer cancel()
 
@@ -383,98 +300,32 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-fctx.Done():
-			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(fctx.Err()).String()}).Inc()
-			slog.Error("ingester.export.retry_timeout",
-				"rpc.system", "grpc",
-				"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-				"rpc.method", rpcMethod,
-				"export.duration_ms", time.Since(start).Milliseconds(),
-				"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-				"seen.metrics", beforeMetricsCount,
-				"seen.datapoints", seenDatapoints,
-				"dropped.metrics", droppedMetrics,
-				"dropped.datapoints", droppedDatapoints,
-				"dry_run", dryRun,
-				"downstream.enabled", true,
-				"grpc.status_code", status.Code(fctx.Err()).String(),
-			)
+			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(fctx.Err()).String()}).Inc()
+			logExportFailure(fctx.Err(), true)
 			return nil, fctx.Err()
 		}
 		fctx2, cancel2 := context.WithTimeout(ctx, tout)
 		defer cancel2()
 		if err2 := i.exporter.Export(fctx2, req); err2 != nil {
-			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(err2).String()}).Inc()
-			slog.Error("ingester.export.retry_failed",
-				"rpc.system", "grpc",
-				"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-				"rpc.method", rpcMethod,
-				"export.duration_ms", time.Since(start).Milliseconds(),
-				"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-				"seen.metrics", beforeMetricsCount,
-				"seen.datapoints", seenDatapoints,
-				"dropped.metrics", droppedMetrics,
-				"dropped.datapoints", droppedDatapoints,
-				"dry_run", dryRun,
-				"downstream.enabled", true,
-				"grpc.status_code", status.Code(err2).String(),
-			)
+			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(err2).String()}).Inc()
+			logExportFailure(err2, true)
 			return nil, err2
 		}
 		exportSuccessTotal.With(methodLabels).Inc()
-		slog.Debug("ingester.export.success_retry",
-			"rpc.system", "grpc",
-			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-			"rpc.method", rpcMethod,
-			"export.duration_ms", time.Since(start).Milliseconds(),
-			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-			"seen.metrics", beforeMetricsCount,
-			"seen.datapoints", seenDatapoints,
-			"dropped.metrics", droppedMetrics,
-			"dropped.datapoints", droppedDatapoints,
-			"dry_run", dryRun,
-			"downstream.enabled", true,
-		)
+		logExportSuccess(true, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	} else if err != nil {
-		exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethod, "grpc_status_code": status.Code(err).String()}).Inc()
-		slog.Warn("ingester.export.failure",
-			"rpc.system", "grpc",
-			"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-			"rpc.method", rpcMethod,
-			"export.duration_ms", time.Since(start).Milliseconds(),
-			"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-			"seen.metrics", beforeMetricsCount,
-			"seen.datapoints", seenDatapoints,
-			"dropped.metrics", droppedMetrics,
-			"dropped.datapoints", droppedDatapoints,
-			"dry_run", dryRun,
-			"downstream.enabled", true,
-			"grpc.status_code", status.Code(err).String(),
-		)
+		exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(err).String()}).Inc()
+		logExportFailure(err, true)
 		return nil, err
 	}
 
 	exportSuccessTotal.With(methodLabels).Inc()
-	slog.Debug("ingester.export.success_downstream",
-		"rpc.system", "grpc",
-		"rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService",
-		"rpc.method", rpcMethod,
-		"export.duration_ms", time.Since(start).Milliseconds(),
-		"db.lookup_ms", time.Since(lookupStart).Milliseconds(),
-		"seen.metrics", beforeMetricsCount,
-		"seen.datapoints", seenDatapoints,
-		"dropped.metrics", droppedMetrics,
-		"dropped.datapoints", droppedDatapoints,
-		"dry_run", dryRun,
-		"downstream.enabled", true,
-	)
+	logExportSuccess(true, dryRun)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }
 
-// SetExporter allows tests to inject a custom exporter.
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
-
-// ----- helpers -----
 
 func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, int64, int64) {
 	names := make(map[string]struct{})
@@ -511,10 +362,8 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		}
 		lookupLatencySeconds.With(labels).Observe(float64(time.Since(t0).Seconds()))
 		for _, mm := range metas {
-			slog.Debug("ingester:metric metadata", "metric.name", mm.Name, "metric.alertCount", mm.AlertCount, "metric.recordCount", mm.RecordCount, "metric.dashboardCount", mm.DashboardCount, "metric.queryCount", mm.QueryCount)
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
-				slog.Debug("ingester:metric is unused", "metric.name", mm.Name)
 			}
 		}
 		batch = batch[:0]
@@ -532,26 +381,6 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		return nil, false
 	}
 	return unused, true
-}
-
-func (i *OtlpIngester) allowedDeniedSets() (map[string]struct{}, map[string]struct{}) {
-	toSet := func(xs []string) map[string]struct{} {
-		if len(xs) == 0 {
-			return nil
-		}
-		m := make(map[string]struct{}, len(xs))
-		for _, s := range xs {
-			if s == "" {
-				continue
-			}
-			m[s] = struct{}{}
-		}
-		return m
-	}
-	if i.config == nil {
-		return nil, nil
-	}
-	return toSet(i.config.Ingester.OTLP.AllowedJobs), toSet(i.config.Ingester.OTLP.DeniedJobs)
 }
 
 func resolveJob(res *resourcepb.Resource) string {
@@ -617,4 +446,32 @@ func (i *OtlpIngester) filterUnused(req *metricspb.ExportMetricsServiceRequest, 
 	}
 	droppedMetrics := beforeMetricsCount - afterMetricsCount
 	return droppedMetrics, droppedDatapoints
+}
+
+func RegisterOTLPFlags(flagSet *flag.FlagSet) {
+	flagSet.StringVar(&config.DefaultConfig.Ingester.OTLP.ListenAddress, "otlp-listen-address", ":4317", "The address the metrics ingester should listen on.")
+	flagSet.StringVar(&config.DefaultConfig.Ingester.OTLP.DownstreamAddress, "otlp-downstream-address", "", "Optional downstream OTLP gRPC address to forward filtered metrics")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes, "otlp-max-recv-bytes", config.DefaultConfig.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes, "Max gRPC receive message size for OTLP server (bytes)")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "otlp-max-send-bytes", config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "Max gRPC send message size for OTLP server (bytes)")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "otlp-downstream-max-recv-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "Max gRPC receive message size for downstream OTLP client (bytes)")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "otlp-downstream-max-send-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "Max gRPC send message size for downstream OTLP client (bytes)")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxAttempts, "otlp-downstream-retry-max-attempts", config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxAttempts, "Downstream OTLP retry max attempts")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryInitialBackoff, "otlp-downstream-retry-initial-backoff", config.DefaultConfig.Ingester.OTLP.DownstreamRetryInitialBackoff, "Downstream OTLP retry initial backoff (duration)")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxBackoff, "otlp-downstream-retry-max-backoff", config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxBackoff, "Downstream OTLP retry max backoff (duration)")
+	flagSet.Float64Var(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryBackoffMultiplier, "otlp-downstream-retry-backoff-multiplier", config.DefaultConfig.Ingester.OTLP.DownstreamRetryBackoffMultiplier, "Downstream OTLP retry backoff multiplier")
+	flagSet.Func("otlp-downstream-retry-codes", "Comma-separated gRPC status codes to retry (e.g., UNAVAILABLE,RESOURCE_EXHAUSTED)", func(v string) error {
+		if v == "" {
+			config.DefaultConfig.Ingester.OTLP.DownstreamRetryCodes = nil
+			return nil
+		}
+		parts := strings.Split(v, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				out = append(out, s)
+			}
+		}
+		config.DefaultConfig.Ingester.OTLP.DownstreamRetryCodes = out
+		return nil
+	})
 }

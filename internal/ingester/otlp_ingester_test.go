@@ -52,7 +52,9 @@ func buildExportRequest(metrics ...*metricspb.Metric) *colmetricspb.ExportMetric
 
 func TestExport_DropsUnusedMetrics_KeepsUsedAndUnknown(t *testing.T) {
 	mp := &mockUsageProvider{}
-	ing := NewOtlpIngester(nil, mp)
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
 
 	req := buildExportRequest(
 		buildGaugeMetric("used_metric", 2),
@@ -67,7 +69,7 @@ func TestExport_DropsUnusedMetrics_KeepsUsedAndUnknown(t *testing.T) {
 		// unknown_metric intentionally not returned
 	}, nil).Once()
 
-	_, err := ing.Export(context.Background(), req)
+	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 
 	// After filtering, only used_metric and unknown_metric remain
@@ -103,7 +105,8 @@ func TestExport_AllowedJobs_ScopesUnusedDrop(t *testing.T) {
 			OTLP: config.OtlpIngesterConfig{AllowedJobs: []string{"prometheus"}},
 		},
 	}
-	ing := NewOtlpIngester(cfg, mp)
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
 
 	// DB: mark "unused_metric" as unused globally
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
@@ -117,7 +120,7 @@ func TestExport_AllowedJobs_ScopesUnusedDrop(t *testing.T) {
 			{buildGaugeMetric("unused_metric", 1)}, // should keep (not allowed job)
 		},
 	)
-	_, err := ing.Export(context.Background(), req)
+	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 
 	rms := req.ResourceMetrics
@@ -135,7 +138,8 @@ func TestExport_DeniedJobs_DisablesUnusedDrop(t *testing.T) {
 			OTLP: config.OtlpIngesterConfig{DeniedJobs: []string{"prometheus"}},
 		},
 	}
-	ing := NewOtlpIngester(cfg, mp)
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
 
 	// DB: mark "unused_metric" as unused globally
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
@@ -149,7 +153,7 @@ func TestExport_DeniedJobs_DisablesUnusedDrop(t *testing.T) {
 			{buildGaugeMetric("unused_metric", 1)}, // should drop (default behavior)
 		},
 	)
-	_, err := ing.Export(context.Background(), req)
+	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 
 	rms := req.ResourceMetrics
@@ -173,7 +177,9 @@ func commonpbAttrString(attrs []*commonpb.KeyValue, key string) string {
 }
 func TestExport_DBError_FailOpen(t *testing.T) {
 	mp := &mockUsageProvider{}
-	ing := NewOtlpIngester(nil, mp)
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
 
 	req := buildExportRequest(
 		buildGaugeMetric("unused_metric", 1),
@@ -181,7 +187,7 @@ func TestExport_DBError_FailOpen(t *testing.T) {
 
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, assert.AnError).Once()
 
-	_, err := ing.Export(context.Background(), req)
+	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 
 	// No drops due to fail-open
@@ -199,7 +205,8 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 			DryRun: true,
 		},
 	}
-	ing := NewOtlpIngester(cfg, mp)
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
 
 	req := buildExportRequest(
 		buildGaugeMetric("used_metric", 2),
@@ -214,7 +221,7 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 		// unknown_metric intentionally not returned
 	}, nil).Once()
 
-	_, err := ing.Export(context.Background(), req)
+	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 
 	// In dry-run mode, all metrics should remain (no filtering applied)
@@ -281,7 +288,9 @@ func BenchmarkExport_FilterSizes(b *testing.B) {
 				}
 				return res
 			}}
-			ing := NewOtlpIngester(nil, mp)
+			cfg := &config.Config{}
+			ing, err := NewOtlpIngester(cfg, mp)
+			assert.NoError(b, err)
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -372,7 +381,8 @@ func TestOTLPIngester_Integration_UnusedFiltering_PostgreSQL(t *testing.T) {
 	}
 	req := &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: []*metricspb.ResourceMetrics{{Resource: &resourcepb.Resource{}, ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricspb.Metric{buildGauge("used_metric"), buildGauge("unused_metric")}}}}}}
 
-	ing := NewOtlpIngester(config.DefaultConfig, prov)
+	ing, err := NewOtlpIngester(config.DefaultConfig, prov)
+	assert.NoError(t, err)
 	ing.SetExporter(&captureExporter{})
 	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
@@ -475,7 +485,8 @@ func TestOTLPIngester_Integration_DownstreamCollector(t *testing.T) {
 	defer func() {
 		_ = exp.Close()
 	}()
-	ing := NewOtlpIngester(config.DefaultConfig, prov)
+	ing, err := NewOtlpIngester(config.DefaultConfig, prov)
+	assert.NoError(t, err)
 	ing.SetExporter(exp)
 	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)

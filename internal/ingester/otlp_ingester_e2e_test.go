@@ -59,7 +59,8 @@ func TestOTLPIngester_E2E_GRPC_FilterAndForward(t *testing.T) {
 			},
 		},
 	}
-	ing := NewOtlpIngester(cfg, prov)
+	ing, err := NewOtlpIngester(cfg, prov)
+	assert.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

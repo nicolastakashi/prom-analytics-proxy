@@ -1497,14 +1497,14 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	defer CloseResource(rows)
 
 	type row struct {
-		ts         time.Time
-		status     int
-		duration   int64
-		samples    int
-		typ        string
-		steps      float64
-		httpHeaders   []byte
-		totalCount int
+		ts          time.Time
+		status      int
+		duration    int64
+		samples     int
+		typ         string
+		steps       float64
+		httpHeaders []byte
+		totalCount  int
 	}
 	var (
 		results []QueryExecutionRow
