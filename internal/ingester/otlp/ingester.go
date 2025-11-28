@@ -203,6 +203,13 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		exp, err := NewOTLPExporter(downstreamEndpoint, i.config.Ingester.Protocol, &ExporterOptions{
 			MaxSendMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
 			MaxRecvMsgSizeBytes: i.config.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+			Retry: RetryPolicy{
+				MaxAttempts:          i.config.Ingester.OTLP.DownstreamRetryMaxAttempts,
+				InitialBackoff:       i.config.Ingester.OTLP.DownstreamRetryInitialBackoff,
+				MaxBackoff:           i.config.Ingester.OTLP.DownstreamRetryMaxBackoff,
+				BackoffMultiplier:    i.config.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
+				RetryableStatusCodes: i.config.Ingester.OTLP.DownstreamRetryCodes,
+			},
 		})
 		if err != nil {
 			return err

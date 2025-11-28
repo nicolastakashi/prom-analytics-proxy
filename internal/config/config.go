@@ -123,6 +123,11 @@ var DefaultConfig = &Config{
 			GRPCMaxSendMsgSizeBytes:           10 * 1024 * 1024,
 			DownstreamGRPCMaxRecvMsgSizeBytes: 10 * 1024 * 1024,
 			DownstreamGRPCMaxSendMsgSizeBytes: 10 * 1024 * 1024,
+			DownstreamRetryMaxAttempts:        2,
+			DownstreamRetryInitialBackoff:     250 * time.Millisecond,
+			DownstreamRetryMaxBackoff:         1 * time.Second,
+			DownstreamRetryBackoffMultiplier:  1.6,
+			DownstreamRetryCodes:              []string{"UNAVAILABLE"},
 		},
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
@@ -147,6 +152,12 @@ type OtlpIngesterConfig struct {
 	// DownstreamGRPCMaxSendMsgSizeBytes controls the maximum send size used
 	// by the downstream OTLP client when forwarding data.
 	DownstreamGRPCMaxSendMsgSizeBytes int `yaml:"downstream_grpc_max_send_msg_size_bytes,omitempty"`
+	// Downstream retry policy configuration for OTLP client
+	DownstreamRetryMaxAttempts       int           `yaml:"downstream_retry_max_attempts,omitempty"`
+	DownstreamRetryInitialBackoff    time.Duration `yaml:"downstream_retry_initial_backoff,omitempty"`
+	DownstreamRetryMaxBackoff        time.Duration `yaml:"downstream_retry_max_backoff,omitempty"`
+	DownstreamRetryBackoffMultiplier float64       `yaml:"downstream_retry_backoff_multiplier,omitempty"`
+	DownstreamRetryCodes             []string      `yaml:"downstream_retry_codes,omitempty"`
 }
 
 type MetricIngesterProtocol string
