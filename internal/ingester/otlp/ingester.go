@@ -91,6 +91,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 
 	exp, err := initDownstreamExporter(i.config)
 	if err != nil {
+		_ = lis.Close()
 		return err
 	}
 	if exp != nil {
