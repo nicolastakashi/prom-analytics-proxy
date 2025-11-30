@@ -1482,7 +1482,7 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
         )
         SELECT ts, statusCode, duration, samples, type,
                COALESCE(step, 0) AS steps,
-               httpHeaders, total_count
+               httpHeaders, start, "end", total_count
         FROM filtered, counted
     `
 
@@ -1497,14 +1497,16 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	defer CloseResource(rows)
 
 	type row struct {
-		ts         time.Time
-		status     int
-		duration   int64
-		samples    int
-		typ        string
-		steps      float64
-		httpHeaders   []byte
-		totalCount int
+		ts          time.Time
+		status      int
+		duration    int64
+		samples     int
+		typ         string
+		steps       float64
+		httpHeaders []byte
+		start       time.Time
+		end         time.Time
+		totalCount  int
 	}
 	var (
 		results []QueryExecutionRow
@@ -1512,10 +1514,10 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	)
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.httpHeaders, &r.totalCount); err != nil {
+		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.httpHeaders, &r.start, &r.end, &r.totalCount); err != nil {
 			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
-		res := QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps}
+		res := QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps, Start: r.start, End: r.end}
 		if len(r.httpHeaders) > 0 {
 			if err := json.Unmarshal(r.httpHeaders, &res.HTTPHeaders); err != nil {
 				return PagedResult{}, fmt.Errorf("unmarshal httpHeaders: %w", err)
