@@ -240,7 +240,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		rpcServerDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
 	}()
 
-	namesSet, _, seenDatapoints := i.collectNamesAndCounts(req)
+	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
 	if seenDatapoints > 0 {
 		receiverReceivedMetricPointsTotal.Add(float64(seenDatapoints))
 	}
@@ -255,6 +255,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
+	slog.Debug("ingester: unused metrics found", "count", len(unused))
 
 	dryRun := i.config != nil && i.config.Ingester.DryRun
 
@@ -264,7 +265,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		if dryRun {
 			_, droppedDatapoints = i.countWouldDrop(req, unused, i.allowedJobs, i.deniedJobs)
 		} else {
-			_, droppedDatapoints = i.filterUnused(req, unused, i.allowedJobs, i.deniedJobs, 0)
+			_, droppedDatapoints = i.filterUnused(req, unused, i.allowedJobs, i.deniedJobs, beforeMetricsCount)
 		}
 		if droppedDatapoints > 0 {
 			processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "unused_metric"}).Add(float64(droppedDatapoints))
@@ -350,6 +351,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		for _, mm := range metas {
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
+				slog.Debug("ingester: unused metric found", "metric_name", mm.Name)
 			}
 		}
 		batch = batch[:0]
