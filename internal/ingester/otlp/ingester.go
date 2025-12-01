@@ -26,11 +26,9 @@ import (
 )
 
 const (
-	rpcMethodExport = "Export"
-	rpcService      = "opentelemetry.proto.collector.metrics.v1.MetricsService"
-	stageBefore     = "before"
-	stageDropped    = "dropped"
-	stageAfter      = "after"
+	rpcMethod  = "Export"
+	rpcService = "opentelemetry.proto.collector.metrics.v1.MetricsService"
+	rpcOkCode  = "OK"
 )
 
 type OtlpIngester struct {
@@ -213,7 +211,7 @@ func computeExportTimeout(ctx context.Context, base time.Duration) time.Duration
 
 func logExportSuccess(downstreamEnabled, dryRun bool) {
 	slog.Debug("ingester.export.success",
-		"rpc.method", rpcMethodExport,
+		"rpc.method", rpcMethod,
 		"downstream.enabled", downstreamEnabled,
 		"dry_run", dryRun,
 	)
@@ -221,7 +219,7 @@ func logExportSuccess(downstreamEnabled, dryRun bool) {
 
 func logExportFailure(err error, downstreamEnabled bool) {
 	slog.Error("ingester.export.failure",
-		"rpc.method", rpcMethodExport,
+		"rpc.method", rpcMethod,
 		"grpc.status_code", status.Code(err).String(),
 		"err", err,
 		"downstream.enabled", downstreamEnabled,
@@ -230,64 +228,51 @@ func logExportFailure(err error, downstreamEnabled bool) {
 
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
-	exportRequestsTotal.With(labels).Inc()
-	methodLabels := prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport}
-	exportInflight.With(methodLabels).Inc()
+	var code string
 	defer func() {
-		exportInflight.With(methodLabels).Dec()
-		exportDurationSeconds.With(methodLabels).Observe(time.Since(start).Seconds())
+		labels := prometheus.Labels{
+			"rpc.system":        rpcSystem,
+			"rpc.service":       rpcService,
+			"rpc.method":        rpcMethod,
+			"network.transport": networkTransport,
+			"code":              code,
+		}
+		rpcServerDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
 	}()
 
-	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
-	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageBefore}).Observe(float64(beforeMetricsCount))
-	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageBefore}).Observe(float64(seenDatapoints))
-
-	if beforeMetricsCount > 0 {
-		metricsSeenTotal.With(labels).Add(float64(beforeMetricsCount))
-	}
+	namesSet, _, seenDatapoints := i.collectNamesAndCounts(req)
 	if seenDatapoints > 0 {
-		datapointsSeenTotal.With(labels).Add(float64(seenDatapoints))
+		receiverReceivedMetricPointsTotal.Add(float64(seenDatapoints))
 	}
 
 	if len(namesSet) == 0 {
-		exportSuccessTotal.With(methodLabels).Inc()
+		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
 	unused, ok := i.lookupUnused(ctx, namesSet)
 	if !ok {
+		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
 	dryRun := i.config != nil && i.config.Ingester.DryRun
 
 	var droppedDatapoints int64
-	var droppedMetrics int64
 
 	if len(unused) > 0 {
 		if dryRun {
-			droppedMetrics, droppedDatapoints = i.countWouldDrop(req, unused, i.allowedJobs, i.deniedJobs)
+			_, droppedDatapoints = i.countWouldDrop(req, unused, i.allowedJobs, i.deniedJobs)
 		} else {
-			droppedMetrics, droppedDatapoints = i.filterUnused(req, unused, i.allowedJobs, i.deniedJobs, beforeMetricsCount)
+			_, droppedDatapoints = i.filterUnused(req, unused, i.allowedJobs, i.deniedJobs, 0)
 		}
-		exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageDropped}).Observe(float64(droppedMetrics))
-		exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageDropped}).Observe(float64(droppedDatapoints))
+		if droppedDatapoints > 0 {
+			processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "unused_metric"}).Add(float64(droppedDatapoints))
+		}
 	}
-	afterMetricsCount := beforeMetricsCount - droppedMetrics
-	afterDatapoints := seenDatapoints - droppedDatapoints
-	if afterMetricsCount < 0 {
-		afterMetricsCount = 0
-	}
-	if afterDatapoints < 0 {
-		afterDatapoints = 0
-	}
-	exportMetricsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageAfter}).Observe(float64(afterMetricsCount))
-	exportDatapointsPerRequest.With(prometheus.Labels{"protocol": protocol, "stage": stageAfter}).Observe(float64(afterDatapoints))
-
-	datapointsDroppedTotal.With(labels).Add(float64(droppedDatapoints))
-	metricsDroppedTotal.With(labels).Add(float64(droppedMetrics))
 
 	if i.exporter == nil {
+		code = rpcOkCode
 		logExportSuccess(false, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
@@ -301,27 +286,27 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		select {
 		case <-time.After(250 * time.Millisecond):
 		case <-fctx.Done():
-			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(fctx.Err()).String()}).Inc()
+			code = status.Code(fctx.Err()).String()
 			logExportFailure(fctx.Err(), true)
 			return nil, fctx.Err()
 		}
 		fctx2, cancel2 := context.WithTimeout(ctx, tout)
 		defer cancel2()
 		if err2 := i.exporter.Export(fctx2, req); err2 != nil {
-			exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(err2).String()}).Inc()
+			code = status.Code(err2).String()
 			logExportFailure(err2, true)
 			return nil, err2
 		}
-		exportSuccessTotal.With(methodLabels).Inc()
+		code = rpcOkCode
 		logExportSuccess(true, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	} else if err != nil {
-		exportFailureTotal.With(prometheus.Labels{"protocol": protocol, "rpc_method": rpcMethodExport, "grpc_status_code": status.Code(err).String()}).Inc()
+		code = status.Code(err).String()
 		logExportFailure(err, true)
 		return nil, err
 	}
 
-	exportSuccessTotal.With(methodLabels).Inc()
+	code = rpcOkCode
 	logExportSuccess(true, dryRun)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }
@@ -358,10 +343,10 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		metas, err := i.db.GetSeriesMetadataByNames(ctx, batch, "")
 		if err != nil {
 			slog.Error("ingester: GetSeriesMetadataByNames failed, skipping drops", "err", err)
-			lookupErrorsTotal.With(labels).Inc()
+			processorLookupErrorsTotal.Inc()
 			return false
 		}
-		lookupLatencySeconds.With(labels).Observe(float64(time.Since(t0).Seconds()))
+		processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
 		for _, mm := range metas {
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
@@ -386,7 +371,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 
 func resolveJob(res *resourcepb.Resource) string {
 	if res == nil {
-		emptyJobTotal.With(labels).Inc()
+		receiverMissingJobTotal.Inc()
 		return ""
 	}
 	job := AttrView(res.GetAttributes()).Get("job")
@@ -394,7 +379,7 @@ func resolveJob(res *resourcepb.Resource) string {
 		job = AttrView(res.GetAttributes()).Get("service.name")
 	}
 	if job == "" {
-		emptyJobTotal.With(labels).Inc()
+		receiverMissingJobTotal.Inc()
 	}
 	return job
 }

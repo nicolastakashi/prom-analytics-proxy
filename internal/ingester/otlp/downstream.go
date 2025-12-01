@@ -17,20 +17,27 @@ import (
 )
 
 var (
-	downstreamExportDurationSeconds = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "ingester_downstream_export_duration_seconds", Help: "Duration of downstream export calls", Buckets: prometheus.DefBuckets},
-		[]string{"protocol"},
-	)
-	downstreamExportFailuresTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{Name: "ingester_downstream_export_failures_total", Help: "Total downstream export failures"},
-		[]string{"protocol", "code"},
+	rpcClientDurationSeconds = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingester_rpc_client_duration_seconds",
+			Help:    "Duration of RPC client calls in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"rpc.system", "rpc.service", "rpc.method", "network.transport", "code"},
 	)
 
-	downstreamExportSuccessTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{Name: "ingester_downstream_export_success_total", Help: "Total downstream export successes"},
-		[]string{"protocol"},
-	)
+	canonicalClientLabels = prometheus.Labels{
+		"rpc.system":        rpcSystem,
+		"rpc.service":       rpcService,
+		"rpc.method":        rpcMethod,
+		"network.transport": networkTransport,
+		"code":              "OK",
+	}
 )
+
+func init() {
+	rpcClientDurationSeconds.With(canonicalClientLabels).Observe(0)
+}
 
 type MetricsExporter interface {
 	Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) error
@@ -158,13 +165,19 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 func (e *otlpExporter) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) error {
 	start := time.Now()
 	_, err := e.client.Export(ctx, req)
-	downstreamExportDurationSeconds.With(prometheus.Labels{"protocol": e.protocol}).Observe(time.Since(start).Seconds())
+	code := "OK"
 	if err != nil {
-		downstreamExportFailuresTotal.With(prometheus.Labels{"protocol": e.protocol, "code": status.Code(err).String()}).Inc()
-		return err
+		code = status.Code(err).String()
 	}
-	downstreamExportSuccessTotal.With(prometheus.Labels{"protocol": e.protocol}).Inc()
-	return nil
+	labels := prometheus.Labels{
+		"rpc.system":        rpcSystem,
+		"rpc.service":       rpcService,
+		"rpc.method":        rpcMethod,
+		"network.transport": networkTransport,
+		"code":              code,
+	}
+	rpcClientDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
+	return err
 }
 
 func (e *otlpExporter) Close() error {

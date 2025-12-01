@@ -2,28 +2,29 @@
 
 ## Ingester export observability
 
-The ingester’s OTLP `Export` path exposes metrics and emits structured logs to understand drop behavior and downstream forwarding.
+The ingester's OTLP `Export` path exposes metrics and emits structured logs to understand drop behavior and downstream forwarding. Metrics follow OpenTelemetry RPC semantic conventions for gRPC.
 
 Metrics (all prefixed with `ingester_`):
-- `export_requests_total{protocol}`: total export requests received.
-- `export_inflight{protocol,rpc_method}`: current in-flight Export calls.
-- `export_duration_seconds{protocol,rpc_method}`: end-to-end Export latency (seconds).
-- `export_success_total{protocol,rpc_method}`: successful Export completions.
-- `export_failure_total{protocol,rpc_method,grpc_status_code}`: Export failures.
-- `export_metrics_seen_total{protocol}`, `export_datapoints_seen_total{protocol}`: occurrences observed.
-- `export_metrics_dropped_total{protocol}`, `export_datapoints_dropped_total{protocol}`: occurrences dropped by filtering.
-- `export_metrics_per_request{protocol,stage}`: metrics per request by stage (`before|after|dropped`).
-- `export_datapoints_per_request{protocol,stage}`: datapoints per request by stage (`before|after|dropped`).
-- `lookup_latency_seconds{protocol}` and `lookup_errors_total{protocol}`: metadata lookup timings and errors.
-- `empty_job_total{protocol}`: resources with missing `service.name` and `job`.
-- Downstream: `downstream_export_duration_seconds{protocol}`, `downstream_export_failures_total{protocol,code}`, `downstream_export_success_total{protocol}`.
+
+**RPC Server Metrics** (following OTel RPC semantic conventions):
+- `rpc_server_duration_seconds{rpc.system,rpc.service,rpc.method,network.transport,code}`: RPC server call duration histogram. Use `_count` suffix for request rate, filter by `code!="OK"` for error rate.
+
+**RPC Client Metrics** (downstream OTLP exporter):
+- `rpc_client_duration_seconds{rpc.system,rpc.service,rpc.method,network.transport,code}`: RPC client call duration histogram. Use `_count` suffix for request rate, filter by `code!="OK"` for error rate.
+
+**Pipeline Metrics**:
+- `receiver_received_metric_points_total`: Total metric points received.
+- `processor_dropped_metric_points_total{reason}`: Metric points dropped (reasons: `unused_metric`, `job_denied`).
+- `processor_lookup_latency_seconds`: Database lookup duration histogram.
+- `processor_lookup_errors_total`: Database lookup errors.
+- `receiver_missing_job_total`: Resources with missing `service.name` and `job`.
 
 PromQL examples:
-- Drop rate (metrics): `100 * sum(rate(ingester_export_metrics_dropped_total[5m])) / sum(rate(ingester_export_metrics_seen_total[5m]))`
-- Drop rate (datapoints): `100 * sum(rate(ingester_export_datapoints_dropped_total[5m])) / sum(rate(ingester_export_datapoints_seen_total[5m]))`
-- Empty job rate: `rate(ingester_empty_job_total[5m])`
-- Downstream error rate: `sum(rate(ingester_downstream_export_failures_total[5m])) / sum(rate(ingester_downstream_export_failures_total[5m]) + rate(ingester_downstream_export_success_total[5m]))`
-- Inflight saturation: `max(ingester_export_inflight)`
+- Request rate: `sum(rate(ingester_rpc_server_duration_seconds_count[5m]))`
+- Error rate: `sum(rate(ingester_rpc_server_duration_seconds_count{code!="OK"}[5m])) / sum(rate(ingester_rpc_server_duration_seconds_count[5m]))`
+- Drop rate: `sum(rate(ingester_processor_dropped_metric_points_total[5m])) / sum(rate(ingester_receiver_received_metric_points_total[5m]))`
+- Downstream error rate: `sum(rate(ingester_rpc_client_duration_seconds_count{code!="OK"}[5m])) / sum(rate(ingester_rpc_client_duration_seconds_count[5m]))`
+- Missing job rate: `rate(ingester_receiver_missing_job_total[5m])`
 
 Logs (debug level):
 - Keys follow OTel semantic conventions where practical:
