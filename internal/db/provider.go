@@ -267,6 +267,8 @@ type QueryExecutionRow struct {
 	Type        string            `json:"type"`
 	Steps       float64           `json:"steps"`
 	HTTPHeaders map[string]string `json:"httpHeaders,omitempty"`
+	Start       time.Time         `json:"start"`
+	End         time.Time         `json:"end,omitempty"`
 }
 
 type SeriesMetadataParams struct {
