@@ -13,3 +13,7 @@ database:
 provisioning:
   folders:
     - /etc/perses/resources
+
+frontend:
+  explorer:
+    enable: true
