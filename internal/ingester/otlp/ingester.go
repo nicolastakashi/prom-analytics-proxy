@@ -94,9 +94,9 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	}
 	if exp != nil {
 		i.exporter = exp
-		slog.Info("ingester: connected to downstream OTLP", "endpoint", i.config.Ingester.OTLP.DownstreamAddress)
+		slog.InfoContext(ctx, "ingester.downstream.connected", "endpoint", i.config.Ingester.OTLP.DownstreamAddress)
 	} else {
-		slog.Info("ingester: downstream disabled (no config ingester.otlp.downstream_address)")
+		slog.InfoContext(ctx, "ingester.downstream.disabled")
 	}
 
 	metricspb.RegisterMetricsServiceServer(grpcServer, i)
@@ -104,7 +104,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	healthpb.RegisterHealthServer(grpcServer, healthSrv)
 	reflection.Register(grpcServer)
 
-	slog.Debug("ingester: starting", "address", i.config.Ingester.OTLP.ListenAddress)
+	slog.InfoContext(ctx, "ingester.starting", "address", i.config.Ingester.OTLP.ListenAddress)
 
 	serveErrCh := make(chan error, 1)
 	go func() {
@@ -209,27 +209,45 @@ func computeExportTimeout(ctx context.Context, base time.Duration) time.Duration
 	return tout
 }
 
-func logExportSuccess(downstreamEnabled, dryRun bool) {
-	slog.Debug("ingester.export.success",
+func logExportSuccess(ctx context.Context, downstreamEnabled, dryRun bool) {
+	slog.DebugContext(ctx, "ingester.export.success",
 		"rpc.method", rpcMethod,
 		"downstream.enabled", downstreamEnabled,
 		"dry_run", dryRun,
 	)
 }
 
-func logExportFailure(err error, downstreamEnabled bool) {
-	slog.Error("ingester.export.failure",
-		"rpc.method", rpcMethod,
-		"grpc.status_code", status.Code(err).String(),
-		"err", err,
-		"downstream.enabled", downstreamEnabled,
-	)
+func logExportFailure(ctx context.Context, err error, downstreamEnabled bool) {
+	code := status.Code(err)
+	switch {
+	case errors.Is(err, context.Canceled) || code == codes.Canceled:
+		slog.DebugContext(ctx, "ingester.export.canceled",
+			"rpc.method", rpcMethod,
+			"downstream.enabled", downstreamEnabled,
+		)
+		return
+	case errors.Is(err, context.DeadlineExceeded) || code == codes.DeadlineExceeded:
+		slog.InfoContext(ctx, "ingester.export.deadline_exceeded",
+			"rpc.method", rpcMethod,
+			"downstream.enabled", downstreamEnabled,
+		)
+		return
+	default:
+		slog.ErrorContext(ctx, "ingester.export.failure",
+			"rpc.method", rpcMethod,
+			"grpc.status_code", code.String(),
+			"err", err,
+			"downstream.enabled", downstreamEnabled,
+		)
+	}
 }
 
 func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	start := time.Now()
 	var code string
+	rpcInFlight.Inc()
 	defer func() {
+		rpcInFlight.Dec()
 		labels := prometheus.Labels{
 			"rpc.system":        rpcSystem,
 			"rpc.service":       rpcService,
@@ -255,7 +273,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
-	slog.Debug("ingester: unused metrics found", "count", len(unused))
+	slog.DebugContext(ctx, "ingester.unused_metrics.count", "count", len(unused))
 
 	dryRun := i.config != nil && i.config.Ingester.DryRun
 
@@ -274,7 +292,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 
 	if i.exporter == nil {
 		code = rpcOkCode
-		logExportSuccess(false, dryRun)
+		logExportSuccess(ctx, false, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -288,27 +306,28 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		case <-time.After(250 * time.Millisecond):
 		case <-fctx.Done():
 			code = status.Code(fctx.Err()).String()
-			logExportFailure(fctx.Err(), true)
+			logExportFailure(ctx, fctx.Err(), true)
 			return nil, fctx.Err()
 		}
 		fctx2, cancel2 := context.WithTimeout(ctx, tout)
 		defer cancel2()
+		exporterRetriesTotal.Inc()
 		if err2 := i.exporter.Export(fctx2, req); err2 != nil {
 			code = status.Code(err2).String()
-			logExportFailure(err2, true)
+			logExportFailure(ctx, err2, true)
 			return nil, err2
 		}
 		code = rpcOkCode
-		logExportSuccess(true, dryRun)
+		logExportSuccess(ctx, true, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	} else if err != nil {
 		code = status.Code(err).String()
-		logExportFailure(err, true)
+		logExportFailure(ctx, err, true)
 		return nil, err
 	}
 
 	code = rpcOkCode
-	logExportSuccess(true, dryRun)
+	logExportSuccess(ctx, true, dryRun)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }
 
@@ -343,7 +362,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		t0 := time.Now()
 		metas, err := i.db.GetSeriesMetadataByNames(ctx, batch, "")
 		if err != nil {
-			slog.Error("ingester: GetSeriesMetadataByNames failed, skipping drops", "err", err)
+			slog.ErrorContext(ctx, "ingester.lookup.failed_skipping_drops", "err", err)
 			processorLookupErrorsTotal.Inc()
 			return false
 		}
@@ -351,7 +370,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		for _, mm := range metas {
 			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
 				unused[mm.Name] = struct{}{}
-				slog.Debug("ingester: unused metric found", "metric_name", mm.Name)
+				slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name)
 			}
 		}
 		batch = batch[:0]

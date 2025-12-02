@@ -21,6 +21,14 @@ var (
 		[]string{"rpc.system", "rpc.service", "rpc.method", "network.transport", "code"},
 	)
 
+	// In-flight RPCs for Export (direct concurrency signal)
+	rpcInFlight = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ingester_rpc_inflight",
+			Help: "Current in-flight Export RPCs",
+		},
+	)
+
 	// Pipeline metrics (not RPC semantics, but needed for observability)
 	receiverReceivedMetricPointsTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
@@ -56,6 +64,14 @@ var (
 		prometheus.CounterOpts{
 			Name: "ingester_receiver_missing_job_total",
 			Help: "Total number of occurrences where service.name or job are missing",
+		},
+	)
+
+	// Exporter metrics (downstream forwarding health/backpressure)
+	exporterRetriesTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingester_exporter_retries_total",
+			Help: "Total number of downstream exporter retries",
 		},
 	)
 

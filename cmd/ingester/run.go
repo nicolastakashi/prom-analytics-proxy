@@ -2,6 +2,7 @@ package ingester
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -74,7 +75,7 @@ func Run() error {
 
 	defer func() {
 		if err := dbProvider.Close(); err != nil {
-			slog.ErrorContext(ctx, "error closing database provider", "err", err)
+			slog.ErrorContext(ctx, "ingester.db.close_error", "err", err)
 		}
 	}()
 
@@ -87,7 +88,11 @@ func Run() error {
 		g.Add(func() error {
 			return otlp.Run(ctx)
 		}, func(err error) {
-			slog.ErrorContext(ctx, "error running ingester", "err", err)
+			if err == nil || errors.Is(err, context.Canceled) {
+				slog.InfoContext(ctx, "ingester.run.stopped")
+			} else {
+				slog.ErrorContext(ctx, "ingester.run.error", "err", err)
+			}
 			cancel()
 		})
 	default:
@@ -106,7 +111,7 @@ func Run() error {
 			IdleTimeout:  60 * time.Second,
 		}
 		g.Add(func() error {
-			slog.Info("ingester: exposing metrics", "address", srv.Addr)
+			slog.InfoContext(ctx, "ingester.metrics.exposing", "address", srv.Addr)
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				return err
 			}
