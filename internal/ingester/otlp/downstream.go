@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
@@ -62,6 +63,7 @@ type ExporterOptions struct {
 	Retry               RetryPolicy
 	MaxSendMsgSizeBytes int
 	MaxRecvMsgSizeBytes int
+	BalancerName        string
 }
 
 func defaultExporterOptions() ExporterOptions {
@@ -73,7 +75,8 @@ func defaultExporterOptions() ExporterOptions {
 }
 
 type grpcServiceConfigJSON struct {
-	MethodConfig []grpcMethodConfigJSON `json:"methodConfig"`
+	LoadBalancingConfig []map[string]interface{} `json:"loadBalancingConfig,omitempty"`
+	MethodConfig        []grpcMethodConfigJSON    `json:"methodConfig"`
 }
 type grpcMethodConfigJSON struct {
 	Name        []grpcNameJSON      `json:"name"`
@@ -95,10 +98,18 @@ func buildServiceConfigJSON(o ExporterOptions) (string, error) {
 	sec := func(d time.Duration) string {
 		return strconv.FormatFloat(float64(d)/float64(time.Second), 'f', -1, 64) + "s"
 	}
-	cfg := grpcServiceConfigJSON{MethodConfig: []grpcMethodConfigJSON{{
-		Name:        []grpcNameJSON{{Service: "opentelemetry.proto.collector.metrics.v1.MetricsService", Method: "Export"}},
-		RetryPolicy: grpcRetryPolicyJSON{MaxAttempts: o.Retry.MaxAttempts, InitialBackoff: sec(o.Retry.InitialBackoff), MaxBackoff: sec(o.Retry.MaxBackoff), BackoffMultiplier: o.Retry.BackoffMultiplier, RetryableStatusCodes: o.Retry.RetryableStatusCodes},
-	}}}
+	cfg := grpcServiceConfigJSON{
+		MethodConfig: []grpcMethodConfigJSON{{
+			Name:        []grpcNameJSON{{Service: "opentelemetry.proto.collector.metrics.v1.MetricsService", Method: "Export"}},
+			RetryPolicy: grpcRetryPolicyJSON{MaxAttempts: o.Retry.MaxAttempts, InitialBackoff: sec(o.Retry.InitialBackoff), MaxBackoff: sec(o.Retry.MaxBackoff), BackoffMultiplier: o.Retry.BackoffMultiplier, RetryableStatusCodes: o.Retry.RetryableStatusCodes},
+		}},
+	}
+	// Add load balancing config if balancer name is specified
+	if o.BalancerName == "round_robin" {
+		cfg.LoadBalancingConfig = []map[string]interface{}{
+			{"round_robin": map[string]interface{}{}},
+		}
+	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err
@@ -130,6 +141,9 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 		}
 		if len(opts.Retry.RetryableStatusCodes) > 0 {
 			o.Retry.RetryableStatusCodes = opts.Retry.RetryableStatusCodes
+		}
+		if opts.BalancerName != "" {
+			o.BalancerName = opts.BalancerName
 		}
 	}
 	serviceConfig, err := buildServiceConfigJSON(o)

@@ -186,6 +186,7 @@ func initDownstreamExporter(cfg *config.Config) (MetricsExporter, error) {
 	return NewOTLPExporter(downstreamEndpoint, cfg.Ingester.Protocol, &ExporterOptions{
 		MaxSendMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
 		MaxRecvMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+		BalancerName:        cfg.Ingester.OTLP.BalancerName,
 		Retry: RetryPolicy{
 			MaxAttempts:          cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
 			InitialBackoff:       cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
@@ -485,4 +486,5 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 		config.DefaultConfig.Ingester.OTLP.DownstreamRetryCodes = out
 		return nil
 	})
+	flagSet.StringVar(&config.DefaultConfig.Ingester.OTLP.BalancerName, "otlp-balancer-name", "", "gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first")
 }

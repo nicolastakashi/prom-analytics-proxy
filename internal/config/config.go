@@ -156,6 +156,9 @@ type OtlpIngesterConfig struct {
 	DownstreamRetryMaxBackoff        time.Duration `yaml:"downstream_retry_max_backoff,omitempty"`
 	DownstreamRetryBackoffMultiplier float64       `yaml:"downstream_retry_backoff_multiplier,omitempty"`
 	DownstreamRetryCodes             []string      `yaml:"downstream_retry_codes,omitempty"`
+	// BalancerName is the gRPC load balancer name (e.g., "round_robin").
+	// If empty, gRPC defaults to "pick_first".
+	BalancerName string `yaml:"balancer_name,omitempty"`
 }
 
 type MetricIngesterProtocol string

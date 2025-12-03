@@ -29,7 +29,7 @@
 
 [![Prometheus Analytics Proxy Introduction](https://img.youtube.com/vi/8PX4FwgxUd8/0.jpg)](https://www.youtube.com/watch?v=8PX4FwgxUd8)
 
-*Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup.*
+_Learn how prom-analytics-proxy can help you gain insights into your Prometheus queries and optimize your monitoring setup._
 
 ## Architecture
 
@@ -312,6 +312,8 @@ Flags (metrics ingester):
     	Log level (default "INFO")
   -otlp-downstream-address string
     	Optional downstream OTLP gRPC address to forward filtered metrics
+  -otlp-balancer-name string
+    	gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first. For round_robin to work effectively, use a DNS resolver (e.g., dns:///hostname:port) that resolves to multiple backends.
   -otlp-downstream-max-recv-bytes int
     	Max gRPC receive message size for downstream OTLP client (bytes) (default 10485760)
   -otlp-downstream-max-send-bytes int
