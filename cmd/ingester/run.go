@@ -88,7 +88,7 @@ func Run() error {
 		g.Add(func() error {
 			return otlp.Run(ctx)
 		}, func(err error) {
-			if err == nil || errors.Is(err, context.Canceled) {
+			if err == nil || errors.Is(err, context.Canceled) || errors.As(err, &run.SignalError{}) {
 				slog.InfoContext(ctx, "ingester.run.stopped")
 			} else {
 				slog.ErrorContext(ctx, "ingester.run.error", "err", err)
