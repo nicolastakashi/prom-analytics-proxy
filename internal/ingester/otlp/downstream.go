@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	_ "google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -64,6 +65,10 @@ type ExporterOptions struct {
 	MaxSendMsgSizeBytes int
 	MaxRecvMsgSizeBytes int
 	BalancerName        string
+	ConnectMinTimeout   time.Duration
+	ConnectBaseDelay    time.Duration
+	ConnectMaxDelay     time.Duration
+	ConnectMultiplier   float64
 }
 
 func defaultExporterOptions() ExporterOptions {
@@ -71,12 +76,16 @@ func defaultExporterOptions() ExporterOptions {
 		Retry:               RetryPolicy{MaxAttempts: 2, InitialBackoff: 250 * time.Millisecond, MaxBackoff: 1 * time.Second, BackoffMultiplier: 1.6, RetryableStatusCodes: []string{"UNAVAILABLE"}},
 		MaxSendMsgSizeBytes: 10 * 1024 * 1024,
 		MaxRecvMsgSizeBytes: 10 * 1024 * 1024,
+		ConnectMinTimeout:   500 * time.Millisecond,
+		ConnectBaseDelay:    250 * time.Millisecond,
+		ConnectMaxDelay:     5 * time.Second,
+		ConnectMultiplier:   1.6,
 	}
 }
 
 type grpcServiceConfigJSON struct {
 	LoadBalancingConfig []map[string]interface{} `json:"loadBalancingConfig,omitempty"`
-	MethodConfig        []grpcMethodConfigJSON    `json:"methodConfig"`
+	MethodConfig        []grpcMethodConfigJSON   `json:"methodConfig"`
 }
 type grpcMethodConfigJSON struct {
 	Name        []grpcNameJSON      `json:"name"`
@@ -145,10 +154,31 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 		if opts.BalancerName != "" {
 			o.BalancerName = opts.BalancerName
 		}
+		if opts.ConnectMinTimeout > 0 {
+			o.ConnectMinTimeout = opts.ConnectMinTimeout
+		}
+		if opts.ConnectBaseDelay > 0 {
+			o.ConnectBaseDelay = opts.ConnectBaseDelay
+		}
+		if opts.ConnectMaxDelay > 0 {
+			o.ConnectMaxDelay = opts.ConnectMaxDelay
+		}
+		if opts.ConnectMultiplier > 0 {
+			o.ConnectMultiplier = opts.ConnectMultiplier
+		}
 	}
 	serviceConfig, err := buildServiceConfigJSON(o)
 	if err != nil {
 		return nil, err
+	}
+	connectParams := grpc.ConnectParams{
+		MinConnectTimeout: o.ConnectMinTimeout,
+		Backoff: backoff.Config{
+			BaseDelay:  o.ConnectBaseDelay,
+			Multiplier: o.ConnectMultiplier,
+			Jitter:     0.2,
+			MaxDelay:   o.ConnectMaxDelay,
+		},
 	}
 	conn, err := grpc.NewClient(
 		endpoint,
@@ -169,6 +199,7 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 			}()),
 		),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 2 * time.Minute, Timeout: 20 * time.Second, PermitWithoutStream: true}),
+		grpc.WithConnectParams(connectParams),
 	)
 	if err != nil {
 		return nil, err

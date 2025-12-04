@@ -264,6 +264,12 @@ Flags (api):
     	Log format (text, json) (default "text")
   -log-level string
     	Log level (default "INFO")
+  -memory-limit-enabled
+    	Enable automatic GOMEMLIMIT management via automemlimit
+  -memory-limit-ratio float
+    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (default 0.9)
+  -memory-limit-refresh-interval duration
+    	Interval for refreshing the computed memory limit (0 disables refresh) (default 1m0s)
   -metadata-limit uint
     	The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)
   -postgresql-addr string
@@ -310,10 +316,24 @@ Flags (metrics ingester):
     	Log format (text, json) (default "text")
   -log-level string
     	Log level (default "INFO")
+  -memory-limit-enabled
+    	Enable automatic GOMEMLIMIT management via automemlimit
+  -memory-limit-ratio float
+    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (default 0.9)
+  -memory-limit-refresh-interval duration
+    	Interval for refreshing the computed memory limit (0 disables refresh) (default 1m0s)
   -otlp-balancer-name string
     	gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first
   -otlp-downstream-address string
     	Optional downstream OTLP gRPC address to forward filtered metrics
+  -otlp-downstream-connect-backoff-multiplier float
+    	Multiplier applied to downstream OTLP client dial backoff (default 1.6)
+  -otlp-downstream-connect-base-delay duration
+    	Base delay for downstream OTLP client dial backoff (default 250ms)
+  -otlp-downstream-connect-max-delay duration
+    	Max delay for downstream OTLP client dial backoff (default 5s)
+  -otlp-downstream-connect-min-timeout duration
+    	Minimum connect timeout for downstream OTLP client dial attempts (default 500ms)
   -otlp-downstream-max-recv-bytes int
     	Max gRPC receive message size for downstream OTLP client (bytes) (default 10485760)
   -otlp-downstream-max-send-bytes int

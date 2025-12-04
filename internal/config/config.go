@@ -133,15 +133,19 @@ var DefaultConfig = &Config{
 		OTLP: OtlpIngesterConfig{
 			ListenAddress: ":4317",
 			// Defaults to 10MiB, configurable via YAML/flags
-			GRPCMaxRecvMsgSizeBytes:           10 * 1024 * 1024,
-			GRPCMaxSendMsgSizeBytes:           10 * 1024 * 1024,
-			DownstreamGRPCMaxRecvMsgSizeBytes: 10 * 1024 * 1024,
-			DownstreamGRPCMaxSendMsgSizeBytes: 10 * 1024 * 1024,
-			DownstreamRetryMaxAttempts:        2,
-			DownstreamRetryInitialBackoff:     250 * time.Millisecond,
-			DownstreamRetryMaxBackoff:         1 * time.Second,
-			DownstreamRetryBackoffMultiplier:  1.6,
-			DownstreamRetryCodes:              []string{"UNAVAILABLE"},
+			GRPCMaxRecvMsgSizeBytes:            10 * 1024 * 1024,
+			GRPCMaxSendMsgSizeBytes:            10 * 1024 * 1024,
+			DownstreamGRPCMaxRecvMsgSizeBytes:  10 * 1024 * 1024,
+			DownstreamGRPCMaxSendMsgSizeBytes:  10 * 1024 * 1024,
+			DownstreamRetryMaxAttempts:         2,
+			DownstreamRetryInitialBackoff:      250 * time.Millisecond,
+			DownstreamRetryMaxBackoff:          1 * time.Second,
+			DownstreamRetryBackoffMultiplier:   1.6,
+			DownstreamRetryCodes:               []string{"UNAVAILABLE"},
+			DownstreamConnectMinTimeout:        500 * time.Millisecond,
+			DownstreamConnectBaseDelay:         250 * time.Millisecond,
+			DownstreamConnectMaxDelay:          5 * time.Second,
+			DownstreamConnectBackoffMultiplier: 1.6,
 		},
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
@@ -173,6 +177,11 @@ type OtlpIngesterConfig struct {
 	// BalancerName is the gRPC load balancer name (e.g., "round_robin").
 	// If empty, gRPC defaults to "pick_first".
 	BalancerName string `yaml:"balancer_name,omitempty"`
+	// Downstream dial settings for channel establishment/failover.
+	DownstreamConnectMinTimeout        time.Duration `yaml:"downstream_connect_min_timeout,omitempty"`
+	DownstreamConnectBaseDelay         time.Duration `yaml:"downstream_connect_base_delay,omitempty"`
+	DownstreamConnectMaxDelay          time.Duration `yaml:"downstream_connect_max_delay,omitempty"`
+	DownstreamConnectBackoffMultiplier float64       `yaml:"downstream_connect_backoff_multiplier,omitempty"`
 }
 
 type MetricIngesterProtocol string

@@ -196,6 +196,10 @@ func initDownstreamExporter(cfg *config.Config) (MetricsExporter, error) {
 			BackoffMultiplier:    cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
 			RetryableStatusCodes: cfg.Ingester.OTLP.DownstreamRetryCodes,
 		},
+		ConnectMinTimeout: cfg.Ingester.OTLP.DownstreamConnectMinTimeout,
+		ConnectBaseDelay:  cfg.Ingester.OTLP.DownstreamConnectBaseDelay,
+		ConnectMaxDelay:   cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
+		ConnectMultiplier: cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
 	})
 }
 
@@ -582,4 +586,8 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 		return nil
 	})
 	flagSet.StringVar(&config.DefaultConfig.Ingester.OTLP.BalancerName, "otlp-balancer-name", "", "gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectMinTimeout, "otlp-downstream-connect-min-timeout", config.DefaultConfig.Ingester.OTLP.DownstreamConnectMinTimeout, "Minimum connect timeout for downstream OTLP client dial attempts")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "otlp-downstream-connect-base-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "Base delay for downstream OTLP client dial backoff")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "otlp-downstream-connect-max-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "Max delay for downstream OTLP client dial backoff")
+	flagSet.Float64Var(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "otlp-downstream-connect-backoff-multiplier", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "Multiplier applied to downstream OTLP client dial backoff")
 }
