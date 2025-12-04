@@ -313,6 +313,38 @@ func TestExport_KeepsHistogramWhenVariantUsed(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
+func TestExport_KeepsHistogramWhenVariantMissing(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	req := buildExportRequest(
+		buildHistogramMetric("access_evaluation_duration", 2),
+	)
+
+	// Only bucket and count variants returned, sum is missing
+	// Should fail open (keep histogram) when any variant is missing
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		// sum variant intentionally missing
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Histogram should be kept (fail open when variant missing)
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "access_evaluation_duration", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
 func buildGaugeMetricN(name string, dps int) *metricspb.Metric {
 	points := make([]*metricspb.NumberDataPoint, 0, dps)
 	for i := 0; i < dps; i++ {

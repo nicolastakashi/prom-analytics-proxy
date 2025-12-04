@@ -362,11 +362,31 @@ func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsService
 	return names, histogramBases, metricsCount, datapoints
 }
 
+// histogramVariantState tracks the unused status of histogram variant metrics
+// as they are processed incrementally during streaming lookup.
+type histogramVariantState struct {
+	// seen tracks which variants we've encountered in metadata lookups
+	seenBucket bool
+	seenCount  bool
+	seenSum    bool
+	// unused tracks which variants are confirmed unused (only set if seen=true)
+	unusedBucket bool
+	unusedCount  bool
+	unusedSum    bool
+}
+
 func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases map[string]struct{}) (map[string]struct{}, bool) {
 	unused := make(map[string]struct{})
-	metadataMap := make(map[string]models.MetricMetadata)
+	// Track histogram variant states incrementally instead of storing full metadata
+	histogramStates := make(map[string]*histogramVariantState, len(histogramBases))
+	for baseName := range histogramBases {
+		histogramStates[baseName] = &histogramVariantState{}
+	}
+
 	const chunkSize = 500
 	batch := make([]string, 0, chunkSize)
+
+	// Process each chunk immediately and free memory before next chunk
 	flush := func() bool {
 		if len(batch) == 0 {
 			return true
@@ -379,16 +399,40 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 			return false
 		}
 		processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
+
+		// Process metadata immediately and update state incrementally
 		for _, mm := range metas {
-			metadataMap[mm.Name] = mm
-			if metricMetadataUnused(mm) {
-				unused[mm.Name] = struct{}{}
-				slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name)
+			isUnused := metricMetadataUnused(mm)
+
+			// Check if this is a histogram variant
+			if baseName, isVariant := i.isHistogramVariant(mm.Name, histogramBases); isVariant {
+				state := histogramStates[baseName]
+				switch mm.Name {
+				case baseName + "_bucket":
+					state.seenBucket = true
+					state.unusedBucket = isUnused
+				case baseName + "_count":
+					state.seenCount = true
+					state.unusedCount = isUnused
+				case baseName + "_sum":
+					state.seenSum = true
+					state.unusedSum = isUnused
+				}
+			} else {
+				// Regular metric (not a histogram variant)
+				if isUnused {
+					unused[mm.Name] = struct{}{}
+					slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name)
+				}
 			}
 		}
+
+		// Clear batch to free memory before next chunk
 		batch = batch[:0]
 		return true
 	}
+
+	// Stream through names in chunks
 	for n := range names {
 		batch = append(batch, n)
 		if len(batch) == chunkSize {
@@ -401,24 +445,18 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		return nil, false
 	}
 
-	// For histogram metrics, mark as unused only if ALL variants (_bucket, _sum, _count) are unused
-	// If any variant is missing from metadata, treat as unknown (fail open - don't mark as unused)
-	for baseName := range histogramBases {
-		bucketName := baseName + "_bucket"
-		countName := baseName + "_count"
-		sumName := baseName + "_sum"
-
-		bucketMeta, bucketExists := metadataMap[bucketName]
-		countMeta, countExists := metadataMap[countName]
-		sumMeta, sumExists := metadataMap[sumName]
-
+	// Reconcile histogram bases using lightweight state
+	// Mark as unused only if ALL variants are seen AND all are unused
+	// If any variant is missing, fail open (don't mark as unused)
+	for baseName, state := range histogramStates {
 		// If any variant is missing, fail open (don't mark as unused)
-		if !bucketExists || !countExists || !sumExists {
+		if !state.seenBucket || !state.seenCount || !state.seenSum {
 			delete(unused, baseName)
 			continue
 		}
 
-		if metricMetadataUnused(bucketMeta) && metricMetadataUnused(countMeta) && metricMetadataUnused(sumMeta) {
+		// All variants seen - mark as unused only if all are unused
+		if state.unusedBucket && state.unusedCount && state.unusedSum {
 			unused[baseName] = struct{}{}
 			slog.DebugContext(ctx, "ingester.unused_histogram.found", "metric_name", baseName)
 		} else {
@@ -428,6 +466,17 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 	}
 
 	return unused, true
+}
+
+// isHistogramVariant checks if a metric name is a histogram variant (_bucket, _count, _sum)
+// and returns the base name if it is, along with a boolean indicating if it's a variant.
+func (i *OtlpIngester) isHistogramVariant(name string, histogramBases map[string]struct{}) (string, bool) {
+	for baseName := range histogramBases {
+		if name == baseName+"_bucket" || name == baseName+"_count" || name == baseName+"_sum" {
+			return baseName, true
+		}
+	}
+	return "", false
 }
 
 func metricMetadataUnused(mm models.MetricMetadata) bool {
