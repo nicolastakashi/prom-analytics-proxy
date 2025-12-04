@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	metricsv1pb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -259,7 +261,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		rpcServerDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
 	}()
 
-	namesSet, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
+	namesSet, histogramBases, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
 	if seenDatapoints > 0 {
 		receiverReceivedMetricPointsTotal.Add(float64(seenDatapoints))
 	}
@@ -269,7 +271,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	unused, ok := i.lookupUnused(ctx, namesSet)
+	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases)
 	if !ok {
 		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
@@ -334,8 +336,9 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
 
-func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, int64, int64) {
+func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, int64, int64) {
 	names := make(map[string]struct{})
+	histogramBases := make(map[string]struct{})
 	var metricsCount int64
 	var datapoints int64
 	for _, rm := range req.ResourceMetrics {
@@ -344,16 +347,24 @@ func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsService
 			for _, m := range sm.Metrics {
 				if name := m.GetName(); name != "" {
 					names[name] = struct{}{}
+					// For histogram metrics, also collect derivative names used in Prometheus catalog
+					if _, isHistogram := m.Data.(*metricsv1pb.Metric_Histogram); isHistogram {
+						histogramBases[name] = struct{}{}
+						names[name+"_bucket"] = struct{}{}
+						names[name+"_count"] = struct{}{}
+						names[name+"_sum"] = struct{}{}
+					}
 				}
 				datapoints += int64(countMetricDatapoints(m))
 			}
 		}
 	}
-	return names, metricsCount, datapoints
+	return names, histogramBases, metricsCount, datapoints
 }
 
-func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}) (map[string]struct{}, bool) {
+func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases map[string]struct{}) (map[string]struct{}, bool) {
 	unused := make(map[string]struct{})
+	metadataMap := make(map[string]models.MetricMetadata)
 	const chunkSize = 500
 	batch := make([]string, 0, chunkSize)
 	flush := func() bool {
@@ -369,7 +380,8 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		}
 		processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
 		for _, mm := range metas {
-			if mm.AlertCount == 0 && mm.RecordCount == 0 && mm.DashboardCount == 0 && mm.QueryCount == 0 {
+			metadataMap[mm.Name] = mm
+			if metricMetadataUnused(mm) {
 				unused[mm.Name] = struct{}{}
 				slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name)
 			}
@@ -388,7 +400,41 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 	if ok := flush(); !ok {
 		return nil, false
 	}
+
+	// For histogram metrics, mark as unused only if ALL variants (_bucket, _sum, _count) are unused
+	// If any variant is missing from metadata, treat as unknown (fail open - don't mark as unused)
+	for baseName := range histogramBases {
+		bucketName := baseName + "_bucket"
+		countName := baseName + "_count"
+		sumName := baseName + "_sum"
+
+		bucketMeta, bucketExists := metadataMap[bucketName]
+		countMeta, countExists := metadataMap[countName]
+		sumMeta, sumExists := metadataMap[sumName]
+
+		// If any variant is missing, fail open (don't mark as unused)
+		if !bucketExists || !countExists || !sumExists {
+			delete(unused, baseName)
+			continue
+		}
+
+		if metricMetadataUnused(bucketMeta) && metricMetadataUnused(countMeta) && metricMetadataUnused(sumMeta) {
+			unused[baseName] = struct{}{}
+			slog.DebugContext(ctx, "ingester.unused_histogram.found", "metric_name", baseName)
+		} else {
+			// At least one variant is used, so don't mark base as unused
+			delete(unused, baseName)
+		}
+	}
+
 	return unused, true
+}
+
+func metricMetadataUnused(mm models.MetricMetadata) bool {
+	return mm.AlertCount == 0 &&
+		mm.RecordCount == 0 &&
+		mm.DashboardCount == 0 &&
+		mm.QueryCount == 0
 }
 
 func resolveJob(res *resourcepb.Resource) string {

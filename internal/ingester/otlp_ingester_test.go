@@ -39,6 +39,17 @@ func buildGaugeMetric(name string, n int) *metricspb.Metric {
 	}
 }
 
+func buildHistogramMetric(name string, n int) *metricspb.Metric {
+	dps := make([]*metricspb.HistogramDataPoint, 0, n)
+	for i := 0; i < n; i++ {
+		dps = append(dps, &metricspb.HistogramDataPoint{Attributes: []*commonpb.KeyValue{}})
+	}
+	return &metricspb.Metric{
+		Name: name,
+		Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{DataPoints: dps}},
+	}
+}
+
 func buildExportRequest(metrics ...*metricspb.Metric) *colmetricspb.ExportMetricsServiceRequest {
 	return &colmetricspb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricspb.ResourceMetrics{
@@ -232,6 +243,72 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 	assert.Len(t, got, 3) // All metrics should remain
 	names := []string{got[0].GetName(), got[1].GetName(), got[2].GetName()}
 	assert.ElementsMatch(t, []string{"used_metric", "unused_metric", "unknown_metric"}, names)
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_DropsHistogramWhenAllVariantsUnused(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	req := buildExportRequest(
+		buildHistogramMetric("access_evaluation_duration", 2),
+		buildGaugeMetric("used_metric", 1),
+	)
+
+	// All histogram variants are unused, but used_metric has queries
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "used_metric", QueryCount: 1},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Histogram should be dropped, but used_metric should remain
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "used_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_KeepsHistogramWhenVariantUsed(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	req := buildExportRequest(
+		buildHistogramMetric("access_evaluation_duration", 2),
+		buildGaugeMetric("unused_metric", 1),
+	)
+
+	// Histogram _bucket variant is used (has queries), so entire histogram should be kept
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "access_evaluation_duration_bucket", QueryCount: 5}, // Used!
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Histogram should be kept (because _bucket is used), unused_metric should be dropped
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "access_evaluation_duration", got[0].GetName())
 
 	mp.AssertExpectations(t)
 }
