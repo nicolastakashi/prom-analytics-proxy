@@ -11,18 +11,21 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+const DefaultMemoryLimitRatio = 0.9
+
 type Config struct {
-	Upstream        UpstreamConfig  `yaml:"upstream,omitempty"`
-	Server          ServerConfig    `yaml:"server,omitempty"`
-	Ingester        IngesterConfig  `yaml:"ingester,omitempty"`
-	Database        DatabaseConfig  `yaml:"database,omitempty"`
-	Insert          InsertConfig    `yaml:"insert,omitempty"`
-	Tracing         *otlp.Config    `yaml:"tracing,omitempty"`
-	MetadataLimit   uint64          `yaml:"metadata_limit,omitempty"`
-	SeriesLimit     uint64          `yaml:"series_limit,omitempty"`
-	CORS            CORSConfig      `yaml:"cors,omitempty"`
-	Inventory       InventoryConfig `yaml:"inventory,omitempty"`
-	QueryProcessing QueryProcessing `yaml:"query_processing,omitempty"`
+	Upstream        UpstreamConfig    `yaml:"upstream,omitempty"`
+	Server          ServerConfig      `yaml:"server,omitempty"`
+	Ingester        IngesterConfig    `yaml:"ingester,omitempty"`
+	Database        DatabaseConfig    `yaml:"database,omitempty"`
+	Insert          InsertConfig      `yaml:"insert,omitempty"`
+	Tracing         *otlp.Config      `yaml:"tracing,omitempty"`
+	MemoryLimit     MemoryLimitConfig `yaml:"memory_limit,omitempty"`
+	MetadataLimit   uint64            `yaml:"metadata_limit,omitempty"`
+	SeriesLimit     uint64            `yaml:"series_limit,omitempty"`
+	CORS            CORSConfig        `yaml:"cors,omitempty"`
+	Inventory       InventoryConfig   `yaml:"inventory,omitempty"`
+	QueryProcessing QueryProcessing   `yaml:"query_processing,omitempty"`
 }
 
 type QueryProcessing struct {
@@ -69,6 +72,12 @@ type InsertConfig struct {
 	Timeout       time.Duration `yaml:"timeout,omitempty"`
 }
 
+type MemoryLimitConfig struct {
+	Enabled         bool          `yaml:"enabled,omitempty"`
+	Ratio           float64       `yaml:"ratio,omitempty"`
+	RefreshInterval time.Duration `yaml:"refresh_interval,omitempty"`
+}
+
 type CORSConfig struct {
 	AllowedOrigins   []string `yaml:"allowed_origins,omitempty"`
 	AllowedMethods   []string `yaml:"allowed_methods,omitempty"`
@@ -113,6 +122,11 @@ var DefaultConfig = &Config{
 	},
 	QueryProcessing: QueryProcessing{
 		ExtractHTTPHeaders: []string{"user-agent"},
+	},
+	MemoryLimit: MemoryLimitConfig{
+		Enabled:         false,
+		Ratio:           DefaultMemoryLimitRatio,
+		RefreshInterval: time.Minute,
 	},
 	Ingester: IngesterConfig{
 		Protocol: string(ProtocolOTLP),
@@ -251,4 +265,11 @@ func RegisterInventoryFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexLabelTimeout, "inventory-job-index-label-timeout", DefaultConfig.Inventory.JobIndexLabelTimeout, "Timeout for job label values collection")
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexPerJobTimeout, "inventory-job-index-per-job-timeout", DefaultConfig.Inventory.JobIndexPerJobTimeout, "Timeout for processing each individual job")
 	flagSet.IntVar(&DefaultConfig.Inventory.JobIndexWorkers, "inventory-job-index-workers", DefaultConfig.Inventory.JobIndexWorkers, "Number of worker goroutines for job index processing")
+}
+
+// RegisterMemoryLimitFlags exposes CLI overrides for automatic GOMEMLIMIT management.
+func RegisterMemoryLimitFlags(flagSet *flag.FlagSet) {
+	flagSet.BoolVar(&DefaultConfig.MemoryLimit.Enabled, "memory-limit-enabled", DefaultConfig.MemoryLimit.Enabled, "Enable automatic GOMEMLIMIT management via automemlimit")
+	flagSet.Float64Var(&DefaultConfig.MemoryLimit.Ratio, "memory-limit-ratio", DefaultConfig.MemoryLimit.Ratio, "Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT")
+	flagSet.DurationVar(&DefaultConfig.MemoryLimit.RefreshInterval, "memory-limit-refresh-interval", DefaultConfig.MemoryLimit.RefreshInterval, "Interval for refreshing the computed memory limit (0 disables refresh)")
 }

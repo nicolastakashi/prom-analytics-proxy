@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/oklog/run"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/cmd/api"
@@ -112,6 +113,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	configureGoMemLimit(logger, config.DefaultConfig.MemoryLimit)
 	var shutdown func()
 	if config.DefaultConfig.IsTracingEnabled() {
 		tp, err := tracing.WithTracing(context.Background(), logger, configFile)
@@ -152,4 +154,29 @@ func main() {
 			slog.Info("ingester: caught signal; exiting gracefully...")
 		}
 	}
+}
+
+func configureGoMemLimit(logger *slog.Logger, cfg config.MemoryLimitConfig) {
+	if cfg.Enabled {
+		ratio := cfg.Ratio
+		if ratio <= 0 || ratio > 1 {
+			logger.Warn("memory limit ratio out of bounds; falling back to default", "configured_ratio", cfg.Ratio, "default_ratio", config.DefaultMemoryLimitRatio)
+			ratio = config.DefaultMemoryLimitRatio
+		}
+
+		opts := []memlimit.Option{
+			memlimit.WithRatio(ratio),
+			memlimit.WithLogger(logger),
+			memlimit.WithProvider(memlimit.ApplyFallback(memlimit.FromCgroup, memlimit.FromSystem)),
+		}
+		if cfg.RefreshInterval > 0 {
+			opts = append(opts, memlimit.WithRefreshInterval(cfg.RefreshInterval))
+		}
+
+		memlimit.SetGoMemLimitWithOpts(opts...)
+		logger.Info("configured automatic Go memory limit", "ratio", ratio, "refresh_interval", cfg.RefreshInterval)
+		return
+	}
+
+	logger.Info("automatic Go memory limit configuration disabled")
 }

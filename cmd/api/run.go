@@ -45,6 +45,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	db.RegisterPostGreSQLFlags(fs)
 	db.RegisterSqliteFlags(fs)
 	config.RegisterInventoryFlags(fs)
+	config.RegisterMemoryLimitFlags(fs)
 }
 
 func Run(uiFS fs.FS) error {

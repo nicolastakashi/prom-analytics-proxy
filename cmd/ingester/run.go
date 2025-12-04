@@ -61,6 +61,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	otlp.RegisterOTLPFlags(fs)
 	db.RegisterPostGreSQLFlags(fs)
 	db.RegisterSqliteFlags(fs)
+	config.RegisterMemoryLimitFlags(fs)
 }
 
 func Run() error {
