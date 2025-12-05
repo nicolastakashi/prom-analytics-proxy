@@ -84,7 +84,7 @@ func Run() error {
 
 	switch config.DefaultConfig.Ingester.Protocol {
 	case string(config.ProtocolOTLP):
-		otlpIngester, err := internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
+		otlpIngester, err = internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
 		if err != nil {
 			return fmt.Errorf("create otlp ingester: %w", err)
 		}
