@@ -173,10 +173,6 @@ func grpcServerOptions(cfg *config.Config) []grpc.ServerOption {
 			Time:                  2 * time.Minute,
 			Timeout:               20 * time.Second,
 		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             1 * time.Minute,
-			PermitWithoutStream: true,
-		}),
 	}
 }
 
