@@ -23,7 +23,12 @@ GOBUILD=$(GOCMD) build
 GOOS?=$(shell go env GOOS)
 ENVVARS=GOOS=$(GOOS) CGO_ENABLED=0
 
-LDFLAGS=-w -extldflags "-static" \
+# STRIP_DEBUG: Set to 'true' to strip DWARF debug info (-w flag)
+# Disable for eBPF CPU profilers which need debug symbols
+STRIP_DEBUG ?= false
+STRIP_FLAG = $(if $(filter true,$(STRIP_DEBUG)),-w,)
+
+LDFLAGS=$(STRIP_FLAG) -extldflags "-static" \
 		-X github.com/prometheus/common/version.Version=$(RELEASE_VERSION) \
 		-X github.com/prometheus/common/version.Revision=$(REVISION) \
 		-X github.com/prometheus/common/version.Branch=$(BRANCH) \
