@@ -40,6 +40,7 @@ type OtlpIngester struct {
 
 	exporter      MetricsExporter
 	exportTimeout time.Duration
+	healthSrv     *health.Server
 
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
@@ -58,6 +59,7 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 		config:        config,
 		db:            dbProvider,
 		exportTimeout: 5 * time.Second,
+		healthSrv:     health.NewServer(),
 		allowedJobs:   allowedJobs,
 		deniedJobs:    deniedJobs,
 	}, nil
@@ -102,8 +104,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 	}
 
 	metricspb.RegisterMetricsServiceServer(grpcServer, i)
-	healthSrv := health.NewServer()
-	healthpb.RegisterHealthServer(grpcServer, healthSrv)
+	healthpb.RegisterHealthServer(grpcServer, i.healthSrv)
 	reflection.Register(grpcServer)
 
 	slog.InfoContext(ctx, "ingester.starting", "address", i.config.Ingester.OTLP.ListenAddress)
@@ -116,11 +117,11 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		close(serveErrCh)
 	}()
 
-	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	i.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	select {
 	case <-ctx.Done():
-		healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+		i.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 		if d := i.config.Ingester.DrainDelay; d > 0 {
 			time.Sleep(d)
 		}
@@ -335,6 +336,23 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 }
 
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
+
+// IsReady reports whether the ingester is ready to serve OTLP traffic.
+// It delegates to the gRPC health server and returns true only when the
+// health status for the empty service name ("") is SERVING.
+func (i *OtlpIngester) IsReady(ctx context.Context) bool {
+	if i == nil || i.healthSrv == nil {
+		return false
+	}
+
+	resp, err := i.healthSrv.Check(ctx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		slog.ErrorContext(ctx, "ingester.readiness.health_check_error", "err", err)
+		return false
+	}
+
+	return resp.Status == healthpb.HealthCheckResponse_SERVING
+}
 
 func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, int64, int64) {
 	names := make(map[string]struct{})

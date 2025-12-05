@@ -80,14 +80,16 @@ func Run() error {
 		}
 	}()
 
+	var otlpIngester *internalIngester.OtlpIngester
+
 	switch config.DefaultConfig.Ingester.Protocol {
 	case string(config.ProtocolOTLP):
-		otlp, err := internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
+		otlpIngester, err := internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
 		if err != nil {
 			return fmt.Errorf("create otlp ingester: %w", err)
 		}
 		g.Add(func() error {
-			return otlp.Run(ctx)
+			return otlpIngester.Run(ctx)
 		}, func(err error) {
 			if err == nil || errors.Is(err, context.Canceled) || errors.As(err, &run.SignalError{}) {
 				slog.InfoContext(ctx, "ingester.run.stopped")
@@ -100,10 +102,30 @@ func Run() error {
 		return fmt.Errorf("unknown protocol: %s", config.DefaultConfig.Ingester.Protocol)
 	}
 
-	// Metrics HTTP server
+	// Metrics and health HTTP server
 	{
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
+
+		// Kubernetes-style liveness probe: returns 200 as long as the process is running.
+		mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte("ok")); err != nil {
+				slog.ErrorContext(r.Context(), "ingester.http.livez_write_error", "err", err)
+			}
+		})
+
+		// Kubernetes-style readiness probe: relies on the OTLP ingester's gRPC health status.
+		mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+			if otlpIngester == nil || !otlpIngester.IsReady(r.Context()) {
+				http.Error(w, "not ready", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte("ok")); err != nil {
+				slog.ErrorContext(r.Context(), "ingester.http.readyz_write_error", "err", err)
+			}
+		})
 		srv := &http.Server{
 			Addr:         config.DefaultConfig.Ingester.MetricsListenAddress,
 			Handler:      mux,
