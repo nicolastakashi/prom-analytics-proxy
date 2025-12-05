@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"net/http/pprof"
 	"net/url"
 	"slices"
 	"strconv"
@@ -78,6 +79,17 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux := http.NewServeMux()
 		mux.Handle("/", r.ui(uiFS))
 		mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+		// pprof endpoints
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+		mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+		mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+		mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 		mux.Handle("/api/", http.HandlerFunc(r.passthrough))
 		mux.Handle("/api/v1/query", i.NewHandler(
 			prometheus.Labels{"handler": "query"},
