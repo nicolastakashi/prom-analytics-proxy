@@ -1,5 +1,36 @@
 # Troubleshooting Guide
 
+## Ingester export observability
+
+The ingester's OTLP `Export` path exposes metrics and emits structured logs to understand drop behavior and downstream forwarding. Metrics follow OpenTelemetry RPC semantic conventions for gRPC.
+
+Metrics (all prefixed with `ingester_`):
+
+**RPC Server Metrics** (following OTel RPC semantic conventions):
+- `rpc_server_duration_seconds{rpc.system,rpc.service,rpc.method,network.transport,code}`: RPC server call duration histogram. Use `_count` suffix for request rate, filter by `code!="OK"` for error rate.
+
+**RPC Client Metrics** (downstream OTLP exporter):
+- `rpc_client_duration_seconds{rpc.system,rpc.service,rpc.method,network.transport,code}`: RPC client call duration histogram. Use `_count` suffix for request rate, filter by `code!="OK"` for error rate.
+
+**Pipeline Metrics**:
+- `receiver_received_metric_points_total`: Total metric points received.
+- `processor_dropped_metric_points_total{reason}`: Metric points dropped (reasons: `unused_metric`, `job_denied`).
+- `processor_lookup_latency_seconds`: Database lookup duration histogram.
+- `processor_lookup_errors_total`: Database lookup errors.
+- `receiver_missing_job_total`: Resources with missing `service.name` and `job`.
+
+PromQL examples:
+- Request rate: `sum(rate(ingester_rpc_server_duration_seconds_count[5m]))`
+- Error rate: `sum(rate(ingester_rpc_server_duration_seconds_count{code!="OK"}[5m])) / sum(rate(ingester_rpc_server_duration_seconds_count[5m]))`
+- Drop rate: `sum(rate(ingester_processor_dropped_metric_points_total[5m])) / sum(rate(ingester_receiver_received_metric_points_total[5m]))`
+- Downstream error rate: `sum(rate(ingester_rpc_client_duration_seconds_count{code!="OK"}[5m])) / sum(rate(ingester_rpc_client_duration_seconds_count[5m]))`
+- Missing job rate: `rate(ingester_receiver_missing_job_total[5m])`
+
+Logs (debug level):
+- Keys follow OTel semantic conventions where practical:
+  - `rpc.system="grpc"`, `rpc.service="opentelemetry.proto.collector.metrics.v1.MetricsService"`, `rpc.method="Export"`
+  - Additional fields: `export.duration_ms`, `db.lookup_ms`, `seen.metrics`, `seen.datapoints`, `dropped.metrics`, `dropped.datapoints`, `dry_run`, `downstream.enabled`, and `grpc.status_code` on failures.
+
 This guide covers common issues and their solutions when running `prom-analytics-proxy`.
 
 ## Table of Contents
@@ -10,6 +41,7 @@ This guide covers common issues and their solutions when running `prom-analytics
 - [Missing Metrics in Inventory](#missing-metrics-in-inventory)
 - [Database Connection Issues](#database-connection-issues)
 - [Memory/Resource Issues](#memoryresource-issues)
+- [OTLP ResourceExhausted (message larger than max)](#otlp-resourceexhausted-message-larger-than-max)
 
 ## No Data Showing in the UI
 
@@ -297,6 +329,56 @@ df -h .
 #### File Locking Issues
 
 If running multiple instances, ensure they use different SQLite files (SQLite doesn't support concurrent writes well).
+
+## OTLP ResourceExhausted (message larger than max)
+
+**Symptom:** Sender logs show:
+
+```text
+rpc error: code = ResourceExhausted desc = grpc: received message larger than max (X vs. 4194304)
+```
+
+**Cause:** gRPC defaults to a 4 MiB max message size. Your OTLP sender (Collector/SDK) is producing batches exceeding this limit.
+
+**Solutions:**
+
+1) Tune the sender (recommended):
+- Reduce batch size with the OTel Collector batch processor:
+  ```yaml
+  processors:
+    batch:
+      send_batch_size: 512
+      send_batch_max_size: 1024
+      timeout: 5s
+  ```
+- Enable compression on the OTLP exporter:
+  ```yaml
+  exporters:
+    otlp:
+      compression: gzip
+  ```
+- For SDKs, reduce batch sizes in their batch processor or exporter.
+
+2) Increase ingester gRPC message limits:
+- YAML (under `ingester.otlp`), defaults are 10 MiB:
+  ```yaml
+  ingester:
+    otlp:
+      grpc_max_recv_msg_size_bytes: 10485760
+      grpc_max_send_msg_size_bytes: 10485760
+      downstream_grpc_max_recv_msg_size_bytes: 10485760
+      downstream_grpc_max_send_msg_size_bytes: 10485760
+  ```
+- CLI flags:
+  ```bash
+  ./prom-analytics-proxy \
+    -otlp-max-recv-bytes 10485760 \
+    -otlp-max-send-bytes 10485760 \
+    -otlp-downstream-max-recv-bytes 10485760 \
+    -otlp-downstream-max-send-bytes 10485760
+  ```
+
+Prefer sender-side batching adjustments to avoid very large messages. Increase limits only as needed and monitor memory usage.
 
 ## Memory/Resource Issues
 
