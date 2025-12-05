@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/backoff"
 	_ "google.golang.org/grpc/balancer/roundrobin"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
 
@@ -198,7 +197,6 @@ func NewOTLPExporter(endpoint string, protocol string, opts *ExporterOptions) (M
 				return 10 * 1024 * 1024
 			}()),
 		),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 2 * time.Minute, Timeout: 20 * time.Second, PermitWithoutStream: true}),
 		grpc.WithConnectParams(connectParams),
 	)
 	if err != nil {
