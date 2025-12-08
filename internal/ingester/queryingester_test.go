@@ -157,6 +157,11 @@ func (m *MockDBProvider) GetSeriesMetadataByNames(ctx context.Context, names []s
 	return nil, args.Error(1)
 }
 
+func (m *MockDBProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	args := m.Called(ctx, cutoff)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
