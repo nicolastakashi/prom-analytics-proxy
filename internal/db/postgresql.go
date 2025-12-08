@@ -1628,3 +1628,15 @@ func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Con
 
 	return result, nil
 }
+
+func (p *PostGreSQLProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < $1", cutoff)
+	if err != nil {
+		return 0, ErrorWithOperation(err, "delete old queries")
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, ErrorWithOperation(err, "get rows affected")
+	}
+	return rowsAffected, nil
+}

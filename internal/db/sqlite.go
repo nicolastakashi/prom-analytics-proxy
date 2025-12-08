@@ -1785,3 +1785,19 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 
 	return result, nil
 }
+
+func (p *SQLiteProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	cutoffStr := cutoff.UTC().Format(time.RFC3339)
+	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < ?", cutoffStr)
+	if err != nil {
+		return 0, ErrorWithOperation(err, "delete old queries")
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, ErrorWithOperation(err, "get rows affected")
+	}
+	return rowsAffected, nil
+}

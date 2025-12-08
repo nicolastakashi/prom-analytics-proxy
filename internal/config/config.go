@@ -26,6 +26,7 @@ type Config struct {
 	CORS            CORSConfig        `yaml:"cors,omitempty"`
 	Inventory       InventoryConfig   `yaml:"inventory,omitempty"`
 	QueryProcessing QueryProcessing   `yaml:"query_processing,omitempty"`
+	Retention       RetentionConfig   `yaml:"retention,omitempty"`
 }
 
 type QueryProcessing struct {
@@ -98,6 +99,13 @@ type InventoryConfig struct {
 	JobIndexWorkers       int           `yaml:"job_index_workers,omitempty"`
 }
 
+type RetentionConfig struct {
+	Enabled       bool          `yaml:"enabled,omitempty"`
+	Interval      time.Duration `yaml:"interval,omitempty"`
+	RunTimeout    time.Duration `yaml:"run_timeout,omitempty"`
+	QueriesMaxAge time.Duration `yaml:"queries_max_age,omitempty"`
+}
+
 var DefaultConfig = &Config{
 	CORS: CORSConfig{
 		AllowedOrigins:   []string{"*"},
@@ -127,6 +135,12 @@ var DefaultConfig = &Config{
 		Enabled:         false,
 		Ratio:           DefaultMemoryLimitRatio,
 		RefreshInterval: time.Minute,
+	},
+	Retention: RetentionConfig{
+		Enabled:       false,
+		Interval:      1 * time.Hour,
+		RunTimeout:    5 * time.Minute,
+		QueriesMaxAge: 30 * 24 * time.Hour,
 	},
 	Ingester: IngesterConfig{
 		Protocol: string(ProtocolOTLP),
@@ -281,4 +295,11 @@ func RegisterMemoryLimitFlags(flagSet *flag.FlagSet) {
 	flagSet.BoolVar(&DefaultConfig.MemoryLimit.Enabled, "memory-limit-enabled", DefaultConfig.MemoryLimit.Enabled, "Enable automatic GOMEMLIMIT management via automemlimit")
 	flagSet.Float64Var(&DefaultConfig.MemoryLimit.Ratio, "memory-limit-ratio", DefaultConfig.MemoryLimit.Ratio, "Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT")
 	flagSet.DurationVar(&DefaultConfig.MemoryLimit.RefreshInterval, "memory-limit-refresh-interval", DefaultConfig.MemoryLimit.RefreshInterval, "Interval for refreshing the computed memory limit (0 disables refresh)")
+}
+
+func RegisterRetentionFlags(flagSet *flag.FlagSet) {
+	flagSet.BoolVar(&DefaultConfig.Retention.Enabled, "retention-enabled", DefaultConfig.Retention.Enabled, "Enable the retention worker to delete old data")
+	flagSet.DurationVar(&DefaultConfig.Retention.Interval, "retention-interval", DefaultConfig.Retention.Interval, "Interval between retention runs")
+	flagSet.DurationVar(&DefaultConfig.Retention.RunTimeout, "retention-run-timeout", DefaultConfig.Retention.RunTimeout, "Timeout for each retention run")
+	flagSet.DurationVar(&DefaultConfig.Retention.QueriesMaxAge, "retention-queries-max-age", DefaultConfig.Retention.QueriesMaxAge, "Maximum age for queries before deletion")
 }
