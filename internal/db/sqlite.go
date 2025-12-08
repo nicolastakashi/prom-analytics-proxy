@@ -1790,7 +1790,8 @@ func (p *SQLiteProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Ti
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < ?", cutoff)
+	cutoffStr := cutoff.UTC().Format(time.RFC3339)
+	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < ?", cutoffStr)
 	if err != nil {
 		return 0, ErrorWithOperation(err, "delete old queries")
 	}

@@ -197,6 +197,42 @@ func TestNewWorker_RejectsNegativeInterval(t *testing.T) {
 	assert.Contains(t, err.Error(), "interval must be positive")
 }
 
+func TestNewWorker_RejectsZeroRunTimeout(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      1 * time.Hour,
+			RunTimeout:    0,
+			QueriesMaxAge: 30 * 24 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "run_timeout must be positive")
+}
+
+func TestNewWorker_RejectsNegativeRunTimeout(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      1 * time.Hour,
+			RunTimeout:    -1 * time.Minute,
+			QueriesMaxAge: 30 * 24 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "run_timeout must be positive")
+}
+
 func TestNewWorker_RejectsIntervalLessThan5Nanoseconds(t *testing.T) {
 	cfg := &config.Config{
 		Retention: config.RetentionConfig{

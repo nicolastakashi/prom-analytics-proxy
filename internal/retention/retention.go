@@ -31,6 +31,10 @@ func NewWorker(store db.Provider, cfg *config.Config, reg prometheus.Registerer)
 		return nil, fmt.Errorf("retention.interval must be positive (got: %v)", cfg.Retention.Interval)
 	}
 
+	if cfg.Retention.RunTimeout <= 0 {
+		return nil, fmt.Errorf("retention.run_timeout must be positive (got: %v)", cfg.Retention.RunTimeout)
+	}
+
 	if cfg.Retention.QueriesMaxAge <= 0 {
 		return nil, fmt.Errorf("retention.queries_max_age must be positive (got: %v)", cfg.Retention.QueriesMaxAge)
 	}
