@@ -24,6 +24,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/inventory"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/retention"
 )
 
 func RegisterFlags(fs *flag.FlagSet, configFile *string) {
@@ -46,6 +47,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	db.RegisterSqliteFlags(fs)
 	config.RegisterInventoryFlags(fs)
 	config.RegisterMemoryLimitFlags(fs)
+	config.RegisterRetentionFlags(fs)
 }
 
 func Run(uiFS fs.FS) error {
@@ -183,6 +185,27 @@ func Run(uiFS fs.FS) error {
 			default:
 				ctx, cancel := context.WithCancel(context.Background())
 				g.Add(func() error { inv.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
+			}
+		}
+	}
+
+	if config.DefaultConfig.Retention.Enabled {
+		retWorker, err := retention.NewWorker(dbProvider, config.DefaultConfig, reg)
+		if err != nil {
+			slog.Error("unable to create retention worker", "err", err)
+		} else {
+			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
+			case db.PostGreSQL:
+				dbProvider.WithDB(func(d *sql.DB) {
+					ctx, cancel := context.WithCancel(context.Background())
+					g.Add(func() error {
+						inventory.WithPGAdvisoryLeadership(ctx, d, int64(0x726574656e74696f), retWorker.RunLeaderless)
+						return nil
+					}, func(err error) { cancel() })
+				})
+			default:
+				ctx, cancel := context.WithCancel(context.Background())
+				g.Add(func() error { retWorker.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
 			}
 		}
 	}

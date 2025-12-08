@@ -49,13 +49,13 @@ type Provider interface {
 	GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error)
 	GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error)
 	GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error)
-	// GetQueryExecutions returns paginated raw query executions filtered by fingerprint/time range
 	GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
 	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
 	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
 	GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error)
+	DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 
 	Close() error
 }

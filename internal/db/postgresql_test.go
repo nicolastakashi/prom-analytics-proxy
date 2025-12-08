@@ -786,3 +786,49 @@ func TestPostgreSQL_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 	assert.NoError(t, err, "GetQueryTimeRangeDistribution")
 	assert.NotEmpty(t, out)
 }
+
+func TestPostgreSQLProvider_DeleteQueriesBefore(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	cutoff := now.Add(-1 * time.Hour)
+
+	insert := `INSERT INTO queries (ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)`
+
+	for i := 0; i < 3; i++ {
+		ts := cutoff.Add(-time.Duration(i+1) * time.Hour)
+		_, err := p.(*PostGreSQLProvider).db.ExecContext(ctx, insert,
+			ts, "query1", now, int64(100), 200, 0, "fp1", `[{"__name__":"up"}]`, "instant", 0.0, time.Time{}, time.Time{}, 0, 0,
+		)
+		assert.NoError(t, err, "insert old query")
+	}
+
+	for i := 0; i < 2; i++ {
+		ts := cutoff.Add(time.Duration(i+1) * time.Hour)
+		_, err := p.(*PostGreSQLProvider).db.ExecContext(ctx, insert,
+			ts, "query2", now, int64(100), 200, 0, "fp2", `[{"__name__":"up"}]`, "instant", 0.0, time.Time{}, time.Time{}, 0, 0,
+		)
+		assert.NoError(t, err, "insert new query")
+	}
+
+	var count int
+	err := p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries").Scan(&count)
+	assert.NoError(t, err, "count before deletion")
+	assert.Equal(t, 5, count, "should have 5 queries initially")
+
+	deleted, err := p.DeleteQueriesBefore(ctx, cutoff)
+	assert.NoError(t, err, "DeleteQueriesBefore")
+	assert.Equal(t, int64(3), deleted, "should delete 3 queries")
+
+	err = p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries").Scan(&count)
+	assert.NoError(t, err, "count after deletion")
+	assert.Equal(t, 2, count, "should have 2 queries remaining")
+
+	var remainingCount int
+	err = p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries WHERE ts >= $1", cutoff).Scan(&remainingCount)
+	assert.NoError(t, err, "count queries after cutoff")
+	assert.Equal(t, 2, remainingCount, "all remaining queries should be after cutoff")
+}
