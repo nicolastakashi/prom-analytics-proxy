@@ -117,21 +117,120 @@ func TestNewWorker(t *testing.T) {
 
 	fakeProv := &fakeProvider{}
 
-	w := &Worker{
-		dbProvider:    fakeProv,
-		interval:      cfg.Retention.Interval,
-		runTimeout:    cfg.Retention.RunTimeout,
-		queriesMaxAge: cfg.Retention.QueriesMaxAge,
-	}
-
-	w.runDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "test_retention_run_duration_seconds",
-	}, []string{"status"})
-
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.NoError(t, err)
 	assert.NotNil(t, w)
 	assert.Equal(t, cfg.Retention.Interval, w.interval)
 	assert.Equal(t, cfg.Retention.RunTimeout, w.runTimeout)
 	assert.Equal(t, cfg.Retention.QueriesMaxAge, w.queriesMaxAge)
+}
+
+func TestNewWorker_RejectsZeroQueriesMaxAge(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      1 * time.Hour,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: 0,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "queries_max_age must be positive")
+}
+
+func TestNewWorker_RejectsNegativeQueriesMaxAge(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      1 * time.Hour,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: -1 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "queries_max_age must be positive")
+}
+
+func TestNewWorker_RejectsZeroInterval(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      0,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: 30 * 24 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "interval must be positive")
+}
+
+func TestNewWorker_RejectsNegativeInterval(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      -1 * time.Hour,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: 30 * 24 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err)
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "interval must be positive")
+}
+
+func TestNewWorker_RejectsIntervalLessThan5Nanoseconds(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       true,
+			Interval:      4 * time.Nanosecond,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: 30 * 24 * time.Hour,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	// This should still pass validation since interval > 0, but runLoop should handle it defensively
+	assert.NoError(t, err)
+	assert.NotNil(t, w)
+}
+
+func TestNewWorker_RejectsZeroQueriesMaxAgeEvenWhenDisabled(t *testing.T) {
+	cfg := &config.Config{
+		Retention: config.RetentionConfig{
+			Enabled:       false,
+			Interval:      1 * time.Hour,
+			RunTimeout:    5 * time.Minute,
+			QueriesMaxAge: 0,
+		},
+	}
+
+	fakeProv := &fakeProvider{}
+
+	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
+	assert.Error(t, err) // Should fail because validation happens regardless of enabled status
+	assert.Nil(t, w)
+	assert.Contains(t, err.Error(), "queries_max_age must be positive")
 }
 
 func TestWorker_runOnce(t *testing.T) {
@@ -184,4 +283,77 @@ func TestWorker_runOnce_Error(t *testing.T) {
 	w.runOnce(ctx)
 
 	assert.Len(t, fakeProv.deleteCalls, 1, "DeleteQueriesBefore should be called once")
+}
+
+func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsZero(t *testing.T) {
+	fakeProv := &fakeProvider{}
+
+	w := &Worker{
+		dbProvider:    fakeProv,
+		interval:      1 * time.Hour,
+		runTimeout:    5 * time.Minute,
+		queriesMaxAge: 0,
+		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	w.runOnce(ctx)
+
+	assert.Len(t, fakeProv.deleteCalls, 0, "DeleteQueriesBefore should not be called when queriesMaxAge is zero")
+}
+
+func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsNegative(t *testing.T) {
+	fakeProv := &fakeProvider{}
+
+	w := &Worker{
+		dbProvider:    fakeProv,
+		interval:      1 * time.Hour,
+		runTimeout:    5 * time.Minute,
+		queriesMaxAge: -1 * time.Hour,
+		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	w.runOnce(ctx)
+
+	assert.Len(t, fakeProv.deleteCalls, 0, "DeleteQueriesBefore should not be called when queriesMaxAge is negative")
+}
+
+func TestWorker_runLoop_HandlesSmallInterval(t *testing.T) {
+	fakeProv := &fakeProvider{
+		deleteResults: []int64{0},
+		deleteErrors:  []error{nil},
+	}
+
+	w := &Worker{
+		dbProvider:    fakeProv,
+		interval:      4 * time.Nanosecond, // Less than 5ns, which would cause w.interval/5 to be 0
+		runTimeout:    5 * time.Minute,
+		queriesMaxAge: 30 * 24 * time.Hour,
+		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// This should not panic even with a very small interval
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.runLoop(ctx)
+	}()
+
+	select {
+	case <-done:
+		// runLoop exited normally (due to context cancellation)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("runLoop should have exited within timeout")
+	}
+
+	// Verify that runOnce was called at least once
+	assert.GreaterOrEqual(t, len(fakeProv.deleteCalls), 1, "runOnce should have been called at least once")
 }

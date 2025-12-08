@@ -27,6 +27,14 @@ func NewWorker(store db.Provider, cfg *config.Config, reg prometheus.Registerer)
 		return nil, fmt.Errorf("config is required")
 	}
 
+	if cfg.Retention.Interval <= 0 {
+		return nil, fmt.Errorf("retention.interval must be positive (got: %v)", cfg.Retention.Interval)
+	}
+
+	if cfg.Retention.QueriesMaxAge <= 0 {
+		return nil, fmt.Errorf("retention.queries_max_age must be positive (got: %v)", cfg.Retention.QueriesMaxAge)
+	}
+
 	if reg == nil {
 		reg = prometheus.DefaultRegisterer
 	}
@@ -74,7 +82,12 @@ func (w *Worker) RunWithLeader(ctx context.Context, isLeader func(context.Contex
 }
 
 func (w *Worker) runLoop(ctx context.Context) {
-	jitter := time.Duration(rand.Int63n(int64(w.interval / 5)))
+	// Calculate jitter as 20% of interval, with a minimum of 1 nanosecond to avoid panic
+	jitterBase := w.interval / 5
+	if jitterBase == 0 {
+		jitterBase = 1
+	}
+	jitter := time.Duration(rand.Int63n(int64(jitterBase)))
 	ticker := time.NewTicker(w.interval + jitter)
 	defer ticker.Stop()
 
@@ -94,6 +107,11 @@ func (w *Worker) runOnce(ctx context.Context) {
 	start := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, w.runTimeout)
 	defer cancel()
+
+	// Skip deletion if queriesMaxAge is zero or negative (defensive check)
+	if w.queriesMaxAge <= 0 {
+		return
+	}
 
 	cutoff := time.Now().UTC().Add(-w.queriesMaxAge)
 	deleted, err := w.dbProvider.DeleteQueriesBefore(runCtx, cutoff)
