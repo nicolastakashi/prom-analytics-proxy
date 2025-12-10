@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// inMemoryMetricCache is a simple in-memory implementation for testing
 type inMemoryMetricCache struct {
 	states map[string]MetricUsageState
 }
@@ -54,20 +53,17 @@ func TestInMemoryMetricCache_GetStates(t *testing.T) {
 	cache := newInMemoryMetricCache()
 	ctx := context.Background()
 
-	// Empty cache returns all unknown
 	states, err := cache.GetStates(ctx, []string{"metric1", "metric2"})
 	require.NoError(t, err)
 	assert.Equal(t, StateUnknown, states["metric1"])
 	assert.Equal(t, StateUnknown, states["metric2"])
 
-	// Set some states
 	err = cache.SetStates(ctx, map[string]MetricUsageState{
 		"metric1": StateUsed,
 		"metric2": StateUnused,
 	})
 	require.NoError(t, err)
 
-	// Retrieve states
 	states, err = cache.GetStates(ctx, []string{"metric1", "metric2", "metric3"})
 	require.NoError(t, err)
 	assert.Equal(t, StateUsed, states["metric1"])
@@ -88,7 +84,6 @@ func TestInMemoryMetricCache_SetStates(t *testing.T) {
 	err := cache.SetStates(ctx, states)
 	require.NoError(t, err)
 
-	// Unknown states should not be cached
 	retrieved, err := cache.GetStates(ctx, []string{"metric1", "metric2", "metric3"})
 	require.NoError(t, err)
 	assert.Equal(t, StateUsed, retrieved["metric1"])
@@ -121,16 +116,12 @@ func TestNewRedisMetricUsageCache_Defaults(t *testing.T) {
 		Enabled: true,
 		Addr:    "localhost:6379",
 	}
-	// This will fail to connect, but we can test the defaults are set
 	cache, err := NewRedisMetricUsageCache(cfg)
-	// We expect an error because Redis is not running, but the defaults should be applied
 	if err == nil {
-		// If somehow it connected, close it
 		if cache != nil {
 			_ = cache.Close()
 		}
 	} else {
-		// Expected - Redis not available
 		assert.Contains(t, err.Error(), "redis")
 	}
 }
@@ -141,7 +132,6 @@ func TestRedisMetricUsageCache_KeyGeneration(t *testing.T) {
 		Addr:    "localhost:6379",
 		UsedTTL: 1 * time.Hour,
 	}
-	// Create cache instance to test key generation (will fail to connect but that's ok)
 	cache, err := NewRedisMetricUsageCache(cfg)
 	if err == nil && cache != nil {
 		redisCache := cache.(*redisMetricUsageCache)
