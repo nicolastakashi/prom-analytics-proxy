@@ -23,7 +23,7 @@ type CacheValue int64
 
 const (
 	CacheValueUnused CacheValue = 0
-	CacheValueUsed CacheValue = 1
+	CacheValueUsed   CacheValue = 1
 )
 
 func (cv CacheValue) Int64() int64 {
@@ -100,10 +100,7 @@ func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (
 		cmds = append(cmds, c.client.B().Get().Key(c.key(name)).Build())
 	}
 
-	results := make([]rueidis.RedisResult, len(cmds))
-	for i, cmd := range cmds {
-		results[i] = c.client.Do(ctx, cmd)
-	}
+	results := c.client.DoMulti(ctx, cmds...)
 
 	states := make(map[string]MetricUsageState, len(names))
 	for i, name := range names {
