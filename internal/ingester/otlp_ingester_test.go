@@ -28,6 +28,55 @@ import (
 
 type mockUsageProvider struct{ MockDBProvider }
 
+// testCache is a simple in-memory cache for testing
+type testCache struct {
+	states map[string]otlppkg.MetricUsageState
+}
+
+func newTestCache() *testCache {
+	return &testCache{
+		states: make(map[string]otlppkg.MetricUsageState),
+	}
+}
+
+func (c *testCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
+	result := make(map[string]otlppkg.MetricUsageState, len(names))
+	for _, name := range names {
+		if state, ok := c.states[name]; ok {
+			result[name] = state
+		} else {
+			result[name] = otlppkg.StateUnknown
+		}
+	}
+	return result, nil
+}
+
+func (c *testCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
+	for name, state := range states {
+		c.states[name] = state
+	}
+	return nil
+}
+
+func (c *testCache) Close() error {
+	return nil
+}
+
+// errorCache is a cache that always returns errors (for testing error handling)
+type errorCache struct{}
+
+func (c *errorCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
+	return nil, assert.AnError
+}
+
+func (c *errorCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
+	return assert.AnError
+}
+
+func (c *errorCache) Close() error {
+	return nil
+}
+
 func buildGaugeMetric(name string, n int) *metricspb.Metric {
 	dps := make([]*metricspb.NumberDataPoint, 0, n)
 	for i := 0; i < n; i++ {
@@ -420,6 +469,399 @@ func (m *benchUsageProvider) GetSeriesMetadataByNames(ctx context.Context, names
 		return m.gen(names), nil
 	}
 	return []models.MetricMetadata{}, nil
+}
+
+// BenchmarkExport_WithCache benchmarks Export performance with cache enabled vs disabled.
+func BenchmarkExport_WithCache(b *testing.B) {
+	cases := []struct {
+		name         string
+		metrics      int
+		cacheEnabled bool
+		cacheHitRate float64 // 0.0 = all misses, 1.0 = all hits
+	}{
+		{"100_metrics_no_cache", 100, false, 0.0},
+		{"100_metrics_cache_all_misses", 100, true, 0.0},
+		{"100_metrics_cache_half_hits", 100, true, 0.5},
+		{"100_metrics_cache_all_hits", 100, true, 1.0},
+		{"1000_metrics_no_cache", 1000, false, 0.0},
+		{"1000_metrics_cache_all_misses", 1000, true, 0.0},
+		{"1000_metrics_cache_half_hits", 1000, true, 0.5},
+		{"1000_metrics_cache_all_hits", 1000, true, 1.0},
+		{"10000_metrics_no_cache", 10000, false, 0.0},
+		{"10000_metrics_cache_all_misses", 10000, true, 0.0},
+		{"10000_metrics_cache_half_hits", 10000, true, 0.5},
+		{"10000_metrics_cache_all_hits", 10000, true, 1.0},
+	}
+
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			mp := &benchUsageProvider{gen: func(names []string) []models.MetricMetadata {
+				res := make([]models.MetricMetadata, 0, len(names))
+				for _, n := range names {
+					res = append(res, models.MetricMetadata{Name: n, QueryCount: 1})
+				}
+				return res
+			}}
+
+			cfg := &config.Config{}
+			ing, err := NewOtlpIngester(cfg, mp)
+			assert.NoError(b, err)
+
+			// Pre-populate cache if needed (using in-memory cache, not Redis)
+			if c.cacheEnabled {
+				cache := &benchCache{
+					states: make(map[string]otlppkg.MetricUsageState),
+				}
+				if c.cacheHitRate > 0 {
+					hitCount := int(float64(c.metrics) * c.cacheHitRate)
+					for i := 0; i < hitCount; i++ {
+						name := "metric_" + strconv.Itoa(i)
+						cache.states[name] = otlppkg.StateUsed
+					}
+				}
+				ing.SetMetricCache(cache)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				req := buildRequestN(c.metrics, 1)
+				_, _ = ing.Export(context.Background(), req)
+			}
+		})
+	}
+}
+
+type benchCache struct {
+	states map[string]otlppkg.MetricUsageState
+}
+
+func (c *benchCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
+	result := make(map[string]otlppkg.MetricUsageState, len(names))
+	for _, name := range names {
+		if state, ok := c.states[name]; ok {
+			result[name] = state
+		} else {
+			result[name] = otlppkg.StateUnknown
+		}
+	}
+	return result, nil
+}
+
+func (c *benchCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
+	for name, state := range states {
+		c.states[name] = state
+	}
+	return nil
+}
+
+func (c *benchCache) Close() error {
+	return nil
+}
+
+// BenchmarkExport_MemoryUsage benchmarks memory consumption for different datapoint rates.
+// This helps estimate memory usage for production workloads (e.g., 100k datapoints/second).
+func BenchmarkExport_MemoryUsage(b *testing.B) {
+	cases := []struct {
+		name         string
+		metrics      int
+		dpsPerMetric int
+		cacheEnabled bool
+	}{
+		{"1000_metrics_1_dp_no_cache", 1000, 1, false},
+		{"1000_metrics_1_dp_with_cache", 1000, 1, true},
+		{"10000_metrics_1_dp_no_cache", 10000, 1, false},
+		{"10000_metrics_1_dp_with_cache", 10000, 1, true},
+		{"1000_metrics_10_dp_no_cache", 1000, 10, false},
+		{"1000_metrics_10_dp_with_cache", 1000, 10, true},
+	}
+
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			mp := &benchUsageProvider{gen: func(names []string) []models.MetricMetadata {
+				res := make([]models.MetricMetadata, 0, len(names))
+				for _, n := range names {
+					res = append(res, models.MetricMetadata{Name: n, QueryCount: 1})
+				}
+				return res
+			}}
+
+			cfg := &config.Config{}
+			ing, err := NewOtlpIngester(cfg, mp)
+			assert.NoError(b, err)
+
+			if c.cacheEnabled {
+				cache := &benchCache{
+					states: make(map[string]otlppkg.MetricUsageState),
+				}
+				// Pre-populate cache with all metrics as used
+				for i := 0; i < c.metrics; i++ {
+					name := "metric_" + strconv.Itoa(i)
+					cache.states[name] = otlppkg.StateUsed
+				}
+				ing.SetMetricCache(cache)
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				req := buildRequestN(c.metrics, c.dpsPerMetric)
+				_, _ = ing.Export(context.Background(), req)
+			}
+		})
+	}
+}
+
+func TestExport_WithCacheDisabled_BehavesAsBefore(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false,
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	req := buildExportRequest(
+		buildGaugeMetric("used_metric", 2),
+		buildGaugeMetric("unused_metric", 2),
+	)
+
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "used_metric", QueryCount: 1},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// unused_metric should be dropped
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "used_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_WithCacheEnabled_AllMisses_HitsDB(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false, // We'll inject cache manually
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	cache := newTestCache()
+	ing.SetMetricCache(cache)
+
+	req := buildExportRequest(
+		buildGaugeMetric("used_metric", 2),
+		buildGaugeMetric("unused_metric", 2),
+	)
+
+	// First call should hit DB (cache miss)
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "used_metric", QueryCount: 1},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Verify cache was populated
+	states, err := cache.GetStates(context.Background(), []string{"used_metric", "unused_metric"})
+	assert.NoError(t, err)
+	assert.Equal(t, otlppkg.StateUsed, states["used_metric"])
+	assert.Equal(t, otlppkg.StateUnused, states["unused_metric"])
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_WithCacheEnabled_UsedHit_SkipsDB(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false,
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	cache := newTestCache()
+	// Pre-populate cache with used state
+	err = cache.SetStates(context.Background(), map[string]otlppkg.MetricUsageState{
+		"used_metric": otlppkg.StateUsed,
+	})
+	assert.NoError(t, err)
+	ing.SetMetricCache(cache)
+
+	req := buildExportRequest(
+		buildGaugeMetric("used_metric", 2),
+		buildGaugeMetric("unused_metric", 2),
+	)
+
+	// Should only query DB for unused_metric (cache miss)
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.MatchedBy(func(names []string) bool {
+		// Should only contain unused_metric
+		return len(names) == 1 && names[0] == "unused_metric"
+	}), "").Return([]models.MetricMetadata{
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// used_metric should remain (not dropped because it's used)
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "used_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_WithCacheEnabled_UnusedHit_SkipsDB(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false,
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	cache := newTestCache()
+	// Pre-populate cache with unused state
+	err = cache.SetStates(context.Background(), map[string]otlppkg.MetricUsageState{
+		"unused_metric": otlppkg.StateUnused,
+	})
+	assert.NoError(t, err)
+	ing.SetMetricCache(cache)
+
+	req := buildExportRequest(
+		buildGaugeMetric("used_metric", 2),
+		buildGaugeMetric("unused_metric", 2),
+	)
+
+	// Should only query DB for used_metric (cache miss)
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.MatchedBy(func(names []string) bool {
+		return len(names) == 1 && names[0] == "used_metric"
+	}), "").Return([]models.MetricMetadata{
+		{Name: "used_metric", QueryCount: 1},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// unused_metric should be dropped (from cache)
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "used_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_WithCacheError_FallsBackToDB(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false,
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	// Create a cache that returns errors
+	errorCache := &errorCache{}
+	ing.SetMetricCache(errorCache)
+
+	req := buildExportRequest(
+		buildGaugeMetric("used_metric", 2),
+		buildGaugeMetric("unused_metric", 2),
+	)
+
+	// Should fall back to DB when cache errors
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "used_metric", QueryCount: 1},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Should still work correctly despite cache error
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "used_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+func TestExport_WithHistogramCache_HandlesVariantsCorrectly(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			Redis: config.RedisCacheConfig{
+				Enabled: false,
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	cache := newTestCache()
+	ing.SetMetricCache(cache)
+
+	// Create histogram metric (which generates _bucket, _count, _sum variants)
+	histogramMetric := buildHistogramMetric("http_request_duration_seconds", 1)
+	req := buildExportRequest(
+		histogramMetric,
+		buildGaugeMetric("regular_metric", 1),
+	)
+
+	// DB should return metadata for all variants
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "http_request_duration_seconds_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "http_request_duration_seconds_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "http_request_duration_seconds_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "regular_metric", QueryCount: 1},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Histogram base should be marked as unused (all variants unused)
+	// Regular metric should remain (used)
+	rms := req.ResourceMetrics
+	assert.Len(t, rms, 1)
+	assert.Len(t, rms[0].ScopeMetrics, 1)
+	got := rms[0].ScopeMetrics[0].Metrics
+	assert.Len(t, got, 1)
+	assert.Equal(t, "regular_metric", got[0].GetName())
+
+	mp.AssertExpectations(t)
 }
 
 type captureExporter struct {
