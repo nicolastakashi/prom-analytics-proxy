@@ -170,6 +170,12 @@ var DefaultConfig = &Config{
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
 		DrainDelay:              2 * time.Second,
+		Redis: RedisCacheConfig{
+			Enabled:    false,
+			UsedTTL:    1 * time.Hour,
+			UnusedTTL:  2 * time.Minute,
+			UsedOnly:   false,
+		},
 	},
 }
 
@@ -235,6 +241,27 @@ type IngesterConfig struct {
 	// DeniedJobs is a list of job names that are excluded from unused metric dropping.
 	// Metrics from these jobs will never be dropped, even if unused.
 	DeniedJobs []string `yaml:"denied_jobs,omitempty"`
+	// Redis configuration for metric usage caching
+	Redis RedisCacheConfig `yaml:"redis,omitempty"`
+}
+
+type RedisCacheConfig struct {
+	// Enabled enables Redis-based metric usage caching
+	Enabled bool `yaml:"enabled,omitempty"`
+	// Addr is the Redis server address (host:port)
+	Addr string `yaml:"addr,omitempty"`
+	// Username is the Redis username (optional)
+	Username string `yaml:"username,omitempty"`
+	// Password is the Redis password (optional)
+	Password string `yaml:"password,omitempty"`
+	// DB is the Redis database number (default 0)
+	DB int `yaml:"db,omitempty"`
+	// UsedTTL is the TTL for caching "used" metric states (default 1h)
+	UsedTTL time.Duration `yaml:"used_ttl,omitempty"`
+	// UnusedTTL is the TTL for caching "unused" metric states (default 2m)
+	UnusedTTL time.Duration `yaml:"unused_ttl,omitempty"`
+	// UsedOnly when true, only caches "used" states and never caches "unused" states
+	UsedOnly bool `yaml:"used_only,omitempty"`
 }
 
 func LoadConfig(path string) error {
