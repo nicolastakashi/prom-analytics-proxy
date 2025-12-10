@@ -11,46 +11,31 @@ import (
 	"github.com/redis/rueidis"
 )
 
-// MetricUsageState represents the cached state of a metric's usage.
 type MetricUsageState int8
 
 const (
-	// StateUnknown indicates the metric state is not cached.
 	StateUnknown MetricUsageState = iota
-	// StateUsed indicates the metric is used (has alerts, records, dashboards, or queries).
 	StateUsed
-	// StateUnused indicates the metric is unused (no alerts, records, dashboards, or queries).
 	StateUnused
 )
 
-// CacheValue represents the integer value stored in Redis for a metric usage state.
-// Using integers (0/1) is more efficient than strings for storage and conversion.
 type CacheValue int64
 
 const (
-	// CacheValueUnused is stored in Redis as 0 for unused metrics.
 	CacheValueUnused CacheValue = 0
-	// CacheValueUsed is stored in Redis as 1 for used metrics.
 	CacheValueUsed CacheValue = 1
 )
 
-// Int64 returns the int64 representation of the cache value for Redis storage.
 func (cv CacheValue) Int64() int64 {
 	return int64(cv)
 }
 
-// MetricUsageCache provides an interface for caching metric usage states.
 type MetricUsageCache interface {
-	// GetStates retrieves the cached usage states for the given metric names.
-	// Returns a map from metric name to state, and any error encountered.
 	GetStates(ctx context.Context, names []string) (map[string]MetricUsageState, error)
-	// SetStates writes the given usage states to the cache.
 	SetStates(ctx context.Context, states map[string]MetricUsageState) error
-	// Close closes the cache and releases any resources.
 	Close() error
 }
 
-// redisMetricUsageCache implements MetricUsageCache using Redis via rueidis.
 type redisMetricUsageCache struct {
 	client    rueidis.Client
 	usedTTL   time.Duration
@@ -58,7 +43,6 @@ type redisMetricUsageCache struct {
 	usedOnly  bool
 }
 
-// NewRedisMetricUsageCache creates a new Redis-based metric usage cache.
 func NewRedisMetricUsageCache(cfg config.RedisCacheConfig) (MetricUsageCache, error) {
 	if !cfg.Enabled {
 		return nil, nil
@@ -102,30 +86,25 @@ func NewRedisMetricUsageCache(cfg config.RedisCacheConfig) (MetricUsageCache, er
 	}, nil
 }
 
-// key returns the Redis key for a metric usage state.
 func (c *redisMetricUsageCache) key(name string) string {
 	return fmt.Sprintf("metric_usage:%s", name)
 }
 
-// GetStates retrieves cached usage states for the given metric names.
 func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (map[string]MetricUsageState, error) {
 	if len(names) == 0 {
 		return make(map[string]MetricUsageState), nil
 	}
 
-	// Build GET commands for each metric (single key per metric)
 	cmds := make([]rueidis.Completed, 0, len(names))
 	for _, name := range names {
 		cmds = append(cmds, c.client.B().Get().Key(c.key(name)).Build())
 	}
 
-	// Execute all commands in parallel
 	results := make([]rueidis.RedisResult, len(cmds))
 	for i, cmd := range cmds {
 		results[i] = c.client.Do(ctx, cmd)
 	}
 
-	// Parse results - values are stored as integers: 1 = used, 0 = unused
 	states := make(map[string]MetricUsageState, len(names))
 	for i, name := range names {
 		val, err := results[i].AsInt64()
@@ -166,7 +145,7 @@ func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string
 			cacheValue = CacheValueUsed
 			ttlSeconds = int64(c.usedTTL.Seconds())
 			if ttlSeconds <= 0 {
-				ttlSeconds = 3600 // Default to 1 hour
+				ttlSeconds = 3600
 			}
 		case StateUnused:
 			if c.usedOnly {
@@ -175,7 +154,7 @@ func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string
 			cacheValue = CacheValueUnused
 			ttlSeconds = int64(c.unusedTTL.Seconds())
 			if ttlSeconds <= 0 {
-				ttlSeconds = 120 // Default to 2 minutes
+				ttlSeconds = 120
 			}
 		case StateUnknown:
 			continue
