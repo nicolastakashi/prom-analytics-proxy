@@ -507,12 +507,12 @@ func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
 
 // handleCacheError logs cache errors and increments metrics.
 func (i *OtlpIngester) handleCacheError(ctx context.Context, err error, timeout time.Duration) {
-	if err == context.DeadlineExceeded || err == context.Canceled {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		slog.DebugContext(ctx, "ingester.cache.get.timeout", "timeout", timeout)
 	} else {
 		slog.DebugContext(ctx, "ingester.cache.get.failed", "err", err)
 	}
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"op": "get"}).Inc()
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Inc()
 }
 
 // partitionCacheResults splits metrics into used, unused, and misses based on cache results.
@@ -584,7 +584,7 @@ func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, his
 		processorLookupErrorsTotal.Inc()
 		return false
 	}
-	processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
+	processorLookupDurationSeconds.Observe(time.Since(t0).Seconds())
 
 	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, unused, ctx)
 	i.writeBackToCache(ctx, cacheWriteBack)
@@ -638,14 +638,16 @@ func (i *OtlpIngester) writeBackToCache(ctx context.Context, cacheWriteBack map[
 	cacheCtx, cancel := context.WithTimeout(ctx, cacheTimeout)
 	defer cancel()
 
+	cacheWriteStart := time.Now()
 	if err := i.metricCache.SetStates(cacheCtx, cacheWriteBack); err != nil {
-		if err == context.DeadlineExceeded || err == context.Canceled {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			slog.DebugContext(ctx, "ingester.cache.set.timeout", "timeout", cacheTimeout)
 		} else {
 			slog.DebugContext(ctx, "ingester.cache.set.failed", "err", err)
 		}
-		ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"op": "set"}).Inc()
+		ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Inc()
 	}
+	ingesterMetricCacheWriteSeconds.Observe(time.Since(cacheWriteStart).Seconds())
 }
 
 // reconcileHistogramBases determines which histogram base metrics are unused based on variant states.

@@ -45,9 +45,9 @@ var (
 		[]string{"reason"},
 	)
 
-	processorLookupLatencySeconds = promauto.NewHistogram(
+	processorLookupDurationSeconds = promauto.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "ingester_processor_lookup_latency_seconds",
+			Name:    "ingester_processor_lookup_duration_seconds",
 			Help:    "Duration of database lookups in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -96,13 +96,21 @@ var (
 			Name: "ingester_metric_cache_errors_total",
 			Help: "Total number of cache operation errors",
 		},
-		[]string{"op"},
+		[]string{"operation"},
 	)
 
 	ingesterMetricCacheLookupSeconds = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "ingester_metric_cache_lookup_seconds",
 			Help:    "Duration of cache lookup operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
+
+	ingesterMetricCacheWriteSeconds = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingester_metric_cache_write_seconds",
+			Help:    "Duration of cache write operations in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
 	)
@@ -122,6 +130,6 @@ func init() {
 	processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "job_denied"}).Add(0)
 	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "used"}).Add(0)
 	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "unused"}).Add(0)
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"op": "get"}).Add(0)
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"op": "set"}).Add(0)
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Add(0)
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Add(0)
 }
