@@ -165,13 +165,17 @@ func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string
 	}
 
 	results := c.client.DoMulti(ctx, cmds...)
+	var firstErr error
 	for i, result := range results {
 		if err := result.Error(); err != nil {
-			slog.DebugContext(ctx, "ingester.cache.set.failed", "index", i, "err", err)
+			slog.ErrorContext(ctx, "ingester.cache.set.failed", "index", i, "err", err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func (c *redisMetricUsageCache) Close() error {
