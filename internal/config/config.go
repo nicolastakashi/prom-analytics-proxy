@@ -45,7 +45,8 @@ type UpstreamConfig struct {
 }
 
 type ServerConfig struct {
-	InsecureListenAddress string `yaml:"insecure_listen_address,omitempty"`
+	InsecureListenAddress   string        `yaml:"insecure_listen_address,omitempty"`
+	PushMetricsUsageTimeout time.Duration `yaml:"push_metrics_usage_timeout,omitempty"`
 }
 
 type PostgreSQLConfig struct {
@@ -59,6 +60,7 @@ type PostgreSQLConfig struct {
 	MaxOpenConns    int           `yaml:"max_open_conns,omitempty"`
 	MaxIdleConns    int           `yaml:"max_idle_conns,omitempty"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime,omitempty"`
+	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time,omitempty"`
 }
 
 type SQLiteConfig struct {
@@ -116,6 +118,9 @@ var DefaultConfig = &Config{
 	},
 	Upstream: UpstreamConfig{
 		IncludeQueryStats: true,
+	},
+	Server: ServerConfig{
+		PushMetricsUsageTimeout: 30 * time.Second,
 	},
 	Inventory: InventoryConfig{
 		Enabled:               true,

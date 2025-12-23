@@ -45,6 +45,10 @@ func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Password, "postgresql-password", os.Getenv("POSTGRESQL_PASSWORD"), "Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.")
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Database, "postgresql-database", os.Getenv("POSTGRESQL_DATABASE"), "Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.")
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.SSLMode, "postgresql-sslmode", "disable", "SSL mode for the postgresql server.")
+	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.MaxOpenConns, "postgresql-max-open-conns", 0, "Maximum number of open connections to the database (0 = use default 20).")
+	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.MaxIdleConns, "postgresql-max-idle-conns", 0, "Maximum number of idle connections in the pool (0 = use default 10).")
+	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.ConnMaxLifetime, "postgresql-conn-max-lifetime", 0, "Maximum amount of time a connection may be reused (0 = use default 30m).")
+	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.ConnMaxIdleTime, "postgresql-conn-max-idle-time", 0, "Maximum amount of time a connection may be idle before being closed (0 = use default 5m).")
 }
 
 func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
@@ -81,6 +85,13 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 		db.SetConnMaxLifetime(postgresConfig.ConnMaxLifetime)
 	} else {
 		db.SetConnMaxLifetime(30 * time.Minute)
+	}
+	// Set MaxIdleTime to prevent stale connections
+	// Idle connections older than the configured time will be closed
+	if postgresConfig.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(postgresConfig.ConnMaxIdleTime)
+	} else {
+		db.SetConnMaxIdleTime(5 * time.Minute)
 	}
 
 	if err := db.PingContext(ctx); err != nil {

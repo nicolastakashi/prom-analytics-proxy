@@ -921,7 +921,11 @@ func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, statu
 func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 	usage := make(map[string]*metricsUsageV1.MetricUsage)
 
-	ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
+	timeout := 10 * time.Second // fallback default
+	if r.config != nil && r.config.Server.PushMetricsUsageTimeout > 0 {
+		timeout = r.config.Server.PushMetricsUsageTimeout
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 
 	if err := json.NewDecoder(req.Body).Decode(&usage); err != nil {
