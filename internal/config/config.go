@@ -165,6 +165,7 @@ var DefaultConfig = &Config{
 			DownstreamConnectBaseDelay:         250 * time.Millisecond,
 			DownstreamConnectMaxDelay:          5 * time.Second,
 			DownstreamConnectBackoffMultiplier: 1.6,
+			LookupChunkSize:                    500,
 		},
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
@@ -201,6 +202,10 @@ type OtlpIngesterConfig struct {
 	DownstreamConnectBaseDelay         time.Duration `yaml:"downstream_connect_base_delay,omitempty"`
 	DownstreamConnectMaxDelay          time.Duration `yaml:"downstream_connect_max_delay,omitempty"`
 	DownstreamConnectBackoffMultiplier float64       `yaml:"downstream_connect_backoff_multiplier,omitempty"`
+	// LookupChunkSize is the batch size for database lookups when checking metric usage.
+	// Larger values reduce database queries but increase memory usage and query time.
+	// Default: 1000 (was 500). PostgreSQL supports much larger values, SQLite limit is 999.
+	LookupChunkSize int `yaml:"lookup_chunk_size,omitempty"`
 }
 
 type MetricIngesterProtocol string

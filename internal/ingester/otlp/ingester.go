@@ -38,9 +38,10 @@ type OtlpIngester struct {
 	config *config.Config
 	db     db.Provider
 
-	exporter      MetricsExporter
-	exportTimeout time.Duration
-	healthSrv     *health.Server
+	exporter       MetricsExporter
+	exportTimeout  time.Duration
+	lookupChunkSize int
+	healthSrv      *health.Server
 
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
@@ -55,13 +56,18 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	}
 
 	allowedJobs, deniedJobs := buildJobSets(config)
+	lookupChunkSize := 500 // default fallback
+	if config != nil && config.Ingester.OTLP.LookupChunkSize > 0 {
+		lookupChunkSize = config.Ingester.OTLP.LookupChunkSize
+	}
 	return &OtlpIngester{
-		config:        config,
-		db:            dbProvider,
-		exportTimeout: 5 * time.Second,
-		healthSrv:     health.NewServer(),
-		allowedJobs:   allowedJobs,
-		deniedJobs:    deniedJobs,
+		config:         config,
+		db:             dbProvider,
+		exportTimeout:  5 * time.Second,
+		lookupChunkSize: lookupChunkSize,
+		healthSrv:      health.NewServer(),
+		allowedJobs:    allowedJobs,
+		deniedJobs:     deniedJobs,
 	}, nil
 }
 
@@ -401,7 +407,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		histogramStates[baseName] = &histogramVariantState{}
 	}
 
-	const chunkSize = 500
+	chunkSize := i.lookupChunkSize
 	batch := make([]string, 0, chunkSize)
 
 	// Process each chunk immediately and free memory before next chunk
@@ -414,7 +420,7 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		if err != nil {
 			slog.ErrorContext(ctx, "ingester.lookup.failed_skipping_drops", "err", err)
 			processorLookupErrorsTotal.Inc()
-			return false
+				return false
 		}
 		processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
 
@@ -604,4 +610,5 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "otlp-downstream-connect-base-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "Base delay for downstream OTLP client dial backoff")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "otlp-downstream-connect-max-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "Max delay for downstream OTLP client dial backoff")
 	flagSet.Float64Var(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "otlp-downstream-connect-backoff-multiplier", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "Multiplier applied to downstream OTLP client dial backoff")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "otlp-lookup-chunk-size", config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "Batch size for database lookups when checking metric usage (default 500, SQLite max 999)")
 }
