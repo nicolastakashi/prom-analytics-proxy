@@ -172,6 +172,12 @@ The [`examples/`](../examples/) directory contains complete working configuratio
   -insert-buffer-size 500
 ```
 
+> Note the possibility to use environment variables for sensitive data like passwords.
+> Following variables can be set in the environment instead of passing via command line:
+> - POSTGRESQL_USER
+> - POSTGRESQL_PASSWORD
+> - POSTGRESQL_DATABASE
+
 #### Using a Configuration File
 
 Create a `config.yaml` file:
