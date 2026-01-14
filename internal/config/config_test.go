@@ -253,7 +253,7 @@ func TestConfig_GetSanitizedConfig(t *testing.T) {
 						Port:     5432,
 						Database: "testdb",
 						User:     "", // Should be sanitized
-						Password: "testpass",
+						Password: "", // Should be sanitized
 					},
 					SQLite: SQLiteConfig{
 						DatabasePath: "", // Should be sanitized
