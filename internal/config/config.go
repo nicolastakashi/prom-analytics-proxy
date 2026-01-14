@@ -45,7 +45,8 @@ type UpstreamConfig struct {
 }
 
 type ServerConfig struct {
-	InsecureListenAddress string `yaml:"insecure_listen_address,omitempty"`
+	InsecureListenAddress   string        `yaml:"insecure_listen_address,omitempty"`
+	PushMetricsUsageTimeout time.Duration `yaml:"push_metrics_usage_timeout,omitempty"`
 }
 
 type PostgreSQLConfig struct {
@@ -59,6 +60,7 @@ type PostgreSQLConfig struct {
 	MaxOpenConns    int           `yaml:"max_open_conns,omitempty"`
 	MaxIdleConns    int           `yaml:"max_idle_conns,omitempty"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime,omitempty"`
+	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time,omitempty"`
 }
 
 type SQLiteConfig struct {
@@ -117,6 +119,9 @@ var DefaultConfig = &Config{
 	Upstream: UpstreamConfig{
 		IncludeQueryStats: true,
 	},
+	Server: ServerConfig{
+		PushMetricsUsageTimeout: 30 * time.Second,
+	},
 	Inventory: InventoryConfig{
 		Enabled:               true,
 		SyncInterval:          10 * time.Minute,
@@ -160,6 +165,7 @@ var DefaultConfig = &Config{
 			DownstreamConnectBaseDelay:         250 * time.Millisecond,
 			DownstreamConnectMaxDelay:          5 * time.Second,
 			DownstreamConnectBackoffMultiplier: 1.6,
+			LookupChunkSize:                    500,
 		},
 		MetricsListenAddress:    ":9090",
 		GracefulShutdownTimeout: 30 * time.Second,
@@ -196,6 +202,10 @@ type OtlpIngesterConfig struct {
 	DownstreamConnectBaseDelay         time.Duration `yaml:"downstream_connect_base_delay,omitempty"`
 	DownstreamConnectMaxDelay          time.Duration `yaml:"downstream_connect_max_delay,omitempty"`
 	DownstreamConnectBackoffMultiplier float64       `yaml:"downstream_connect_backoff_multiplier,omitempty"`
+	// LookupChunkSize is the batch size for database lookups when checking metric usage.
+	// Larger values reduce database queries but increase memory usage and query time.
+	// Default: 1000 (was 500). PostgreSQL supports much larger values, SQLite limit is 999.
+	LookupChunkSize int `yaml:"lookup_chunk_size,omitempty"`
 }
 
 type MetricIngesterProtocol string

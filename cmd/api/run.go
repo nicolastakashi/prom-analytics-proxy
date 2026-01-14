@@ -35,6 +35,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	fs.Uint64Var(&config.DefaultConfig.MetadataLimit, "metadata-limit", config.DefaultConfig.MetadataLimit, "The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	fs.Uint64Var(&config.DefaultConfig.SeriesLimit, "series-limit", config.DefaultConfig.SeriesLimit, "The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)")
 	fs.StringVar(&config.DefaultConfig.Server.InsecureListenAddress, "insecure-listen-address", ":9091", "The address the prom-analytics-proxy proxy HTTP server should listen on.")
+	fs.DurationVar(&config.DefaultConfig.Server.PushMetricsUsageTimeout, "push-metrics-usage-timeout", config.DefaultConfig.Server.PushMetricsUsageTimeout, "Timeout for PushMetricsUsage API endpoint (default 30s).")
 	fs.StringVar(&config.DefaultConfig.Upstream.URL, "upstream", "", "The URL of the upstream prometheus API.")
 	fs.BoolVar(&config.DefaultConfig.Upstream.IncludeQueryStats, "include-query-stats", true, "Request query stats from the upstream prometheus API.")
 	fs.IntVar(&config.DefaultConfig.Insert.BufferSize, "insert-buffer-size", 100, "Buffer size for the insert channel.")
