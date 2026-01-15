@@ -251,6 +251,7 @@ func LoadConfig(path string) error {
 	for i, header := range DefaultConfig.QueryProcessing.ExtractHTTPHeaders {
 		DefaultConfig.QueryProcessing.ExtractHTTPHeaders[i] = strings.ToLower(header)
 	}
+
 	return nil
 }
 
@@ -282,6 +283,7 @@ func (c *Config) GetSanitizedConfig() *Config {
 	// Copy Database config
 	if c.Database.Provider == "postgresql" {
 		c.Database.PostgreSQL.User = ""
+		c.Database.PostgreSQL.Password = ""
 		c.Database.SQLite.DatabasePath = ""
 	}
 
