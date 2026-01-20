@@ -45,9 +45,9 @@ var (
 		[]string{"reason"},
 	)
 
-	processorLookupLatencySeconds = promauto.NewHistogram(
+	processorLookupDurationSeconds = promauto.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "ingester_processor_lookup_latency_seconds",
+			Name:    "ingester_processor_lookup_duration_seconds",
 			Help:    "Duration of database lookups in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -75,6 +75,46 @@ var (
 		},
 	)
 
+	// Cache metrics
+	ingesterMetricCacheHitsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_metric_cache_hits_total",
+			Help: "Total number of cache hits for metric usage states",
+		},
+		[]string{"state"},
+	)
+
+	ingesterMetricCacheMissesTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingester_metric_cache_misses_total",
+			Help: "Total number of cache misses for metric usage states",
+		},
+	)
+
+	ingesterMetricCacheErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_metric_cache_errors_total",
+			Help: "Total number of cache operation errors",
+		},
+		[]string{"operation"},
+	)
+
+	ingesterMetricCacheLookupSeconds = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingester_metric_cache_lookup_seconds",
+			Help:    "Duration of cache lookup operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
+
+	ingesterMetricCacheWriteSeconds = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingester_metric_cache_write_seconds",
+			Help:    "Duration of cache write operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
+
 	canonicalServerLabels = prometheus.Labels{
 		"rpc.system":        rpcSystem,
 		"rpc.service":       rpcService,
@@ -88,4 +128,8 @@ func init() {
 	rpcServerDurationSeconds.With(canonicalServerLabels).Observe(0)
 	processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "unused_metric"}).Add(0)
 	processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "job_denied"}).Add(0)
+	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "used"}).Add(0)
+	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "unused"}).Add(0)
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Add(0)
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Add(0)
 }

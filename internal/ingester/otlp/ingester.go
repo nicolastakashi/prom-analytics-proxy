@@ -38,13 +38,15 @@ type OtlpIngester struct {
 	config *config.Config
 	db     db.Provider
 
-	exporter       MetricsExporter
-	exportTimeout  time.Duration
+	exporter        MetricsExporter
+	exportTimeout   time.Duration
 	lookupChunkSize int
-	healthSrv      *health.Server
+	healthSrv       *health.Server
 
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
+
+	metricCache MetricUsageCache
 }
 
 func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngester, error) {
@@ -56,18 +58,34 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	}
 
 	allowedJobs, deniedJobs := buildJobSets(config)
+
 	lookupChunkSize := 500 // default fallback
-	if config != nil && config.Ingester.OTLP.LookupChunkSize > 0 {
+	if config.Ingester.OTLP.LookupChunkSize > 0 {
 		lookupChunkSize = config.Ingester.OTLP.LookupChunkSize
 	}
+
+	// Initialize Redis cache if enabled
+	var metricCache MetricUsageCache
+	if config.Ingester.Redis.Enabled {
+		cache, err := NewRedisMetricUsageCache(config.Ingester.Redis)
+		if err != nil {
+			slog.Error("ingester.cache.init.failed", "err", err)
+		}
+		if cache != nil {
+			metricCache = cache
+			slog.Info("ingester.cache.enabled", "addr", config.Ingester.Redis.Addr, "used_ttl", config.Ingester.Redis.UsedTTL, "unused_ttl", config.Ingester.Redis.UnusedTTL, "used_only", config.Ingester.Redis.UsedOnly)
+		}
+	}
+
 	return &OtlpIngester{
-		config:         config,
-		db:             dbProvider,
-		exportTimeout:  5 * time.Second,
+		config:          config,
+		db:              dbProvider,
+		exportTimeout:   5 * time.Second,
 		lookupChunkSize: lookupChunkSize,
-		healthSrv:      health.NewServer(),
-		allowedJobs:    allowedJobs,
-		deniedJobs:     deniedJobs,
+		healthSrv:       health.NewServer(),
+		allowedJobs:     allowedJobs,
+		deniedJobs:      deniedJobs,
+		metricCache:     metricCache,
 	}, nil
 }
 
@@ -134,6 +152,9 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		_ = lis.Close()
 		if i.exporter != nil {
 			_ = i.exporter.Close()
+		}
+		if i.metricCache != nil {
+			_ = i.metricCache.Close()
 		}
 		shutdownDone := make(chan struct{})
 		go func() {
@@ -343,6 +364,10 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
 
+func (i *OtlpIngester) SetMetricCache(cache MetricUsageCache) {
+	i.metricCache = cache
+}
+
 // IsReady reports whether the ingester is ready to serve OTLP traffic.
 // It delegates to the gRPC health server and returns true only when the
 // health status for the empty service name ("") is SERVING.
@@ -401,57 +426,25 @@ type histogramVariantState struct {
 
 func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases map[string]struct{}) (map[string]struct{}, bool) {
 	unused := make(map[string]struct{})
-	// Track histogram variant states incrementally instead of storing full metadata
-	histogramStates := make(map[string]*histogramVariantState, len(histogramBases))
-	for baseName := range histogramBases {
-		histogramStates[baseName] = &histogramVariantState{}
-	}
+	histogramStates := i.initHistogramStates(histogramBases)
 
 	chunkSize := i.lookupChunkSize
 	batch := make([]string, 0, chunkSize)
 
-	// Process each chunk immediately and free memory before next chunk
 	flush := func() bool {
 		if len(batch) == 0 {
 			return true
 		}
-		t0 := time.Now()
-		metas, err := i.db.GetSeriesMetadataByNames(ctx, batch, "")
-		if err != nil {
-			slog.ErrorContext(ctx, "ingester.lookup.failed_skipping_drops", "err", err)
-			processorLookupErrorsTotal.Inc()
+
+		usedFromCache, unusedFromCache, misses := i.lookupCache(ctx, batch)
+		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, unused, ctx)
+
+		if len(misses) > 0 {
+			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, unused) {
 				return false
-		}
-		processorLookupLatencySeconds.Observe(time.Since(t0).Seconds())
-
-		// Process metadata immediately and update state incrementally
-		for _, mm := range metas {
-			isUnused := metricMetadataUnused(mm)
-
-			// Check if this is a histogram variant
-			if baseName, isVariant := i.isHistogramVariant(mm.Name, histogramBases); isVariant {
-				state := histogramStates[baseName]
-				switch mm.Name {
-				case baseName + "_bucket":
-					state.seenBucket = true
-					state.unusedBucket = isUnused
-				case baseName + "_count":
-					state.seenCount = true
-					state.unusedCount = isUnused
-				case baseName + "_sum":
-					state.seenSum = true
-					state.unusedSum = isUnused
-				}
-			} else {
-				// Regular metric (not a histogram variant)
-				if isUnused {
-					unused[mm.Name] = struct{}{}
-					slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name)
-				}
 			}
 		}
 
-		// Clear batch to free memory before next chunk
 		batch = batch[:0]
 		return true
 	}
@@ -469,9 +462,196 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		return nil, false
 	}
 
-	// Reconcile histogram bases using lightweight state
-	// Mark as unused only if ALL variants are seen AND all are unused
-	// If any variant is missing, fail open (don't mark as unused)
+	i.reconcileHistogramBases(histogramStates, unused, ctx)
+	return unused, true
+}
+
+// initHistogramStates initializes histogram variant state tracking.
+func (i *OtlpIngester) initHistogramStates(histogramBases map[string]struct{}) map[string]*histogramVariantState {
+	states := make(map[string]*histogramVariantState, len(histogramBases))
+	for baseName := range histogramBases {
+		states[baseName] = &histogramVariantState{}
+	}
+	return states
+}
+
+// lookupCache queries the cache for metric usage states and partitions metrics into hits/misses.
+func (i *OtlpIngester) lookupCache(ctx context.Context, batch []string) (usedFromCache, unusedFromCache, misses []string) {
+	if i.metricCache == nil {
+		return nil, nil, batch
+	}
+
+	cacheTimeout := i.computeCacheTimeout(ctx)
+	cacheCtx, cancel := context.WithTimeout(ctx, cacheTimeout)
+	defer cancel()
+
+	cacheLookupStart := time.Now()
+	cacheStates, err := i.metricCache.GetStates(cacheCtx, batch)
+	if err != nil {
+		i.handleCacheError(ctx, err, cacheTimeout)
+		return nil, nil, batch
+	}
+
+	ingesterMetricCacheLookupSeconds.Observe(time.Since(cacheLookupStart).Seconds())
+	return i.partitionCacheResults(batch, cacheStates)
+}
+
+// computeCacheTimeout calculates the timeout for cache operations.
+func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
+	cacheTimeout := 50 * time.Millisecond
+	if exportTimeout := computeExportTimeout(ctx, i.exportTimeout); exportTimeout > 0 && exportTimeout/10 < cacheTimeout {
+		cacheTimeout = exportTimeout / 10
+	}
+	return cacheTimeout
+}
+
+// handleCacheError logs cache errors and increments metrics.
+func (i *OtlpIngester) handleCacheError(ctx context.Context, err error, timeout time.Duration) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		slog.DebugContext(ctx, "ingester.cache.get.timeout", "timeout", timeout)
+	} else {
+		slog.DebugContext(ctx, "ingester.cache.get.failed", "err", err)
+	}
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Inc()
+}
+
+// partitionCacheResults splits metrics into used, unused, and misses based on cache results.
+func (i *OtlpIngester) partitionCacheResults(batch []string, cacheStates map[string]MetricUsageState) (used, unused, misses []string) {
+	for _, name := range batch {
+		state := cacheStates[name]
+		switch state {
+		case StateUsed:
+			used = append(used, name)
+			ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "used"}).Inc()
+		case StateUnused:
+			unused = append(unused, name)
+			ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "unused"}).Inc()
+		case StateUnknown:
+			misses = append(misses, name)
+			ingesterMetricCacheMissesTotal.Inc()
+		}
+	}
+	return used, unused, misses
+}
+
+// processCacheHits updates histogram states and unused map based on cache hits.
+func (i *OtlpIngester) processCacheHits(usedFromCache, unusedFromCache []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) {
+	for _, name := range usedFromCache {
+		i.updateHistogramState(name, histogramBases, histogramStates, false)
+	}
+
+	for _, name := range unusedFromCache {
+		if _, isVariant := i.isHistogramVariant(name, histogramBases); isVariant {
+			i.updateHistogramState(name, histogramBases, histogramStates, true)
+		} else {
+			unused[name] = struct{}{}
+			slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", name, "source", "cache")
+		}
+	}
+}
+
+// updateHistogramState updates the histogram variant state based on the metric name and unused status.
+func (i *OtlpIngester) updateHistogramState(name string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, isUnused bool) {
+	baseName, isVariant := i.isHistogramVariant(name, histogramBases)
+	if !isVariant {
+		return
+	}
+
+	state, ok := histogramStates[baseName]
+	if !ok {
+		return
+	}
+
+	switch name {
+	case baseName + "_bucket":
+		state.seenBucket = true
+		state.unusedBucket = isUnused
+	case baseName + "_count":
+		state.seenCount = true
+		state.unusedCount = isUnused
+	case baseName + "_sum":
+		state.seenSum = true
+		state.unusedSum = isUnused
+	}
+}
+
+// processDBMisses queries the database for cache misses and updates states.
+func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}) bool {
+	t0 := time.Now()
+	metas, err := i.db.GetSeriesMetadataByNames(ctx, misses, "")
+	if err != nil {
+		slog.ErrorContext(ctx, "ingester.lookup.failed_skipping_drops", "err", err)
+		processorLookupErrorsTotal.Inc()
+		return false
+	}
+	processorLookupDurationSeconds.Observe(time.Since(t0).Seconds())
+
+	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, unused, ctx)
+	i.writeBackToCache(ctx, cacheWriteBack)
+	return true
+}
+
+// processMetadata processes database metadata and updates histogram states and unused map.
+func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) map[string]MetricUsageState {
+	cacheWriteBack := make(map[string]MetricUsageState)
+
+	for _, mm := range metas {
+		isUnused := metricMetadataUnused(mm)
+
+		if baseName, isVariant := i.isHistogramVariant(mm.Name, histogramBases); isVariant {
+			state := histogramStates[baseName]
+			switch mm.Name {
+			case baseName + "_bucket":
+				state.seenBucket = true
+				state.unusedBucket = isUnused
+			case baseName + "_count":
+				state.seenCount = true
+				state.unusedCount = isUnused
+			case baseName + "_sum":
+				state.seenSum = true
+				state.unusedSum = isUnused
+			}
+		} else {
+			if isUnused {
+				unused[mm.Name] = struct{}{}
+				slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", mm.Name, "source", "db")
+			}
+		}
+
+		if isUnused {
+			cacheWriteBack[mm.Name] = StateUnused
+		} else {
+			cacheWriteBack[mm.Name] = StateUsed
+		}
+	}
+
+	return cacheWriteBack
+}
+
+// writeBackToCache writes cache states back to Redis (best-effort).
+func (i *OtlpIngester) writeBackToCache(ctx context.Context, cacheWriteBack map[string]MetricUsageState) {
+	if i.metricCache == nil || len(cacheWriteBack) == 0 {
+		return
+	}
+
+	cacheTimeout := i.computeCacheTimeout(ctx)
+	cacheCtx, cancel := context.WithTimeout(ctx, cacheTimeout)
+	defer cancel()
+
+	cacheWriteStart := time.Now()
+	if err := i.metricCache.SetStates(cacheCtx, cacheWriteBack); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			slog.DebugContext(ctx, "ingester.cache.set.timeout", "timeout", cacheTimeout)
+		} else {
+			slog.DebugContext(ctx, "ingester.cache.set.failed", "err", err)
+		}
+		ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Inc()
+	}
+	ingesterMetricCacheWriteSeconds.Observe(time.Since(cacheWriteStart).Seconds())
+}
+
+// reconcileHistogramBases determines which histogram base metrics are unused based on variant states.
+func (i *OtlpIngester) reconcileHistogramBases(histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) {
 	for baseName, state := range histogramStates {
 		// If any variant is missing, fail open (don't mark as unused)
 		if !state.seenBucket || !state.seenCount || !state.seenSum {
@@ -484,12 +664,9 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 			unused[baseName] = struct{}{}
 			slog.DebugContext(ctx, "ingester.unused_histogram.found", "metric_name", baseName)
 		} else {
-			// At least one variant is used, so don't mark base as unused
 			delete(unused, baseName)
 		}
 	}
-
-	return unused, true
 }
 
 // isHistogramVariant checks if a metric name is a histogram variant (_bucket, _count, _sum)
@@ -611,4 +788,12 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "otlp-downstream-connect-max-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "Max delay for downstream OTLP client dial backoff")
 	flagSet.Float64Var(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "otlp-downstream-connect-backoff-multiplier", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "Multiplier applied to downstream OTLP client dial backoff")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "otlp-lookup-chunk-size", config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "Batch size for database lookups when checking metric usage (default 500, SQLite max 999)")
+	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.Enabled, "ingester-cache-enabled", config.DefaultConfig.Ingester.Redis.Enabled, "Enable metric usage caching")
+	flagSet.StringVar(&config.DefaultConfig.Ingester.Redis.Addr, "ingester-cache-addr", config.DefaultConfig.Ingester.Redis.Addr, "Cache server address (host:port)")
+	flagSet.StringVar(&config.DefaultConfig.Ingester.Redis.Username, "ingester-cache-username", config.DefaultConfig.Ingester.Redis.Username, "Cache username (optional)")
+	flagSet.StringVar(&config.DefaultConfig.Ingester.Redis.Password, "ingester-cache-password", config.DefaultConfig.Ingester.Redis.Password, "Cache password (optional)")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.Redis.DB, "ingester-cache-db", config.DefaultConfig.Ingester.Redis.DB, "Cache database number")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UsedTTL, "ingester-cache-used-ttl", config.DefaultConfig.Ingester.Redis.UsedTTL, "TTL for caching 'used' metric states")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UnusedTTL, "ingester-cache-unused-ttl", config.DefaultConfig.Ingester.Redis.UnusedTTL, "TTL for caching 'unused' metric states")
+	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.UsedOnly, "ingester-cache-used-only", config.DefaultConfig.Ingester.Redis.UsedOnly, "Only cache 'used' states, never cache 'unused' states")
 }
