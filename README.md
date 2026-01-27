@@ -274,10 +274,18 @@ Flags (api):
     	The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)
   -postgresql-addr string
     	Address of the postgresql server. (default "localhost")
+  -postgresql-conn-max-idle-time duration
+    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m).
+  -postgresql-conn-max-lifetime duration
+    	Maximum amount of time a connection may be reused (0 = use default 30m).
   -postgresql-database string
     	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
   -postgresql-dial-timeout duration
     	Timeout to dial postgresql. (default 5s)
+  -postgresql-max-idle-conns int
+    	Maximum number of idle connections in the pool (0 = use default 10).
+  -postgresql-max-open-conns int
+    	Maximum number of open connections to the database (0 = use default 20).
   -postgresql-password string
     	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
   -postgresql-port int
@@ -286,6 +294,16 @@ Flags (api):
     	SSL mode for the postgresql server. (default "disable")
   -postgresql-user string
     	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+  -push-metrics-usage-timeout duration
+    	Timeout for PushMetricsUsage API endpoint (default 30s). (default 30s)
+  -retention-enabled
+    	Enable the retention worker to delete old data
+  -retention-interval duration
+    	Interval between retention runs (default 1h0m0s)
+  -retention-queries-max-age duration
+    	Maximum age for queries before deletion (default 720h0m0s)
+  -retention-run-timeout duration
+    	Timeout for each retention run (default 5m0s)
   -series-limit uint
     	The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)
   -sqlite-database-path string
@@ -300,6 +318,22 @@ Flags (metrics ingester):
     	The provider of database to use for retrieving query data. Supported values: postgresql, sqlite.
   -ingester-allowed-jobs value
     	Comma-separated list of allowed jobs to ingest metrics from
+  -ingester-cache-addr string
+    	Cache server address (host:port)
+  -ingester-cache-db int
+    	Cache database number
+  -ingester-cache-enabled
+    	Enable metric usage caching
+  -ingester-cache-password string
+    	Cache password (optional)
+  -ingester-cache-unused-ttl duration
+    	TTL for caching 'unused' metric states (default 2m0s)
+  -ingester-cache-used-only
+    	Only cache 'used' states, never cache 'unused' states
+  -ingester-cache-used-ttl duration
+    	TTL for caching 'used' metric states (default 1h0m0s)
+  -ingester-cache-username string
+    	Cache username (optional)
   -ingester-denied-jobs value
     	Comma-separated list of denied jobs to ingest metrics from
   -ingester-drain-delay duration
@@ -350,16 +384,26 @@ Flags (metrics ingester):
     	Downstream OTLP retry max backoff (duration) (default 1s)
   -otlp-listen-address string
     	The address the metrics ingester should listen on. (default ":4317")
+  -otlp-lookup-chunk-size int
+    	Batch size for database lookups when checking metric usage (default 500, SQLite max 999) (default 500)
   -otlp-max-recv-bytes int
     	Max gRPC receive message size for OTLP server (bytes) (default 10485760)
   -otlp-max-send-bytes int
     	Max gRPC send message size for OTLP server (bytes) (default 10485760)
   -postgresql-addr string
     	Address of the postgresql server. (default "localhost")
+  -postgresql-conn-max-idle-time duration
+    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m).
+  -postgresql-conn-max-lifetime duration
+    	Maximum amount of time a connection may be reused (0 = use default 30m).
   -postgresql-database string
     	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
   -postgresql-dial-timeout duration
     	Timeout to dial postgresql. (default 5s)
+  -postgresql-max-idle-conns int
+    	Maximum number of idle connections in the pool (0 = use default 10).
+  -postgresql-max-open-conns int
+    	Maximum number of open connections to the database (0 = use default 20).
   -postgresql-password string
     	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
   -postgresql-port int
