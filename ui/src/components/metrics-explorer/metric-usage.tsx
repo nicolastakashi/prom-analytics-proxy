@@ -227,7 +227,6 @@ interface TabContentProps<T> {
 }
 
 // DataTable doesn't enforce the searchColumn type at runtime, so we'll use this workaround
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function TabContent<T>({
   isLoading,
   error,
