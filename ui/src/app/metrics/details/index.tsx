@@ -1,14 +1,13 @@
-"use client";
+'use client';
 
-import { useParams } from "wouter";
-import { MetricDetailHeader } from "@/components/metrics-explorer/metric-detail-header";
-import { useDateRange } from "@/contexts/date-range-context";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { MetricStats } from "@/components/metrics-explorer/metric-stats";
-import { MetricPerformance } from "@/components/metrics-explorer/metric-performance";
-import { MetricProducers } from "@/components/metrics-explorer/metric-producer";
-import MetricUsage from "@/components/metrics-explorer/metric-usage";
-
+import { useParams } from 'wouter';
+import { MetricDetailHeader } from '@/components/metrics-explorer/metric-detail-header';
+import { useDateRange } from '@/contexts/date-range-context';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { MetricStats } from '@/components/metrics-explorer/metric-stats';
+import { MetricPerformance } from '@/components/metrics-explorer/metric-performance';
+import { MetricProducers } from '@/components/metrics-explorer/metric-producer';
+import MetricUsage from '@/components/metrics-explorer/metric-usage';
 
 export default function MetricsDetails() {
   const params = useParams();
@@ -30,9 +29,15 @@ export default function MetricsDetails() {
       <div className="mt-6">
         <Tabs defaultValue="performance">
           <TabsList className="flex bg-gray-100 rounded-lg overflow-hidden">
-            <TabsTrigger value="performance" className="flex-1 py-3 px-5">Performance</TabsTrigger>
-            <TabsTrigger value="producers" className="flex-1 py-3 px-5">Producers</TabsTrigger>
-            <TabsTrigger value="usage" className="flex-1 py-3 px-5">Usage</TabsTrigger>
+            <TabsTrigger value="performance" className="flex-1 py-3 px-5">
+              Performance
+            </TabsTrigger>
+            <TabsTrigger value="producers" className="flex-1 py-3 px-5">
+              Producers
+            </TabsTrigger>
+            <TabsTrigger value="usage" className="flex-1 py-3 px-5">
+              Usage
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="performance" className="mt-2">

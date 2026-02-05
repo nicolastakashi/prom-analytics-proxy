@@ -56,7 +56,7 @@ export interface PagedResult<T> {
   data: T[];
 }
 
-export type TimeGranularity = "15m" | "30m" | "1h" | "1d";
+export type TimeGranularity = '15m' | '30m' | '1h' | '1d';
 
 export interface TimeRange {
   from: Date;
@@ -68,7 +68,7 @@ export interface TableState {
   page: number;
   pageSize: number;
   sortBy: string;
-  sortOrder: "asc" | "desc";
+  sortOrder: 'asc' | 'desc';
   filter: string;
   type: string;
 }
@@ -124,7 +124,7 @@ export interface QueryExecution {
   status: number;
   duration: number;
   samples: number;
-  type: "instant" | "range";
+  type: 'instant' | 'range';
   steps: number;
   httpHeaders: Record<string, string>;
   start: string;

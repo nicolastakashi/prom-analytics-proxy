@@ -60,4 +60,4 @@ export interface ConfigResponse {
   metadata_limit: number;
   series_limit: number;
   cors: CORSConfig;
-} 
+}

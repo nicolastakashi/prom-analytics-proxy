@@ -1,22 +1,29 @@
-import { createContext, useContext, ReactNode, useState, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  ReactNode,
+  useMemo,
+  useCallback,
+} from 'react';
 import { useSearchParams } from 'wouter';
 import type { DateRange } from 'react-day-picker';
 import { fromUTC, formatLocalToUTC } from '@/lib/utils/date-utils';
 
 interface DateRangeContextType {
   dateRange: DateRange | undefined;
-  setDateRange: (range: DateRange | undefined) => void;
+  setDateRange: (range: DateRange) => void;
 }
 
-const DateRangeContext = createContext<DateRangeContextType | undefined>(undefined);
+const DateRangeContext = createContext<DateRangeContextType | undefined>(
+  undefined,
+);
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [dateRange, setInternalDateRange] = useState<DateRange | undefined>(undefined);
 
-  useEffect(() => {
-    const from = searchParams.get("from");
-    const to = searchParams.get("to");
+  const dateRange: DateRange | undefined = useMemo(() => {
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
 
     if (from && to) {
       try {
@@ -25,24 +32,27 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         const toDate = fromUTC(to);
 
         if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
-          setInternalDateRange({ from: fromDate, to: toDate });
+          return { from: fromDate, to: toDate };
         }
       } catch (error) {
-        console.error("Error parsing dates from URL", error);
+        console.error('Error parsing dates from URL', error);
       }
     }
+    return undefined;
   }, [searchParams]);
 
-  const setDateRange = (range: DateRange | undefined) => {
-    setInternalDateRange(range);
-    if (range?.from && range?.to) {
-      // Convert to UTC for URL params
-      setSearchParams({
-        from: formatLocalToUTC(range.from),
-        to: formatLocalToUTC(range.to)
-      });
-    }
-  };
+  const setDateRange = useCallback(
+    (range: DateRange) => {
+      if (range.from && range.to) {
+        setSearchParams((prev) => {
+          prev.set('from', formatLocalToUTC(range.from!));
+          prev.set('to', formatLocalToUTC(range.to!));
+          return prev;
+        });
+      }
+    },
+    [setSearchParams],
+  );
 
   return (
     <DateRangeContext.Provider value={{ dateRange, setDateRange }}>
@@ -57,4 +67,4 @@ export function useDateRange() {
     throw new Error('useDateRange must be used within a DateRangeProvider');
   }
   return context;
-} 
+}

@@ -1,6 +1,6 @@
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { DataTablePaginationProps } from "./types";
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { DataTablePaginationProps } from './types';
 
 export function DataTablePagination({
   totalPages,
@@ -9,7 +9,9 @@ export function DataTablePagination({
   className,
 }: DataTablePaginationProps) {
   return (
-    <div className={`flex items-center justify-end space-x-2 py-4 ${className || ""}`}>
+    <div
+      className={`flex items-center justify-end space-x-2 py-4 ${className || ''}`}
+    >
       <Button
         variant="outline"
         size="icon"
@@ -35,4 +37,4 @@ export function DataTablePagination({
       </Button>
     </div>
   );
-} 
+}

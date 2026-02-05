@@ -1,17 +1,20 @@
-import { KeyMetrics } from "@/components/key-metrics";
-import { StatusBreakdown } from "@/components/status-breakdown";
-import { QueryLatencyTrends } from "@/components/query-latency-trends";
-import { QueryThroughputAnalysis } from "@/components/query-performance-analysis";
-import { QueryErrorAnalysis } from "@/components/query-error-analysis";
-import { TableProvider } from "@/contexts/table-context";
-import QueryTimeRangeDistribution from "@/components/query-time-range-distribution";
+import { KeyMetrics } from '@/components/key-metrics';
+import { StatusBreakdown } from '@/components/status-breakdown';
+import { QueryLatencyTrends } from '@/components/query-latency-trends';
+import { QueryThroughputAnalysis } from '@/components/query-performance-analysis';
+import { QueryErrorAnalysis } from '@/components/query-error-analysis';
+import { TableProvider } from '@/contexts/table-context';
+import QueryTimeRangeDistribution from '@/components/query-time-range-distribution';
 
 function OverviewHeader() {
   return (
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold">Overview</h1>
-        <p className="text-sm text-muted-foreground">Aggregated view of query executions, latency, errors, throughput, and status distribution.</p>
-      </div>
+    <div className="mb-4">
+      <h1 className="text-2xl font-bold">Overview</h1>
+      <p className="text-sm text-muted-foreground">
+        Aggregated view of query executions, latency, errors, throughput, and
+        status distribution.
+      </p>
+    </div>
   );
 }
 
