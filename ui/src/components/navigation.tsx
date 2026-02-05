@@ -1,5 +1,5 @@
-import { type LucideIcon } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { type LucideIcon } from "lucide-react"
+import { useLocation } from "wouter"
 
 import {
   SidebarGroup,
@@ -8,6 +8,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { PreservedLink } from "@/components/preserved-link.tsx";
 
 interface NavigationItem {
   name: string;
@@ -34,7 +35,7 @@ export function Navigation({ label, items }: NavigationProps) {
 
           return (
             <SidebarMenuItem key={item.name}>
-              <Link href={item.url}>
+              <PreservedLink href={item.url}>
                 <SidebarMenuButton
                   isActive={isActive}
                   className={`${isActive ? "font-medium" : "font-normal"} transition-all`}
@@ -44,7 +45,7 @@ export function Navigation({ label, items }: NavigationProps) {
                   />
                   <span className="flex-1">{item.name}</span>
                 </SidebarMenuButton>
-              </Link>
+              </PreservedLink>
             </SidebarMenuItem>
           );
         })}

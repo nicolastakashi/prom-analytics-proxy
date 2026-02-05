@@ -1,8 +1,8 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
-import { Link } from "wouter";
+import { Button } from "@/components/ui/button"
+import { ArrowLeft } from "lucide-react"
+import { PreservedLink } from "@/components/preserved-link.tsx";
 
 interface MetricDetailHeaderProps {
   metricName: string;
@@ -13,10 +13,10 @@ export function MetricDetailHeader({ metricName }: MetricDetailHeaderProps) {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/metrics-explorer">
+          <PreservedLink href="/metrics-explorer">
             <ArrowLeft className="h-4 w-4" />
             <span className="sr-only">Back</span>
-          </Link>
+          </PreservedLink>
         </Button>
         <div>
           <h1 className="text-2xl font-bold">{metricName}</h1>
