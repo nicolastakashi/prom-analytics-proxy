@@ -7,7 +7,7 @@ import { useDateRange } from "@/contexts/date-range-context";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getQueryExpressions } from "@/api/queries";
 import { LoadingState } from "./loading";
-import type { PagedResult, QueryExpression, TableState } from "@/lib/types";
+import type { PagedResult, QueryExpression } from "@/lib/types";
 import {
   Sheet,
   SheetContent,
@@ -16,6 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { QueryDetails } from "@/components/query-details";
+import { useSearchState } from "@/hooks/use-search-state.tsx";
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
@@ -73,44 +74,41 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
   },
 ];
 
+const SELECTED_QUERY_KEY = "queriesPageSelectedQuery";
+const SEARCH_QUERY_KEY = "queriesPageSearchQuery";
+const PAGE_KEY = "queriesPagePage";
+const PAGE_SIZE_KEY = "queriesPagePageSize";
+
 export default function QueriesPage() {
   const { dateRange } = useDateRange();
   const fromISO = dateRange?.from?.toISOString();
   const toISO = dateRange?.to?.toISOString();
-  const [selectedQuery, setSelectedQuery] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedQuery, setSelectedQuery] = useSearchState<string | null>(
+    SELECTED_QUERY_KEY,
+    null,
+  );
+  const [searchQuery, setSearchQuery] = useSearchState<string>(
+    SEARCH_QUERY_KEY,
+    "",
+  );
+  const [page, setPage] = useSearchState<number>(PAGE_KEY, 1);
+  const [pageSize] = useSearchState<number>(PAGE_SIZE_KEY, 1);
   const debouncedSearch = useDebounce(searchQuery, 750);
-  const [tableState, setTableState] = useState<TableState>({
-    page: 1,
-    pageSize: 10,
-    sortBy: "executions",
-    sortOrder: "desc",
-    filter: "",
-    type: "all",
-  });
+
   const [sorting, setSorting] = useState<SortingState>([
-    { id: tableState.sortBy, desc: tableState.sortOrder === "desc" },
+    { id: "executions", desc: true },
   ]);
 
   const handleSortingChange = (newSorting: SortingState) => {
     setSorting(newSorting);
-    if (newSorting.length > 0) {
-      setTableState((prev) => ({
-        ...prev,
-        page: 1,
-        sortBy: newSorting[0].id,
-        sortOrder: newSorting[0].desc ? "desc" : "asc",
-      }));
-    }
   };
 
   const handleFilterChange = (value: string) => {
     setSearchQuery(value);
-    setTableState((prev) => ({ ...prev, page: 1, filter: value }));
   };
 
   const handlePaginationChange = (page: number) => {
-    setTableState((prev) => ({ ...prev, page }));
+    setPage(page);
   };
 
   const { data, isLoading } = useQuery<PagedResult<QueryExpression>>({
@@ -118,21 +116,21 @@ export default function QueriesPage() {
       "queryExpressions",
       fromISO,
       toISO,
-      tableState.page,
-      tableState.pageSize,
-      tableState.sortBy,
-      tableState.sortOrder,
+      page,
+      pageSize,
+      sorting[0]?.id || "executions",
+      sorting[0]?.desc ? "desc" : "asc",
       debouncedSearch,
     ],
     queryFn: () =>
       getQueryExpressions(
         fromISO,
         toISO,
-        tableState.page,
-        tableState.pageSize,
-        tableState.sortBy,
-        tableState.sortOrder,
-        debouncedSearch
+        page,
+        pageSize,
+        sorting[0]?.id || "executions",
+        sorting[0]?.desc ? "desc" : "asc",
+        debouncedSearch,
       ),
     enabled: Boolean(fromISO && toISO),
   });
@@ -175,19 +173,22 @@ export default function QueriesPage() {
           data={data?.data || []}
           columns={columns}
           pagination={true}
-          pageSize={tableState.pageSize}
+          pageSize={pageSize}
           className="w-full"
           serverSide={true}
           sortingState={sorting}
           filterValue={debouncedSearch}
-          currentPage={tableState.page}
+          currentPage={page}
           totalPages={data?.totalPages || 1}
           onSortingChange={handleSortingChange}
           onFilterChange={handleFilterChange}
           onPaginationChange={handlePaginationChange}
           onRowClick={(row) =>
             setSelectedQuery(
-              JSON.stringify({ query: row.query, fingerprint: row.fingerprint })
+              JSON.stringify({
+                query: row.query,
+                fingerprint: row.fingerprint,
+              }),
             )
           }
         />

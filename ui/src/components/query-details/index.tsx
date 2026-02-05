@@ -7,6 +7,9 @@ import QueryTimeRangeDistribution from "../query-time-range-distribution";
 import { QueryLatencyTrends } from "../query-latency-trends";
 import { QueryExecutions } from "./table";
 import { StatusBreakdown } from "../status-breakdown";
+import { useSearchState } from "@/hooks/use-search-state.tsx";
+
+const TAB_KEY = "queryDetailsTab";
 
 interface QueryDetailsProps {
   onClose: () => void;
@@ -15,9 +18,15 @@ interface QueryDetailsProps {
 }
 
 export function QueryDetails({ query, fingerprint }: QueryDetailsProps) {
+  const [tab, setTab] = useSearchState<string>(TAB_KEY, "overview");
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(query);
     toast.success("Query copied to clipboard");
+  };
+
+  const handleTabChange = (value: string) => {
+    setTab(value);
   };
 
   return (
@@ -33,7 +42,7 @@ export function QueryDetails({ query, fingerprint }: QueryDetailsProps) {
           <Copy className="h-4 w-4" />
         </Button>
       </div>
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList className="flex bg-gray-100 rounded-lg overflow-hidden w-full grid-cols-3">
           <TabsTrigger value="overview" className="flex-1 py-3 px-5">
             Overview

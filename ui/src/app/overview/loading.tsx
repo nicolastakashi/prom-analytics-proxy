@@ -34,7 +34,9 @@ export function LoadingState() {
           {/* Avg Duration Card */}
           <Card className="gap-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
-              <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Avg Duration
+              </CardTitle>
               <Skeleton className="h-4 w-4" />
             </CardHeader>
             <CardContent className="pb-3">
@@ -48,7 +50,9 @@ export function LoadingState() {
           {/* Success Rate Card */}
           <Card className="gap-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3">
-              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Success Rate
+              </CardTitle>
               <Skeleton className="h-4 w-4" />
             </CardHeader>
             <CardContent className="pb-3">

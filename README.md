@@ -94,6 +94,10 @@ Get up and running in 3 simple steps:
 ```bash
 git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
 cd prom-analytics-proxy
+cd ui
+npm install
+npm run build
+cd ..
 make build
 ./prom-analytics-proxy -upstream http://your-prometheus-server:9090
 ```

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSearchParams } from "wouter";
 
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
   maxWidth?: string | number;
@@ -75,7 +76,7 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
 }) => {
   // Filter out entries with empty keys or values
   const entries = Object.entries(httpHeaders).filter(
-    ([key, value]) => key.trim() !== "" && value.trim() !== ""
+    ([key, value]) => key.trim() !== "" && value.trim() !== "",
   );
   const maxVisibleChips = 3;
 
@@ -209,8 +210,8 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
       const classes = isSuccess
         ? "bg-emerald-100 text-emerald-700 border-emerald-200"
         : isTimeout
-        ? "bg-amber-100 text-amber-700 border-amber-200"
-        : "bg-red-100 text-red-700 border-red-200";
+          ? "bg-amber-100 text-amber-700 border-amber-200"
+          : "bg-red-100 text-red-700 border-red-200";
       return (
         <Badge variant="outline" className={classes}>
           <span className="font-mono">{code}</span>
@@ -251,7 +252,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
 
       const renderTooltip = (
         content: React.ReactNode,
-        tooltipContent: React.ReactNode
+        tooltipContent: React.ReactNode,
       ) => (
         <Tooltip>
           <TooltipTrigger asChild>{content}</TooltipTrigger>
@@ -270,11 +271,11 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
           try {
             const formattedStart = formatUTCtoLocal(
               start,
-              "dd/MM/yyyy HH:mm:ss"
+              "dd/MM/yyyy HH:mm:ss",
             );
             return renderTooltip(
               <span className="text-muted-foreground cursor-help">-</span>,
-              <span className="font-mono text-xs">{formattedStart}</span>
+              <span className="font-mono text-xs">{formattedStart}</span>,
             );
           } catch {
             return <span className="text-muted-foreground">-</span>;
@@ -296,7 +297,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
               <div>{formattedStart}</div>
               <div className="text-slate-400">to</div>
               <div>{formattedEnd}</div>
-            </div>
+            </div>,
           );
         } catch {
           return (
@@ -334,6 +335,10 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
   },
 ];
 
+const PAGE_KEY = "queryExecutionsPage";
+const PAGE_SIZE_KEY = "queryExecutionsPageSize";
+const SORTING_KEY = "queryExecutionsSorting";
+
 interface Props {
   fingerprint?: string;
 }
@@ -343,11 +348,35 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
   const fromISO = dateRange?.from?.toISOString();
   const toISO = dateRange?.to?.toISOString();
 
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "timestamp", desc: true },
-  ]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page: number = Number(searchParams.get(PAGE_KEY)) || 1;
+  const pageSize: number = Number(searchParams.get(PAGE_SIZE_KEY)) || 10;
+  const sorting: SortingState = useMemo(
+    () =>
+      searchParams.get(SORTING_KEY)
+        ? (JSON.parse(searchParams.get(SORTING_KEY) as string) as SortingState)
+        : [
+            {
+              id: "timestamp",
+              desc: true,
+            },
+          ],
+    [searchParams],
+  );
+
+  const handleSortingChange = (newSorting: SortingState) => {
+    setSearchParams((prev) => {
+      prev.set(SORTING_KEY, JSON.stringify(newSorting));
+      return prev;
+    });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setSearchParams((prev) => {
+      prev.set(PAGE_KEY, newPage.toString());
+      return prev;
+    });
+  };
 
   const sortBy = useMemo(() => sorting[0]?.id || "timestamp", [sorting]);
   const serverSortBy = useMemo(() => {
@@ -362,7 +391,7 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
   }, [sortBy]);
   const sortOrder = useMemo(
     () => (sorting[0]?.desc ? "desc" : "asc"),
-    [sorting]
+    [sorting],
   );
 
   const { data, isLoading } = useQuery<PagedResult<QueryExecution>>({
@@ -385,7 +414,7 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
         pageSize,
         serverSortBy,
         sortOrder,
-        "all"
+        "all",
       ),
     enabled: Boolean(fingerprint),
   });
@@ -405,8 +434,8 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
       sortingState={sorting}
       currentPage={page}
       totalPages={data?.totalPages || 1}
-      onSortingChange={(s) => setSorting(s)}
-      onPaginationChange={(p) => setPage(p)}
+      onSortingChange={(s) => handleSortingChange(s)}
+      onPaginationChange={(p) => handlePageChange(p)}
     />
   );
 };

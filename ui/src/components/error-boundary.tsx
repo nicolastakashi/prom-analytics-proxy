@@ -30,13 +30,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      return this.props.fallback || (
-        <div className="flex h-[50vh] w-full items-center justify-center">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-red-600">Something went wrong</h2>
-            <p className="mt-2 text-gray-600">{this.state.error?.message}</p>
+      return (
+        this.props.fallback || (
+          <div className="flex h-[50vh] w-full items-center justify-center">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-red-600">
+                Something went wrong
+              </h2>
+              <p className="mt-2 text-gray-600">{this.state.error?.message}</p>
+            </div>
           </div>
-        </div>
+        )
       );
     }
 
@@ -58,4 +62,4 @@ export function ErrorBoundaryWithToast({ children }: { children: ReactNode }) {
   }, []);
 
   return <ErrorBoundary>{children}</ErrorBoundary>;
-} 
+}

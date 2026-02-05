@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bell, BarChart3, Database, GitMerge } from "lucide-react";
@@ -83,7 +83,9 @@ function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
   return (
     <Card className="py-2 md:h-[128px] lg:h-[132px]">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-1">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {title}
+        </CardTitle>
         <Icon className="h-5 w-5 text-muted-foreground" />
       </CardHeader>
       <CardContent className="pb-2">
@@ -91,10 +93,11 @@ function StatCard({ title, value, subtitle, icon: Icon }: StatCardProps) {
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold leading-none">{value}</span>
           </div>
-          {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
+          {subtitle && (
+            <span className="text-xs text-muted-foreground">{subtitle}</span>
+          )}
         </div>
       </CardContent>
     </Card>
   );
 }
-
