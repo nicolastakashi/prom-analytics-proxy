@@ -1,4 +1,4 @@
-import { ColumnDef, SortingState } from "@tanstack/react-table";
+import { ColumnDef, SortingState } from '@tanstack/react-table';
 
 // Core DataTable props interface
 export interface DataTableProps<TData> {
@@ -10,16 +10,16 @@ export interface DataTableProps<TData> {
   pageSizeOptions?: number[];
   onRowClick?: (row: TData) => void;
   className?: string;
-  
+
   // Server-side operations
   serverSide?: boolean;
-  
+
   // Controlled state for server-side operations
   sortingState?: SortingState;
   filterValue?: string;
   totalPages?: number;
   currentPage?: number;
-  
+
   // Callbacks for server-side operations
   onSortingChange?: (sorting: SortingState) => void;
   onFilterChange?: (value: string) => void;
@@ -47,4 +47,4 @@ export interface DataTableFilterProps {
   value: string;
   onChange: (value: string) => void;
   className?: string;
-} 
+}

@@ -1,24 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
-import { 
-  getQueryTypes, 
-  getAverageDuration, 
+import { useQuery } from '@tanstack/react-query';
+import {
+  getQueryTypes,
+  getAverageDuration,
   getQueryRate,
   getQueryLatencyTrends,
   getQueryStatusDistribution,
   getQueryThroughputAnalysis,
-  getQueryErrorAnalysis
-} from "@/api/queries";
-import { 
-  QueryTypesResponse, 
-  AverageDurationResponse, 
+  getQueryErrorAnalysis,
+} from '@/api/queries';
+import {
+  QueryTypesResponse,
+  AverageDurationResponse,
   QueryRateResponse,
   DateRange,
   QueryLatencyTrendsResult,
   QueryStatusDistributionResult,
   QueryThroughputAnalysisResult,
   QueryErrorAnalysisResult,
-  
-} from "@/lib/types";
+} from '@/lib/types';
 
 interface OverviewData {
   // Key metrics data
@@ -41,7 +40,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryTypes,
     isLoading: isLoadingMetrics,
-    error: metricsError
+    error: metricsError,
   } = useQuery<QueryTypesResponse>({
     queryKey: ['queryTypes', from, to],
     queryFn: () => getQueryTypes(from, to),
@@ -51,7 +50,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: averageDuration,
     isLoading: isLoadingAvgDuration,
-    error: avgDurationError
+    error: avgDurationError,
   } = useQuery<AverageDurationResponse>({
     queryKey: ['averageDuration', from, to],
     queryFn: () => getAverageDuration(from, to),
@@ -61,7 +60,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryRate,
     isLoading: isLoadingRate,
-    error: rateError
+    error: rateError,
   } = useQuery<QueryRateResponse>({
     queryKey: ['queryRate', from, to],
     queryFn: () => getQueryRate(from, to),
@@ -72,7 +71,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryStatusDistribution,
     isLoading: isLoadingAnalysis,
-    error: analysisError
+    error: analysisError,
   } = useQuery<QueryStatusDistributionResult[]>({
     queryKey: ['queryStatusDistribution', from, to],
     queryFn: () => getQueryStatusDistribution(from, to),
@@ -82,7 +81,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryLatencyTrends,
     isLoading: isLoadingLatency,
-    error: latencyError
+    error: latencyError,
   } = useQuery<QueryLatencyTrendsResult[]>({
     queryKey: ['queryLatencyTrends', from, to],
     queryFn: () => getQueryLatencyTrends(from, to),
@@ -92,7 +91,7 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryThroughputAnalysis,
     isLoading: isLoadingThroughput,
-    error: throughputError
+    error: throughputError,
   } = useQuery<QueryThroughputAnalysisResult[]>({
     queryKey: ['queryThroughputAnalysis', from, to],
     queryFn: () => getQueryThroughputAnalysis(from, to),
@@ -102,25 +101,25 @@ export function useOverviewData(dateRange: DateRange | undefined) {
   const {
     data: queryErrorAnalysis,
     isLoading: isLoadingError,
-    error: errorAnalysisError
+    error: errorAnalysisError,
   } = useQuery<QueryErrorAnalysisResult[]>({
     queryKey: ['queryErrorAnalysis', from, to],
     queryFn: () => getQueryErrorAnalysis(from, to),
     enabled: queryEnabled,
   });
 
-  const isLoading = 
-    isLoadingMetrics || 
-    isLoadingAvgDuration || 
+  const isLoading =
+    isLoadingMetrics ||
+    isLoadingAvgDuration ||
     isLoadingRate ||
     isLoadingAnalysis ||
     isLoadingLatency ||
     isLoadingThroughput ||
     isLoadingError;
 
-  const error = 
-    metricsError || 
-    avgDurationError || 
+  const error =
+    metricsError ||
+    avgDurationError ||
     rateError ||
     analysisError ||
     latencyError ||
@@ -142,4 +141,4 @@ export function useOverviewData(dateRange: DateRange | undefined) {
     isLoading,
     error,
   };
-} 
+}

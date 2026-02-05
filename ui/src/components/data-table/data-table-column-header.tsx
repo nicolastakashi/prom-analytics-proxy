@@ -1,7 +1,7 @@
-import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { Column } from "@tanstack/react-table";
-import { DataTableColumnHeaderProps } from "./types";
+import { Button } from '@/components/ui/button';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { Column } from '@tanstack/react-table';
+import { DataTableColumnHeaderProps } from './types';
 
 export function DataTableColumnHeader({
   column,
@@ -10,7 +10,7 @@ export function DataTableColumnHeader({
 }: DataTableColumnHeaderProps) {
   // Type assertion for column as it comes from the interface as unknown
   const tableColumn = column as Column<unknown, unknown>;
-  
+
   if (!tableColumn.getCanSort()) {
     return <div className={className}>{title}</div>;
   }
@@ -18,17 +18,17 @@ export function DataTableColumnHeader({
   return (
     <Button
       variant="ghost"
-      className={`px-2 h-8 font-semibold flex items-center justify-between w-full ${className || ""}`}
+      className={`px-2 h-8 font-semibold flex items-center justify-between w-full ${className || ''}`}
       onClick={() => tableColumn.toggleSorting()}
     >
       <span>{title}</span>
-      {tableColumn.getIsSorted() === "asc" ? (
+      {tableColumn.getIsSorted() === 'asc' ? (
         <ArrowUp className="ml-2 h-4 w-4" />
-      ) : tableColumn.getIsSorted() === "desc" ? (
+      ) : tableColumn.getIsSorted() === 'desc' ? (
         <ArrowDown className="ml-2 h-4 w-4" />
       ) : (
         <ArrowUpDown className="ml-2 h-4 w-4 text-gray-400" />
       )}
     </Button>
   );
-} 
+}

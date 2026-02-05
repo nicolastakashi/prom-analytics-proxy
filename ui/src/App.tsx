@@ -1,11 +1,11 @@
-import { Route, Switch, Redirect, useLocation } from "wouter";
-import Layout from "./components/layout";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { DateRangeProvider } from "@/contexts/date-range-context";
-import { Toaster } from "@/components/ui/sonner";
-import { ErrorBoundaryWithToast } from "@/components/error-boundary";
-import { routeConfigs, ROUTES } from "@/lib/routes";
+import { Route, Switch, Redirect, useLocation } from 'wouter';
+import Layout from './components/layout';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { DateRangeProvider } from '@/contexts/date-range-context';
+import { Toaster } from '@/components/ui/sonner';
+import { ErrorBoundaryWithToast } from '@/components/error-boundary';
+import { routeConfigs, ROUTES } from '@/lib/routes';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,18 +23,18 @@ const matchRoute = (pattern: string, path: string) => {
     .replace(/\\/g, '\\\\') // Escape backslashes
     .replace(/:[^/]+/g, '([^/]+)')
     .replace(/\//g, '\\/');
-  
+
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(path);
 };
 
 function App() {
   const [location] = useLocation();
-  
+
   // Find the current route by checking each route pattern against the current location
-  const currentRoute = routeConfigs.find(route => 
-    matchRoute(route.path, location)
-  ) || routeConfigs[0]; // Default to first route if no match
+  const currentRoute =
+    routeConfigs.find((route) => matchRoute(route.path, location)) ||
+    routeConfigs[0]; // Default to first route if no match
 
   return (
     <ErrorBoundaryWithToast>
@@ -45,7 +45,7 @@ function App() {
               {routeConfigs.map(({ path, component: Component }) => (
                 <Route key={path} path={path} component={Component} />
               ))}
-              
+
               {/* Redirect any unknown routes to Overview */}
               <Route>
                 <Redirect to={ROUTES.HOME} />

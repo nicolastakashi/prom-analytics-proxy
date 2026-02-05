@@ -1,14 +1,19 @@
-import React from "react";
-import { useMetricUsage, useSerieExpressions } from "@/app/metrics/use-metrics-data";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { DataTable, DataTableColumnHeader } from "@/components/data-table";
-import { ColumnDef, SortingState } from "@tanstack/react-table";
-import { DateRange } from "@/lib/types";
+import React from 'react';
+import {
+  useMetricUsage,
+  useSerieExpressions,
+} from '@/app/metrics/use-metrics-data';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DataTable, DataTableColumnHeader } from '@/components/data-table';
+import { ColumnDef, SortingState } from '@tanstack/react-table';
+import { DateRange } from '@/lib/types';
 
 // Define our extended column type with maxWidth
-type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & { maxWidth?: string | number };
+type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+  maxWidth?: string | number;
+};
 
 interface MetricUsageProps {
   metricName: string;
@@ -42,36 +47,42 @@ interface TabState {
 }
 
 // Custom hook for managing tab state
-function useTabState(initialPage = 1, initialSortBy = 'avgDuration', initialSortOrder: 'asc' | 'desc' = 'desc') {
+function useTabState(
+  initialPage = 1,
+  initialSortBy = 'avgDuration',
+  initialSortOrder: 'asc' | 'desc' = 'desc',
+) {
   const [state, setState] = React.useState<TabState>({
     page: initialPage,
     filter: '',
-    sorting: initialSortBy ? [{ id: initialSortBy, desc: initialSortOrder === 'desc' }] : [],
+    sorting: initialSortBy
+      ? [{ id: initialSortBy, desc: initialSortOrder === 'desc' }]
+      : [],
     sortBy: initialSortBy,
     sortOrder: initialSortOrder,
   });
 
   const setPage = (page: number) => {
-    setState(prev => ({ ...prev, page }));
+    setState((prev) => ({ ...prev, page }));
   };
 
   const setFilter = (filter: string) => {
-    setState(prev => ({ ...prev, filter, page: 1 })); // Reset to first page on filter change
+    setState((prev) => ({ ...prev, filter, page: 1 })); // Reset to first page on filter change
   };
 
   const setSorting = (newSorting: SortingState) => {
     if (newSorting.length > 0) {
       const column = newSorting[0].id;
       const direction = newSorting[0].desc ? 'desc' : 'asc';
-      
-      setState(prev => ({
+
+      setState((prev) => ({
         ...prev,
         sorting: newSorting,
         sortBy: column,
         sortOrder: direction,
       }));
     } else {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         sorting: newSorting,
       }));
@@ -87,42 +98,45 @@ function useTabState(initialPage = 1, initialSortBy = 'avgDuration', initialSort
 }
 
 // Define column configurations
-const getQueriesColumns = (): ExtendedColumnDef<ExpressionDataItem, unknown>[] => [
+const getQueriesColumns = (): ExtendedColumnDef<
+  ExpressionDataItem,
+  unknown
+>[] => [
   {
-    accessorKey: "query",
+    accessorKey: 'query',
     maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Query" />
     ),
-    cell: ({ row }) => String(row.getValue("query")),
+    cell: ({ row }) => String(row.getValue('query')),
   },
   {
-    accessorKey: "avgDuration",
+    accessorKey: 'avgDuration',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Avg Duration" />
     ),
     cell: ({ row }) => {
-      const value = row.getValue("avgDuration") as number;
+      const value = row.getValue('avgDuration') as number;
       return <span>{value?.toFixed(2) ?? 'N/A'}ms</span>;
     },
   },
   {
-    accessorKey: "maxPeakSamples",
+    accessorKey: 'maxPeakSamples',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Peak Samples" />
     ),
     cell: ({ row }) => {
-      const value = row.getValue("maxPeakSamples") as number;
+      const value = row.getValue('maxPeakSamples') as number;
       return <span>{value?.toLocaleString() ?? 'N/A'}</span>;
     },
   },
   {
-    accessorKey: "avgPeakySamples",
+    accessorKey: 'avgPeakySamples',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Avg Samples" />
     ),
     cell: ({ row }) => {
-      const value = row.getValue("avgPeakySamples") as number;
+      const value = row.getValue('avgPeakySamples') as number;
       return <span>{value?.toFixed(2) ?? 'N/A'}</span>;
     },
   },
@@ -130,57 +144,70 @@ const getQueriesColumns = (): ExtendedColumnDef<ExpressionDataItem, unknown>[] =
 
 const getAlertsColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
   {
-    accessorKey: "name",
+    accessorKey: 'name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Name" />
     ),
   },
   {
-    accessorKey: "expression",
+    accessorKey: 'expression',
     maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Expression" />
     ),
-    cell: ({ row }) => String(row.getValue("expression")),
+    cell: ({ row }) => String(row.getValue('expression')),
   },
 ];
 
-const getRecordingColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
+const getRecordingColumns = (): ExtendedColumnDef<
+  MetricUsageItem,
+  unknown
+>[] => [
   {
-    accessorKey: "name",
+    accessorKey: 'name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Name" />
     ),
   },
   {
-    accessorKey: "expression",
+    accessorKey: 'expression',
     maxWidth: 600,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Expression" />
     ),
-    cell: ({ row }) => String(row.getValue("expression")),
+    cell: ({ row }) => String(row.getValue('expression')),
   },
 ];
 
-const getDashboardColumns = (): ExtendedColumnDef<MetricUsageItem, unknown>[] => [
+const getDashboardColumns = (): ExtendedColumnDef<
+  MetricUsageItem,
+  unknown
+>[] => [
   {
-    accessorKey: "title",
+    accessorKey: 'title',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Name" />
     ),
   },
   {
-    accessorKey: "url",
+    accessorKey: 'url',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="URL" />
     ),
     cell: ({ row }) => {
-      const url = row.getValue("url") as string;
+      const url = row.getValue('url') as string;
       return url ? (
-        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:underline"
+        >
           {url}
         </a>
-      ) : 'N/A';
+      ) : (
+        'N/A'
+      );
     },
   },
 ];
@@ -200,7 +227,6 @@ interface TabContentProps<T> {
 }
 
 // DataTable doesn't enforce the searchColumn type at runtime, so we'll use this workaround
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function TabContent<T>({
   isLoading,
   error,
@@ -211,7 +237,7 @@ function TabContent<T>({
   pageSize,
   onSortingChange,
   onFilterChange,
-  onPaginationChange
+  onPaginationChange,
 }: TabContentProps<T>) {
   if (isLoading) {
     return (
@@ -227,11 +253,13 @@ function TabContent<T>({
       </Card>
     );
   }
-  
+
   if (error) {
-    return <div className="text-center py-4 text-red-500">Error loading data</div>;
+    return (
+      <div className="text-center py-4 text-red-500">Error loading data</div>
+    );
   }
-  
+
   return (
     <DataTable
       data={data?.data || []}
@@ -254,9 +282,12 @@ function TabContent<T>({
   );
 }
 
-export default function MetricUsage({ metricName, dateRange }: MetricUsageProps) {
+export default function MetricUsage({
+  metricName,
+  dateRange,
+}: MetricUsageProps) {
   const pageSize = 10;
-  
+
   // Initialize tab states using the custom hook
   const queriesState = useTabState(1, 'avgDuration', 'desc');
   const alertsState = useTabState(1);
@@ -267,36 +298,61 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
   const {
     data: expressionsData,
     isLoading: isExpressionsLoading,
-    error: expressionsError
-  } = useSerieExpressions(metricName, {
-    page: queriesState.page,
-    pageSize,
-    sortBy: queriesState.sortBy || 'avgDuration',
-    sortOrder: queriesState.sortOrder || 'desc',
-    filter: queriesState.filter,
-    type: 'all',
-  }, dateRange && dateRange.from ? dateRange : undefined);
+    error: expressionsError,
+  } = useSerieExpressions(
+    metricName,
+    {
+      page: queriesState.page,
+      pageSize,
+      sortBy: queriesState.sortBy || 'avgDuration',
+      sortOrder: queriesState.sortOrder || 'desc',
+      filter: queriesState.filter,
+      type: 'all',
+    },
+    dateRange && dateRange.from ? dateRange : undefined,
+  );
 
   // Fetch data for dashboards tab
   const {
     data: dashboardData,
     isLoading: isDashboardLoading,
-    error: dashboardError
-  } = useMetricUsage(metricName, "dashboard", dashboardsState.page, pageSize, dateRange?.from, dateRange?.to);
+    error: dashboardError,
+  } = useMetricUsage(
+    metricName,
+    'dashboard',
+    dashboardsState.page,
+    pageSize,
+    dateRange?.from,
+    dateRange?.to,
+  );
 
   // Fetch data for alerts tab
   const {
     data: alertData,
     isLoading: isAlertLoading,
-    error: alertError
-  } = useMetricUsage(metricName, "alert", alertsState.page, pageSize, dateRange?.from, dateRange?.to);
+    error: alertError,
+  } = useMetricUsage(
+    metricName,
+    'alert',
+    alertsState.page,
+    pageSize,
+    dateRange?.from,
+    dateRange?.to,
+  );
 
   // Fetch data for recording rules tab
   const {
     data: recordingData,
     isLoading: isRecordingLoading,
-    error: recordingError
-  } = useMetricUsage(metricName, "record", recordingsState.page, pageSize, dateRange?.from, dateRange?.to);
+    error: recordingError,
+  } = useMetricUsage(
+    metricName,
+    'record',
+    recordingsState.page,
+    pageSize,
+    dateRange?.from,
+    dateRange?.to,
+  );
 
   // Initialize column definitions
   const queriesColumns = React.useMemo(() => getQueriesColumns(), []);
@@ -389,4 +445,4 @@ export default function MetricUsage({ metricName, dateRange }: MetricUsageProps)
       </CardContent>
     </Card>
   );
-} 
+}

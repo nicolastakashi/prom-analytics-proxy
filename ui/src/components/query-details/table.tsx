@@ -1,17 +1,18 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { DataTable, DataTableColumnHeader } from "@/components/data-table";
-import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import { useDateRange } from "@/contexts/date-range-context";
-import { getQueryExecutions } from "@/api/queries";
-import type { PagedResult, QueryExecution } from "@/lib/types";
-import { formatUTCtoLocal } from "@/lib/utils/date-utils";
-import { Badge } from "@/components/ui/badge";
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { DataTable, DataTableColumnHeader } from '@/components/data-table';
+import type { ColumnDef, SortingState } from '@tanstack/react-table';
+import { useDateRange } from '@/contexts/date-range-context';
+import { getQueryExecutions } from '@/api/queries';
+import type { PagedResult, QueryExecution } from '@/lib/types';
+import { formatUTCtoLocal } from '@/lib/utils/date-utils';
+import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from '@/components/ui/tooltip';
+import { useSearchParams } from 'wouter';
 
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
   maxWidth?: string | number;
@@ -38,7 +39,7 @@ const formatTimeRangeDuration = (start: string, end: string): string => {
     const endTime = new Date(end).getTime();
     const diffMs = endTime - startTime;
 
-    if (diffMs < 0) return "-";
+    if (diffMs < 0) return '-';
 
     const seconds = Math.floor(diffMs / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -66,7 +67,7 @@ const formatTimeRangeDuration = (start: string, end: string): string => {
     }
     return `${diffMs}ms`;
   } catch {
-    return "-";
+    return '-';
   }
 };
 
@@ -75,7 +76,7 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
 }) => {
   // Filter out entries with empty keys or values
   const entries = Object.entries(httpHeaders).filter(
-    ([key, value]) => key.trim() !== "" && value.trim() !== ""
+    ([key, value]) => key.trim() !== '' && value.trim() !== '',
   );
   const maxVisibleChips = 3;
 
@@ -101,7 +102,7 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
           style={{
             backgroundColor: generateColorForValue(value),
             borderColor: generateColorForValue(value),
-            color: "#374151",
+            color: '#374151',
           }}
         >
           {chipText}
@@ -118,7 +119,7 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
             style={{
               backgroundColor: generateColorForValue(value),
               borderColor: generateColorForValue(value),
-              color: "#374151",
+              color: '#374151',
             }}
           >
             {chipText.substring(0, maxLength - 3)}...
@@ -164,53 +165,53 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
 
 const columns: ExtendedColumnDef<QueryExecution>[] = [
   {
-    accessorKey: "timestamp",
+    accessorKey: 'timestamp',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Timestamp" />
     ),
     cell: ({ row }) => {
-      const value = String(row.getValue("timestamp"));
+      const value = String(row.getValue('timestamp'));
       try {
         return (
           <div className="flex items-baseline gap-2">
             <span className="font-medium">
-              {formatUTCtoLocal(value, "dd/MM/yyyy")}
+              {formatUTCtoLocal(value, 'dd/MM/yyyy')}
             </span>
             <span className="text-xs text-muted-foreground">
-              {formatUTCtoLocal(value, "HH:mm")}
+              {formatUTCtoLocal(value, 'HH:mm')}
             </span>
           </div>
         );
       } catch {
-        return "-";
+        return '-';
       }
     },
   },
   {
-    accessorKey: "type",
+    accessorKey: 'type',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Type" />
     ),
     cell: ({ row }) => {
-      const t = String(row.getValue("type"));
-      const label = t === "range" ? "Range" : "Instant";
+      const t = String(row.getValue('type'));
+      const label = t === 'range' ? 'Range' : 'Instant';
       return <Badge variant="outline">{label}</Badge>;
     },
   },
   {
-    accessorKey: "status",
+    accessorKey: 'status',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Status" />
     ),
     cell: ({ row }) => {
-      const code = Number(row.getValue("status"));
+      const code = Number(row.getValue('status'));
       const isSuccess = code >= 200 && code < 300;
       const isTimeout = code === 0 || code === 408 || code === 504;
       const classes = isSuccess
-        ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+        ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
         : isTimeout
-        ? "bg-amber-100 text-amber-700 border-amber-200"
-        : "bg-red-100 text-red-700 border-red-200";
+          ? 'bg-amber-100 text-amber-700 border-amber-200'
+          : 'bg-red-100 text-red-700 border-red-200';
       return (
         <Badge variant="outline" className={classes}>
           <span className="font-mono">{code}</span>
@@ -219,28 +220,28 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     },
   },
   {
-    accessorKey: "duration",
+    accessorKey: 'duration',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Duration" />
     ),
-    cell: ({ row }) => `${Number(row.getValue("duration"))}ms`,
+    cell: ({ row }) => `${Number(row.getValue('duration'))}ms`,
   },
   {
-    accessorKey: "samples",
+    accessorKey: 'samples',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Samples" />
     ),
     cell: ({ row }) => {
-      const v = Number(row.getValue("samples"));
+      const v = Number(row.getValue('samples'));
       return (
         <div className="text-right">
-          {Number.isFinite(v) ? v.toLocaleString() : "-"}
+          {Number.isFinite(v) ? v.toLocaleString() : '-'}
         </div>
       );
     },
   },
   {
-    accessorKey: "timeRange",
+    accessorKey: 'timeRange',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Time Range" />
     ),
@@ -251,7 +252,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
 
       const renderTooltip = (
         content: React.ReactNode,
-        tooltipContent: React.ReactNode
+        tooltipContent: React.ReactNode,
       ) => (
         <Tooltip>
           <TooltipTrigger asChild>{content}</TooltipTrigger>
@@ -265,16 +266,16 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
       );
 
       // Show "-" for instant queries with tooltip showing the start time
-      if (type === "instant") {
+      if (type === 'instant') {
         if (start) {
           try {
             const formattedStart = formatUTCtoLocal(
               start,
-              "dd/MM/yyyy HH:mm:ss"
+              'dd/MM/yyyy HH:mm:ss',
             );
             return renderTooltip(
               <span className="text-muted-foreground cursor-help">-</span>,
-              <span className="font-mono text-xs">{formattedStart}</span>
+              <span className="font-mono text-xs">{formattedStart}</span>,
             );
           } catch {
             return <span className="text-muted-foreground">-</span>;
@@ -286,8 +287,8 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
       // Show duration for range queries if we have both start and end
       if (start && end) {
         try {
-          const formattedStart = formatUTCtoLocal(start, "dd/MM/yyyy HH:mm:ss");
-          const formattedEnd = formatUTCtoLocal(end, "dd/MM/yyyy HH:mm:ss");
+          const formattedStart = formatUTCtoLocal(start, 'dd/MM/yyyy HH:mm:ss');
+          const formattedEnd = formatUTCtoLocal(end, 'dd/MM/yyyy HH:mm:ss');
           const duration = formatTimeRangeDuration(start, end);
 
           return renderTooltip(
@@ -296,7 +297,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
               <div>{formattedStart}</div>
               <div className="text-slate-400">to</div>
               <div>{formattedEnd}</div>
-            </div>
+            </div>,
           );
         } catch {
           return (
@@ -311,19 +312,19 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     },
   },
   {
-    accessorKey: "steps",
+    accessorKey: 'steps',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Steps" />
     ),
-    cell: ({ row }) => String(row.getValue("steps")),
+    cell: ({ row }) => String(row.getValue('steps')),
   },
   {
-    accessorKey: "httpHeaders",
+    accessorKey: 'httpHeaders',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="HTTP Headers" />
     ),
     cell: ({ row }) => {
-      const httpHeaders = row.getValue("httpHeaders") as
+      const httpHeaders = row.getValue('httpHeaders') as
         | Record<string, string>
         | undefined;
       if (!httpHeaders || Object.keys(httpHeaders).length === 0) {
@@ -334,6 +335,10 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
   },
 ];
 
+const PAGE_KEY = 'queryExecutionsPage';
+const PAGE_SIZE_KEY = 'queryExecutionsPageSize';
+const SORTING_KEY = 'queryExecutionsSorting';
+
 interface Props {
   fingerprint?: string;
 }
@@ -343,31 +348,55 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
   const fromISO = dateRange?.from?.toISOString();
   const toISO = dateRange?.to?.toISOString();
 
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "timestamp", desc: true },
-  ]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page: number = Number(searchParams.get(PAGE_KEY)) || 1;
+  const pageSize: number = Number(searchParams.get(PAGE_SIZE_KEY)) || 10;
+  const sorting: SortingState = useMemo(
+    () =>
+      searchParams.get(SORTING_KEY)
+        ? (JSON.parse(searchParams.get(SORTING_KEY) as string) as SortingState)
+        : [
+            {
+              id: 'timestamp',
+              desc: true,
+            },
+          ],
+    [searchParams],
+  );
 
-  const sortBy = useMemo(() => sorting[0]?.id || "timestamp", [sorting]);
+  const handleSortingChange = (newSorting: SortingState) => {
+    setSearchParams((prev) => {
+      prev.set(SORTING_KEY, JSON.stringify(newSorting));
+      return prev;
+    });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setSearchParams((prev) => {
+      prev.set(PAGE_KEY, newPage.toString());
+      return prev;
+    });
+  };
+
+  const sortBy = useMemo(() => sorting[0]?.id || 'timestamp', [sorting]);
   const serverSortBy = useMemo(() => {
     switch (sortBy) {
-      case "timestamp":
-        return "ts";
-      case "status":
-        return "statusCode";
+      case 'timestamp':
+        return 'ts';
+      case 'status':
+        return 'statusCode';
       default:
         return sortBy;
     }
   }, [sortBy]);
   const sortOrder = useMemo(
-    () => (sorting[0]?.desc ? "desc" : "asc"),
-    [sorting]
+    () => (sorting[0]?.desc ? 'desc' : 'asc'),
+    [sorting],
   );
 
   const { data, isLoading } = useQuery<PagedResult<QueryExecution>>({
     queryKey: [
-      "queryExecutions",
+      'queryExecutions',
       fingerprint,
       fromISO,
       toISO,
@@ -378,14 +407,14 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
     ],
     queryFn: () =>
       getQueryExecutions(
-        fingerprint || "",
+        fingerprint || '',
         fromISO,
         toISO,
         page,
         pageSize,
         serverSortBy,
         sortOrder,
-        "all"
+        'all',
       ),
     enabled: Boolean(fingerprint),
   });
@@ -405,8 +434,8 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
       sortingState={sorting}
       currentPage={page}
       totalPages={data?.totalPages || 1}
-      onSortingChange={(s) => setSorting(s)}
-      onPaginationChange={(p) => setPage(p)}
+      onSortingChange={(s) => handleSortingChange(s)}
+      onPaginationChange={(p) => handlePageChange(p)}
     />
   );
 };

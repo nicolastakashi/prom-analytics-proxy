@@ -1,83 +1,91 @@
-import { ArrowUpRight, BarChart3, ChevronUp, Timer, HelpCircle, Hash, Plus } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { LucideIcon } from "lucide-react"
+import {
+  ArrowUpRight,
+  BarChart3,
+  ChevronUp,
+  Timer,
+  HelpCircle,
+  Hash,
+  Plus,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { LucideIcon } from 'lucide-react';
 
 interface MetricTypeTagProps {
-  type: string
+  type: string;
 }
 
 interface TypeConfig {
-  label: string
-  icon: LucideIcon
-  variant: "outline"
+  label: string;
+  icon: LucideIcon;
+  variant: 'outline';
 }
 
 type TypeConfigs = {
-  [key: string]: TypeConfig
-}
+  [key: string]: TypeConfig;
+};
 
 const typeConfig: TypeConfigs = {
   counter: {
-    label: "Counter",
+    label: 'Counter',
     icon: ChevronUp,
-    variant: "outline",
+    variant: 'outline',
   },
   gauge: {
-    label: "Gauge",
+    label: 'Gauge',
     icon: ArrowUpRight,
-    variant: "outline",
+    variant: 'outline',
   },
   histogram: {
-    label: "Histogram",
+    label: 'Histogram',
     icon: BarChart3,
-    variant: "outline",
+    variant: 'outline',
   },
   summary: {
-    label: "Summary",
+    label: 'Summary',
     icon: Timer,
-    variant: "outline",
+    variant: 'outline',
   },
   histogram_bucket: {
-    label: "Histogram Bucket",
+    label: 'Histogram Bucket',
     icon: BarChart3,
-    variant: "outline",
+    variant: 'outline',
   },
   histogram_count: {
-    label: "Histogram Count",
+    label: 'Histogram Count',
     icon: Hash,
-    variant: "outline",
+    variant: 'outline',
   },
   histogram_sum: {
-    label: "Histogram Sum",
+    label: 'Histogram Sum',
     icon: Plus,
-    variant: "outline",
+    variant: 'outline',
   },
   summary_count: {
-    label: "Summary Count",
+    label: 'Summary Count',
     icon: Hash,
-    variant: "outline",
+    variant: 'outline',
   },
   summary_sum: {
-    label: "Summary Sum", 
+    label: 'Summary Sum',
     icon: Plus,
-    variant: "outline",
+    variant: 'outline',
   },
-}
+};
 
 export function MetricTypeTag({ type }: MetricTypeTagProps) {
   // Handle case-insensitive type matching and provide fallback
-  const normalizedType = type?.toLowerCase() || 'unknown'
+  const normalizedType = type?.toLowerCase() || 'unknown';
   const config = typeConfig[normalizedType] || {
     label: type || 'Unknown',
     icon: HelpCircle,
-    variant: "outline" as const,
-  }
-  const Icon = config.icon
+    variant: 'outline' as const,
+  };
+  const Icon = config.icon;
 
   return (
     <Badge variant={config.variant} className="gap-1">
       <Icon className="h-3 w-3" />
       {config.label}
     </Badge>
-  )
+  );
 }

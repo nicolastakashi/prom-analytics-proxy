@@ -1,19 +1,22 @@
-"use client"
+'use client';
 
-import * as React from "react"
+import * as React from 'react';
+import { type ColumnDef, type SortingState } from '@tanstack/react-table';
+import { ArrowUpDown } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Producer } from '@/lib/types';
+import { DataTable } from '@/components/data-table';
 import {
-  type ColumnDef,
-  type SortingState,
-} from "@tanstack/react-table"
-import { ArrowUpDown } from "lucide-react"
-import { Progress } from "@/components/ui/progress"
-import { Producer } from "@/lib/types"
-import { DataTable } from "@/components/data-table"
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardDescription,
+} from '@/components/ui/card';
 
-import { useMetricStatistics } from "@/app/metrics/use-metrics-data";
-import { useDateRange } from "@/contexts/date-range-context";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMetricStatistics } from '@/app/metrics/use-metrics-data';
+import { useDateRange } from '@/contexts/date-range-context';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface MetricProducersProps {
   metricName: string;
@@ -24,62 +27,74 @@ export function MetricProducers({ metricName }: MetricProducersProps) {
   const { data, isLoading } = useMetricStatistics(metricName, dateRange);
   const producers: Producer[] = data.statistics?.producers || [];
   // Local sorting state must be declared unconditionally to respect Hooks rules
-  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [sorting, setSorting] = React.useState<SortingState>([]);
 
   // Calculate total series for percentage calculations (empty while loading)
-  const totalSeries = producers.reduce((sum, producer) => sum + producer.series, 0);
+  const totalSeries = producers.reduce(
+    (sum, producer) => sum + producer.series,
+    0,
+  );
 
-  const columns = React.useMemo<ColumnDef<Producer>[]>(() => [
-    {
-      accessorKey: "job",
-      header: ({ column }) => {
-        return (
-          <div
-            className="flex cursor-pointer items-center"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Producer
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </div>
-        )
+  const columns = React.useMemo<ColumnDef<Producer>[]>(
+    () => [
+      {
+        accessorKey: 'job',
+        header: ({ column }) => {
+          return (
+            <div
+              className="flex cursor-pointer items-center"
+              onClick={() =>
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }
+            >
+              Producer
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </div>
+          );
+        },
+        cell: ({ row }) => (
+          <div className="font-medium">{row.getValue('job')}</div>
+        ),
       },
-      cell: ({ row }) => <div className="font-medium">{row.getValue("job")}</div>,
-    },
-    {
-      id: "contribution",
-      header: () => <div className="text-right">Contribution</div>,
-      cell: ({ row }) => {
-        const series = row.getValue("series") as number
-        const percentage = Math.round((series / totalSeries) * 100)
-        return (
-          <div className="flex items-center gap-2 justify-end">
-            <Progress value={percentage} className="h-1.5" />
-            <span className="text-xs text-muted-foreground">{percentage}%</span>
-          </div>
-        )
+      {
+        id: 'contribution',
+        header: () => <div className="text-right">Contribution</div>,
+        cell: ({ row }) => {
+          const series = row.getValue('series') as number;
+          const percentage = Math.round((series / totalSeries) * 100);
+          return (
+            <div className="flex items-center gap-2 justify-end">
+              <Progress value={percentage} className="h-1.5" />
+              <span className="text-xs text-muted-foreground">
+                {percentage}%
+              </span>
+            </div>
+          );
+        },
       },
-    },
-    {
-      accessorKey: "series",
-      header: ({ column }) => {
-        return (
-          <div
-            className="flex cursor-pointer items-center justify-end"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Series
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </div>
-        )
+      {
+        accessorKey: 'series',
+        header: ({ column }) => {
+          return (
+            <div
+              className="flex cursor-pointer items-center justify-end"
+              onClick={() =>
+                column.toggleSorting(column.getIsSorted() === 'asc')
+              }
+            >
+              Series
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </div>
+          );
+        },
+        cell: ({ row }) => {
+          const series = row.getValue('series') as number;
+          return <div className="text-right">{series.toLocaleString()}</div>;
+        },
       },
-      cell: ({ row }) => {
-        const series = row.getValue("series") as number
-        return (
-          <div className="text-right">{series.toLocaleString()}</div>
-        )
-      },
-    },
-  ], [totalSeries]);
+    ],
+    [totalSeries],
+  );
 
   if (isLoading) {
     return (
@@ -104,9 +119,11 @@ export function MetricProducers({ metricName }: MetricProducersProps) {
       <CardHeader>
         <CardTitle>Producers</CardTitle>
         <CardDescription>
-          Metric producers (also called Jobs) are services or applications that generate and expose Prometheus metrics.
+          Metric producers (also called Jobs) are services or applications that
+          generate and expose Prometheus metrics.
           <br />
-          Each producer contributes to the total number of time series in your monitoring system.
+          Each producer contributes to the total number of time series in your
+          monitoring system.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -121,5 +138,5 @@ export function MetricProducers({ metricName }: MetricProducersProps) {
         />
       </CardContent>
     </Card>
-  )
+  );
 }

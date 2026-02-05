@@ -1,14 +1,24 @@
-"use client"
+'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Database, CheckCircle, XCircle, BarChart2, LineChart, Clock } from "lucide-react"
-import { formatDuration, formatUnit } from "@/lib/utils"
-import { QueryLatencyTrends } from "@/components/query-latency-trends"
-import { StatCard } from "@/components/ui/stat-card"
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Database,
+  CheckCircle,
+  XCircle,
+  BarChart2,
+  LineChart,
+  Clock,
+} from 'lucide-react';
+import { formatDuration, formatUnit } from '@/lib/utils';
+import { QueryLatencyTrends } from '@/components/query-latency-trends';
+import { StatCard } from '@/components/ui/stat-card';
 
-import { useMetricQueryPerformanceStatistics, useQueryLatencyTrends } from "@/app/metrics/use-metrics-data";
-import { useDateRange } from "@/contexts/date-range-context";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  useMetricQueryPerformanceStatistics,
+  useQueryLatencyTrends,
+} from '@/app/metrics/use-metrics-data';
+import { useDateRange } from '@/contexts/date-range-context';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface MetricPerformanceProps {
   metricName: string;
@@ -16,8 +26,12 @@ interface MetricPerformanceProps {
 
 export function MetricPerformance({ metricName }: MetricPerformanceProps) {
   const { dateRange } = useDateRange();
-  const { data: queryPerformanceData, isLoading: perfLoading } = useMetricQueryPerformanceStatistics(metricName, dateRange);
-  const { isLoading: latencyLoading } = useQueryLatencyTrends(metricName, dateRange);
+  const { data: queryPerformanceData, isLoading: perfLoading } =
+    useMetricQueryPerformanceStatistics(metricName, dateRange);
+  const { isLoading: latencyLoading } = useQueryLatencyTrends(
+    metricName,
+    dateRange,
+  );
 
   const isLoading = perfLoading || latencyLoading;
 
@@ -53,19 +67,18 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
       </div>
     );
   }
-    
 
   const getSuccessRateColor = (rate: number) => {
-    if (rate > 95) return "bg-green-500"
-    if (rate > 80) return "bg-[hsl(var(--warning))]"
-    return "bg-[hsl(var(--destructive))]"
-  }
+    if (rate > 95) return 'bg-green-500';
+    if (rate > 80) return 'bg-[hsl(var(--warning))]';
+    return 'bg-[hsl(var(--destructive))]';
+  };
 
   const getErrorRateColor = (rate: number) => {
-    if (rate > 20) return "bg-[hsl(var(--destructive))]"
-    if (rate > 5) return "bg-[hsl(var(--warning))]"
-    return "bg-[hsl(var(--destructive))]"
-  }
+    if (rate > 20) return 'bg-[hsl(var(--destructive))]';
+    if (rate > 5) return 'bg-[hsl(var(--warning))]';
+    return 'bg-[hsl(var(--destructive))]';
+  };
 
   return (
     <Card>
@@ -87,7 +100,9 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
               icon={CheckCircle}
               tooltipContent="Percentage of queries that succeeded."
               showStatusIndicator
-              statusColor={getSuccessRateColor(queryPerformanceData?.queryRate?.success_rate_percent || 0)}
+              statusColor={getSuccessRateColor(
+                queryPerformanceData?.queryRate?.success_rate_percent || 0,
+              )}
             />
             <StatCard
               title="Error Rate"
@@ -95,7 +110,9 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
               icon={XCircle}
               tooltipContent="Percentage of queries that failed or returned errors."
               showStatusIndicator
-              statusColor={getErrorRateColor(queryPerformanceData?.queryRate?.error_rate_percent || 0)}
+              statusColor={getErrorRateColor(
+                queryPerformanceData?.queryRate?.error_rate_percent || 0,
+              )}
             />
             <StatCard
               title="Average Samples"
@@ -118,10 +135,13 @@ export function MetricPerformance({ metricName }: MetricPerformanceProps) {
           </div>
 
           <div className="relative">
-            <QueryLatencyTrends metricName={metricName} title="Query Latency Trends" />
+            <QueryLatencyTrends
+              metricName={metricName}
+              title="Query Latency Trends"
+            />
           </div>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

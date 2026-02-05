@@ -1,15 +1,15 @@
-import { Card, CardContent } from "@/components/ui/card"
-import { InfoTooltip } from "@/components/ui/info-tooltip"
-import { LucideIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Card, CardContent } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { LucideIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface StatCardProps {
-  title: string
-  value: string | number
-  icon: LucideIcon
-  tooltipContent: string
-  showStatusIndicator?: boolean
-  statusColor?: string
+  title: string;
+  value: string | number;
+  icon: LucideIcon;
+  tooltipContent: string;
+  showStatusIndicator?: boolean;
+  statusColor?: string;
 }
 
 export function StatCard({
@@ -33,7 +33,7 @@ export function StatCard({
           </div>
           {showStatusIndicator ? (
             <div className="flex items-center gap-2">
-              <div className={cn("h-2 w-2 rounded-full", statusColor)} />
+              <div className={cn('h-2 w-2 rounded-full', statusColor)} />
               <p className="text-xl font-bold leading-none">{value}</p>
             </div>
           ) : (
@@ -42,5 +42,5 @@ export function StatCard({
         </div>
       </CardContent>
     </Card>
-  )
-} 
+  );
+}

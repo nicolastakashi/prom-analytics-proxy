@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/skeleton"
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function LoadingState() {
   return (
@@ -49,7 +49,5 @@ export function LoadingState() {
         </div>
       </div>
     </div>
-  )
+  );
 }
-
-

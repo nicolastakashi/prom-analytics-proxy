@@ -1,11 +1,11 @@
-import { cn } from "@/lib/utils"
+import { cn } from '@/lib/utils';
 
-export function LoadingSpinner({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function LoadingSpinner({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      className={cn("animate-spin", className)}
-      {...props}
-    >
+    <div className={cn('animate-spin', className)} {...props}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
@@ -27,5 +27,5 @@ export function LoadingSpinner({ className, ...props }: React.HTMLAttributes<HTM
         />
       </svg>
     </div>
-  )
-} 
+  );
+}
