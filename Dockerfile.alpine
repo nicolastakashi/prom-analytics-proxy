@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+
+FROM node:23.6.0-alpine AS uibuild
+
+WORKDIR /go/src/github.com/nicolastakashi/prom-analytics-proxy
+
+COPY ./ui .
+
+RUN npm install
+RUN NODE_ENV=production npm run build
+
+FROM golang:1.25.4 AS gobuild
+
+WORKDIR /go/src/github.com/nicolastakashi/prom-analytics-proxy
+
+RUN useradd -ms /bin/bash prom-analytics-proxy
+
+COPY --from=uibuild /go/src/github.com/nicolastakashi/prom-analytics-proxy/dist ./ui/dist
+
+COPY --chown=prom-analytics-proxy:prom-analytics-proxy . .
+
+RUN make all
+
+FROM alpine:3.19
+
+WORKDIR /prom-analytics-proxy
+
+COPY --from=gobuild /go/src/github.com/nicolastakashi/prom-analytics-proxy/bin/* /bin/
+
+USER nobody
+
+ENTRYPOINT [ "/bin/prom-analytics-proxy" ]

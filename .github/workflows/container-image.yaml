@@ -6,6 +6,7 @@ on:
     tags: ["v*.*.*"]
     paths:
       - "Dockerfile"
+      - "Dockerfile.alpine"
       - "**/*.go"
       - "ui/**"
       - ".github/workflows/container-image.yaml"
@@ -14,6 +15,7 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
+      - "Dockerfile.alpine"
       - "**/*.go"
       - "ui/**"
       - ".github/workflows/container-image.yaml"
@@ -70,6 +72,18 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
 
+      - name: Extract Docker metadata for Alpine
+        id: meta-alpine
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-alpine
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr,prefix=pr-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
       - name: Build and push Docker images
         uses: docker/build-push-action@v6
         with:
@@ -82,3 +96,16 @@ jobs:
           cache-to: type=gha,mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Build and push Docker image alpine
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.alpine
+          platforms: linux/amd64,linux/arm64
+          # Push for: push events, or PRs from same repo (not forks)
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta-alpine.outputs.tags }}
+          labels: ${{ steps.meta-alpine.outputs.labels }}
