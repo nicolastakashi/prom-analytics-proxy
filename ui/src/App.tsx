@@ -20,21 +20,21 @@ const queryClient = new QueryClient({
 const matchRoute = (pattern: string, path: string) => {
   // Convert route pattern to regex by replacing :param with a capture group
   const regexPattern = pattern
-    .replace(/\\/g, '\\\\') // Escape backslashes
-    .replace(/:[^/]+/g, '([^/]+)')
-    .replace(/\//g, '\\/');
-  
+    .replace(/\\/g, "\\\\") // Escape backslashes
+    .replace(/:[^/]+/g, "([^/]+)")
+    .replace(/\//g, "\\/");
+
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(path);
 };
 
 function App() {
   const [location] = useLocation();
-  
+
   // Find the current route by checking each route pattern against the current location
-  const currentRoute = routeConfigs.find(route => 
-    matchRoute(route.path, location)
-  ) || routeConfigs[0]; // Default to first route if no match
+  const currentRoute =
+    routeConfigs.find((route) => matchRoute(route.path, location)) ||
+    routeConfigs[0]; // Default to first route if no match
 
   return (
     <ErrorBoundaryWithToast>
@@ -45,7 +45,7 @@ function App() {
               {routeConfigs.map(({ path, component: Component }) => (
                 <Route key={path} path={path} component={Component} />
               ))}
-              
+
               {/* Redirect any unknown routes to Overview */}
               <Route>
                 <Redirect to={ROUTES.HOME} />

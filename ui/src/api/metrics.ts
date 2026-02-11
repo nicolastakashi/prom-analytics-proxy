@@ -1,4 +1,8 @@
-import { MetricQueryPerformanceStatistics, MetricStatistics, PagedResult } from "@/lib/types";
+import {
+  MetricQueryPerformanceStatistics,
+  MetricStatistics,
+  PagedResult,
+} from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
 import { toUTC } from "@/lib/utils/date-utils";
 
@@ -55,15 +59,17 @@ interface FetchOptions {
 }
 
 const API_CONFIG: ApiConfig = {
-  baseUrl: process.env.NODE_ENV === 'development' ? 'http://localhost:9091' : '',
+  baseUrl:
+    process.env.NODE_ENV === "development" ? "http://localhost:9091" : "",
   endpoints: {
-    seriesMetadata: '/api/v1/seriesMetadata',
-    metricStatistics: '/api/v1/metricStatistics', 
-    metricQueryPerformanceStatistics: '/api/v1/metricQueryPerformanceStatistics',
-    serieExpressions: '/api/v1/serieExpressions',
-    metricUsage: '/api/v1/serieUsage',
-    jobs: '/api/v1/jobs',
-  }
+    seriesMetadata: "/api/v1/seriesMetadata",
+    metricStatistics: "/api/v1/metricStatistics",
+    metricQueryPerformanceStatistics:
+      "/api/v1/metricQueryPerformanceStatistics",
+    serieExpressions: "/api/v1/serieExpressions",
+    metricUsage: "/api/v1/serieUsage",
+    jobs: "/api/v1/jobs",
+  },
 };
 
 const DEFAULT_ERROR_VALUES = {
@@ -109,9 +115,20 @@ const DEFAULT_ERROR_VALUES = {
 
 async function fetchApiData<T>(
   endpoint: string,
-  options: FetchOptions = {}
+  options: FetchOptions = {},
 ): Promise<T> {
-  const { page, pageSize, sortBy, sortOrder, filter, type, from, to, kind, job } = options;
+  const {
+    page,
+    pageSize,
+    sortBy,
+    sortOrder,
+    filter,
+    type,
+    from,
+    to,
+    kind,
+    job,
+  } = options;
 
   const queryParams = new URLSearchParams({
     ...(page !== undefined && { page: page.toString() }),
@@ -128,21 +145,20 @@ async function fetchApiData<T>(
   });
 
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}?${queryParams}`);
+    const response = await fetch(
+      `${API_CONFIG.baseUrl}${endpoint}?${queryParams}`,
+    );
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    return await response.json() as T;
+    return (await response.json()) as T;
   } catch (error) {
     console.error(`Failed to fetch data from ${endpoint}:`, error);
     throw error;
   }
 }
 
-function withErrorHandling<T>(
-  fn: () => Promise<T>,
-  fallback: T
-): Promise<T> {
+function withErrorHandling<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return fn();
   } catch {
@@ -161,39 +177,43 @@ export async function getSeriesMetadata(
   job?: string,
 ): Promise<PagedResult<MetricMetadata>> {
   return withErrorHandling(
-    () => fetchApiData<PagedResult<MetricMetadata>>(
-      API_CONFIG.endpoints.seriesMetadata,
-      { page, pageSize, sortBy, sortOrder, filter, type, unused, job }
-    ),
-    DEFAULT_ERROR_VALUES.seriesMetadata
+    () =>
+      fetchApiData<PagedResult<MetricMetadata>>(
+        API_CONFIG.endpoints.seriesMetadata,
+        { page, pageSize, sortBy, sortOrder, filter, type, unused, job },
+      ),
+    DEFAULT_ERROR_VALUES.seriesMetadata,
   );
 }
 
 export async function getMetricStatistics(
   metricName: string,
   from: string,
-  to: string
+  to: string,
 ): Promise<MetricStatistics> {
   return withErrorHandling(
-    () => fetchApiData<MetricStatistics>(
-      API_CONFIG.endpoints.metricStatistics + `/${metricName}`,
-      { from, to }
-    ),
-    DEFAULT_ERROR_VALUES.metricStatistics
+    () =>
+      fetchApiData<MetricStatistics>(
+        API_CONFIG.endpoints.metricStatistics + `/${metricName}`,
+        { from, to },
+      ),
+    DEFAULT_ERROR_VALUES.metricStatistics,
   );
 }
 
 export async function getMetricQueryPerformanceStatistics(
   metricName: string,
   from: string,
-  to: string
+  to: string,
 ): Promise<MetricQueryPerformanceStatistics> {
   return withErrorHandling(
-    () => fetchApiData<MetricQueryPerformanceStatistics>(
-      API_CONFIG.endpoints.metricQueryPerformanceStatistics + `/${metricName}`,
-      { from, to }
-    ),
-    DEFAULT_ERROR_VALUES.metricQueryPerformanceStatistics
+    () =>
+      fetchApiData<MetricQueryPerformanceStatistics>(
+        API_CONFIG.endpoints.metricQueryPerformanceStatistics +
+          `/${metricName}`,
+        { from, to },
+      ),
+    DEFAULT_ERROR_VALUES.metricQueryPerformanceStatistics,
   );
 }
 
@@ -202,21 +222,21 @@ export async function getSerieExpressions(
   page: number = 1,
   pageSize: number = 10,
   from: string = "",
-  to: string = ""
+  to: string = "",
 ): Promise<SerieExpressionsResponse> {
   const url = API_CONFIG.endpoints.serieExpressions + `/${metricName}`;
   const params: Record<string, string | number> = { page, pageSize };
-  
+
   if (from) {
     params.from = from;
   }
   if (to) {
     params.to = to;
   }
-  
+
   return withErrorHandling(
     () => fetchApiData<SerieExpressionsResponse>(url, params),
-    DEFAULT_ERROR_VALUES.serieExpressions
+    DEFAULT_ERROR_VALUES.serieExpressions,
   );
 }
 
@@ -226,27 +246,27 @@ export async function getMetricUsage(
   page: number = 1,
   pageSize: number = 10,
   from: string = "",
-  to: string = ""
+  to: string = "",
 ): Promise<MetricUsageResponse> {
   const url = API_CONFIG.endpoints.metricUsage + `/${metricName}`;
   const params: Record<string, string | number> = { kind, page, pageSize };
-  
+
   if (from) {
     params.from = from;
   }
   if (to) {
     params.to = to;
   }
-  
+
   return withErrorHandling(
     () => fetchApiData<MetricUsageResponse>(url, params),
-    DEFAULT_ERROR_VALUES.metricUsage
+    DEFAULT_ERROR_VALUES.metricUsage,
   );
 }
 
 export async function getJobs(): Promise<string[]> {
   const res = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.jobs}`);
   if (!res.ok) throw new Error(`Failed to fetch jobs: ${res.status}`);
-  const body = await res.json() as { data: string[] };
+  const body = (await res.json()) as { data: string[] };
   return body.data || [];
 }

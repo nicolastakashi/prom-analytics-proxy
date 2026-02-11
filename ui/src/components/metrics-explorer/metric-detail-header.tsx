@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { ArrowLeft } from "lucide-react"
-import { Link } from "wouter"
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
 interface MetricDetailHeaderProps {
-  metricName: string
+  metricName: string;
 }
 
 export function MetricDetailHeader({ metricName }: MetricDetailHeaderProps) {
@@ -20,9 +20,11 @@ export function MetricDetailHeader({ metricName }: MetricDetailHeaderProps) {
         </Button>
         <div>
           <h1 className="text-2xl font-bold">{metricName}</h1>
-          <p className="text-sm text-muted-foreground">Detailed insights and analysis</p>
+          <p className="text-sm text-muted-foreground">
+            Detailed insights and analysis
+          </p>
         </div>
       </div>
     </div>
-  )
+  );
 }

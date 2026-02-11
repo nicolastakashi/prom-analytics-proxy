@@ -48,6 +48,33 @@ jobs:
             workflows:
               - '.github/**'
 
+  check-ui:
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.workflows == 'true' }}
+    runs-on: ubuntu-latest
+    name: UI Check (Format & Lint)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.node-version }}"
+          check-latest: true
+          cache: "npm"
+          cache-dependency-path: "ui/package-lock.json"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --legacy-peer-deps
+      - name: Check formatting with Prettier
+        working-directory: ui
+        run: npm run format:check
+      - name: Run ESLint
+        working-directory: ui
+        run: npm run lint
+
   build-ui:
     needs: changes
     if: ${{ github.event_name == 'push' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' || needs.changes.outputs.docs == 'true' }}
@@ -79,7 +106,7 @@ jobs:
           retention-days: 1
 
   check-golang:
-    needs: [build-ui, changes]
+    needs: [ build-ui, changes ]
     runs-on: ubuntu-latest
     name: Go Code Quality Checks
     if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.workflows == 'true' }}
@@ -105,7 +132,7 @@ jobs:
           args: --timeout 10m0s
 
   test:
-    needs: [build-ui, changes]
+    needs: [ build-ui, changes ]
     runs-on: ubuntu-latest
     name: Unit Tests
     if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' }}
@@ -180,7 +207,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   format:
-    needs: [build-ui, changes]
+    needs: [ build-ui, changes ]
     runs-on: ubuntu-latest
     name: Documentation Formatting Check
     if: ${{ github.event_name == 'push' || needs.changes.outputs.docs == 'true' }}
@@ -209,12 +236,12 @@ jobs:
         run: make check-docs
 
   build:
-    needs: [build-ui, changes]
+    needs: [ build-ui, changes ]
     if: ${{ github.event_name == 'push' || needs.changes.outputs.go == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.workflows == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, darwin]
+        goos: [ linux, darwin ]
     name: Build API for ${{ matrix.goos }}
     steps:
       - uses: actions/checkout@v4
