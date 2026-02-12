@@ -1,5 +1,5 @@
-import * as React from "react"
-import { ChevronsUpDown, Plus } from "lucide-react"
+import * as React from "react";
+import { ChevronsUpDown, Plus } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -9,29 +9,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 
 export function TeamSwitcher({
   teams,
 }: {
   teams: {
-    name: string
-    logo: React.ElementType
-    plan: string
-  }[]
+    name: string;
+    logo: React.ElementType;
+    plan: string;
+  }[];
 }) {
-  const { isMobile, state } = useSidebar()
-  const [activeTeam, setActiveTeam] = React.useState(teams[0])
-  const isCollapsed = state === "collapsed"
+  const { isMobile, state } = useSidebar();
+  const [activeTeam, setActiveTeam] = React.useState(teams[0]);
+  const isCollapsed = state === "collapsed";
 
   if (!activeTeam) {
-    return null
+    return null;
   }
 
   return (
@@ -50,11 +50,17 @@ export function TeamSwitcher({
               </div>
               {!isCollapsed && (
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">{activeTeam.name}</span>
-                  <span className="truncate text-xs text-sidebar-foreground/70">{activeTeam.plan}</span>
+                  <span className="truncate font-semibold">
+                    {activeTeam.name}
+                  </span>
+                  <span className="truncate text-xs text-sidebar-foreground/70">
+                    {activeTeam.plan}
+                  </span>
                 </div>
               )}
-              {!isCollapsed && <ChevronsUpDown className="ml-auto size-4 opacity-70" />}
+              {!isCollapsed && (
+                <ChevronsUpDown className="ml-auto size-4 opacity-70" />
+              )}
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -90,5 +96,5 @@ export function TeamSwitcher({
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
+  );
 }

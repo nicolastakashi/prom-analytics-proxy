@@ -1,19 +1,22 @@
-import { useQuery } from "@tanstack/react-query"
-import { getConfigurations } from "@/api/queries"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useTheme } from "next-themes"
+import { useQuery } from "@tanstack/react-query";
+import { getConfigurations } from "@/api/queries";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import {
+  vscDarkPlus,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useTheme } from "next-themes";
 
 export default function Settings() {
-  const { theme } = useTheme()
-  const isDarkTheme = theme === 'dark'
-  
+  const { theme } = useTheme();
+  const isDarkTheme = theme === "dark";
+
   const { data: config, isLoading } = useQuery({
-    queryKey: ['configurations'],
-    queryFn: () => getConfigurations('yaml'),
+    queryKey: ["configurations"],
+    queryFn: () => getConfigurations("yaml"),
     refetchOnMount: false,
-  })
+  });
 
   const loadingContent = (
     <Card className="w-full max-w-3xl">
@@ -24,7 +27,7 @@ export default function Settings() {
         <p>Loading configuration...</p>
       </CardContent>
     </Card>
-  )
+  );
 
   const loadedContent = (
     <Card className="w-full max-w-3xl">
@@ -37,20 +40,20 @@ export default function Settings() {
           style={isDarkTheme ? vscDarkPlus : oneLight}
           customStyle={{
             margin: 0,
-            fontSize: '0.875rem',
+            fontSize: "0.875rem",
           }}
           showLineNumbers={false}
-          children={String(config || '')}
+          children={String(config || "")}
           wrapLongLines
           codeTagProps={{
             style: {
-              fontFamily: 'var(--font-mono)',
-            }
+              fontFamily: "var(--font-mono)",
+            },
           }}
         />
       </CardContent>
     </Card>
-  )
+  );
 
   return (
     <div className="flex flex-col flex-1 space-y-4 p-4 md:p-8 pt-6">
@@ -61,5 +64,5 @@ export default function Settings() {
         {isLoading ? loadingContent : loadedContent}
       </div>
     </div>
-  )
-} 
+  );
+}

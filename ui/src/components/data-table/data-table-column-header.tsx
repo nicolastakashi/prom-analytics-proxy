@@ -10,7 +10,7 @@ export function DataTableColumnHeader({
 }: DataTableColumnHeaderProps) {
   // Type assertion for column as it comes from the interface as unknown
   const tableColumn = column as Column<unknown, unknown>;
-  
+
   if (!tableColumn.getCanSort()) {
     return <div className={className}>{title}</div>;
   }
@@ -31,4 +31,4 @@ export function DataTableColumnHeader({
       )}
     </Button>
   );
-} 
+}

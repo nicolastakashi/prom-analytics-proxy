@@ -1,3 +1,5 @@
+"use no memo";
+
 import { useState, useEffect } from "react";
 import {
   flexRender,
@@ -18,7 +20,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DataTableFilter } from "./data-table-filter";
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableProps } from "./types";
@@ -42,9 +49,13 @@ export function DataTable<TData>({
   onPaginationChange,
 }: DataTableProps<TData>) {
   // Local state for client-side operations
-  const [sorting, setSorting] = useState<SortingState>(externalSortingState || []);
+  const [sorting, setSorting] = useState<SortingState>(
+    externalSortingState || [],
+  );
   const [globalFilter, setGlobalFilter] = useState(externalFilterValue || "");
-  const [pageIndex, setPageIndex] = useState(externalCurrentPage ? externalCurrentPage - 1 : 0);
+  const [pageIndex, setPageIndex] = useState(
+    externalCurrentPage ? externalCurrentPage - 1 : 0,
+  );
   const [currentPageSize] = useState(pageSize);
 
   // Use external state if in server-side mode
@@ -69,10 +80,11 @@ export function DataTable<TData>({
   // Define handlers for state changes
   const handleSortingChange: OnChangeFn<SortingState> = (updaterOrValue) => {
     // Handle both function updater and direct value forms
-    const newSorting = typeof updaterOrValue === 'function'
-      ? updaterOrValue(sorting)
-      : updaterOrValue;
-    
+    const newSorting =
+      typeof updaterOrValue === "function"
+        ? updaterOrValue(sorting)
+        : updaterOrValue;
+
     if (serverSide) {
       if (onSortingChange) {
         onSortingChange(newSorting);
@@ -113,7 +125,8 @@ export function DataTable<TData>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: pagination && !serverSide ? getPaginationRowModel() : undefined,
+    getPaginationRowModel:
+      pagination && !serverSide ? getPaginationRowModel() : undefined,
     getSortedRowModel: !serverSide ? getSortedRowModel() : undefined,
     getFilteredRowModel: !serverSide ? getFilteredRowModel() : undefined,
     onSortingChange: handleSortingChange,
@@ -133,8 +146,8 @@ export function DataTable<TData>({
   });
 
   // Calculate total pages for client-side pagination
-  const totalPages = serverSide 
-    ? externalTotalPages || 1 
+  const totalPages = serverSide
+    ? externalTotalPages || 1
     : Math.ceil(table.getFilteredRowModel().rows.length / currentPageSize);
 
   return (
@@ -158,7 +171,7 @@ export function DataTable<TData>({
                       ? null
                       : flexRender(
                           header.column.columnDef.header,
-                          header.getContext()
+                          header.getContext(),
                         )}
                   </TableHead>
                 ))}
@@ -171,18 +184,23 @@ export function DataTable<TData>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={
+                    onRowClick ? () => onRowClick(row.original) : undefined
+                  }
                   className={onRowClick ? "cursor-pointer" : ""}
                 >
                   {row.getVisibleCells().map((cell) => {
                     // Get maxWidth from column def if it exists
-                    const columnDef = cell.column.columnDef as ColumnDef<TData, unknown> & { maxWidth?: string | number };
+                    const columnDef = cell.column.columnDef as ColumnDef<
+                      TData,
+                      unknown
+                    > & { maxWidth?: string | number };
                     const maxWidth = columnDef.maxWidth;
 
                     // Prepare cell content
                     const cellContent = flexRender(
                       cell.column.columnDef.cell,
-                      cell.getContext()
+                      cell.getContext(),
                     );
 
                     return (
@@ -193,17 +211,26 @@ export function DataTable<TData>({
                               <TooltipTrigger asChild>
                                 <div
                                   style={{
-                                    maxWidth: typeof maxWidth === 'number' ? `${maxWidth}px` : maxWidth,
+                                    maxWidth:
+                                      typeof maxWidth === "number"
+                                        ? `${maxWidth}px`
+                                        : maxWidth,
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap"
+                                    whiteSpace: "nowrap",
                                   }}
                                 >
                                   {cellContent}
                                 </div>
                               </TooltipTrigger>
-                              <TooltipContent side="top" align="start" className="max-w-lg bg-gray-900 text-white p-2 text-sm rounded-md shadow-lg">
-                                <div className="break-all font-mono">{cellContent}</div>
+                              <TooltipContent
+                                side="top"
+                                align="start"
+                                className="max-w-lg bg-gray-900 text-white p-2 text-sm rounded-md shadow-lg"
+                              >
+                                <div className="break-all font-mono">
+                                  {cellContent}
+                                </div>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -238,4 +265,4 @@ export function DataTable<TData>({
       )}
     </div>
   );
-} 
+}

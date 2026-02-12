@@ -1,18 +1,28 @@
-import { createContext, useContext, ReactNode, useState, useEffect } from 'react';
-import { useSearchParams } from 'wouter';
-import type { DateRange } from 'react-day-picker';
-import { fromUTC, formatLocalToUTC } from '@/lib/utils/date-utils';
+import {
+  createContext,
+  useContext,
+  ReactNode,
+  useState,
+  useEffect,
+} from "react";
+import { useSearchParams } from "wouter";
+import type { DateRange } from "react-day-picker";
+import { fromUTC, formatLocalToUTC } from "@/lib/utils/date-utils";
 
 interface DateRangeContextType {
   dateRange: DateRange | undefined;
   setDateRange: (range: DateRange | undefined) => void;
 }
 
-const DateRangeContext = createContext<DateRangeContextType | undefined>(undefined);
+const DateRangeContext = createContext<DateRangeContextType | undefined>(
+  undefined,
+);
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [dateRange, setInternalDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setInternalDateRange] = useState<DateRange | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     const from = searchParams.get("from");
@@ -25,6 +35,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         const toDate = fromUTC(to);
 
         if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setInternalDateRange({ from: fromDate, to: toDate });
         }
       } catch (error) {
@@ -39,7 +50,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
       // Convert to UTC for URL params
       setSearchParams({
         from: formatLocalToUTC(range.from),
-        to: formatLocalToUTC(range.to)
+        to: formatLocalToUTC(range.to),
       });
     }
   };
@@ -54,7 +65,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
 export function useDateRange() {
   const context = useContext(DateRangeContext);
   if (context === undefined) {
-    throw new Error('useDateRange must be used within a DateRangeProvider');
+    throw new Error("useDateRange must be used within a DateRangeProvider");
   }
   return context;
-} 
+}

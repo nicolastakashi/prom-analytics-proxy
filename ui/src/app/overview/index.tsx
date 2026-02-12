@@ -8,10 +8,13 @@ import QueryTimeRangeDistribution from "@/components/query-time-range-distributi
 
 function OverviewHeader() {
   return (
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold">Overview</h1>
-        <p className="text-sm text-muted-foreground">Aggregated view of query executions, latency, errors, throughput, and status distribution.</p>
-      </div>
+    <div className="mb-4">
+      <h1 className="text-2xl font-bold">Overview</h1>
+      <p className="text-sm text-muted-foreground">
+        Aggregated view of query executions, latency, errors, throughput, and
+        status distribution.
+      </p>
+    </div>
   );
 }
 

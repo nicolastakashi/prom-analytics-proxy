@@ -1,20 +1,28 @@
-import { ArrowUpRight, BarChart3, ChevronUp, Timer, HelpCircle, Hash, Plus } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { LucideIcon } from "lucide-react"
+import {
+  ArrowUpRight,
+  BarChart3,
+  ChevronUp,
+  Timer,
+  HelpCircle,
+  Hash,
+  Plus,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { LucideIcon } from "lucide-react";
 
 interface MetricTypeTagProps {
-  type: string
+  type: string;
 }
 
 interface TypeConfig {
-  label: string
-  icon: LucideIcon
-  variant: "outline"
+  label: string;
+  icon: LucideIcon;
+  variant: "outline";
 }
 
 type TypeConfigs = {
-  [key: string]: TypeConfig
-}
+  [key: string]: TypeConfig;
+};
 
 const typeConfig: TypeConfigs = {
   counter: {
@@ -58,26 +66,26 @@ const typeConfig: TypeConfigs = {
     variant: "outline",
   },
   summary_sum: {
-    label: "Summary Sum", 
+    label: "Summary Sum",
     icon: Plus,
     variant: "outline",
   },
-}
+};
 
 export function MetricTypeTag({ type }: MetricTypeTagProps) {
   // Handle case-insensitive type matching and provide fallback
-  const normalizedType = type?.toLowerCase() || 'unknown'
+  const normalizedType = type?.toLowerCase() || "unknown";
   const config = typeConfig[normalizedType] || {
-    label: type || 'Unknown',
+    label: type || "Unknown",
     icon: HelpCircle,
     variant: "outline" as const,
-  }
-  const Icon = config.icon
+  };
+  const Icon = config.icon;
 
   return (
     <Badge variant={config.variant} className="gap-1">
       <Icon className="h-3 w-3" />
       {config.label}
     </Badge>
-  )
+  );
 }

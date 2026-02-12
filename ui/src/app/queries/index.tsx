@@ -132,7 +132,7 @@ export default function QueriesPage() {
         tableState.pageSize,
         tableState.sortBy,
         tableState.sortOrder,
-        debouncedSearch
+        debouncedSearch,
       ),
     enabled: Boolean(fromISO && toISO),
   });
@@ -187,7 +187,10 @@ export default function QueriesPage() {
           onPaginationChange={handlePaginationChange}
           onRowClick={(row) =>
             setSelectedQuery(
-              JSON.stringify({ query: row.query, fingerprint: row.fingerprint })
+              JSON.stringify({
+                query: row.query,
+                fingerprint: row.fingerprint,
+              }),
             )
           }
         />

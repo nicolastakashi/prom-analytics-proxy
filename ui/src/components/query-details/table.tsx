@@ -75,7 +75,7 @@ const HTTPHeadersChips: React.FC<{ httpHeaders: Record<string, string> }> = ({
 }) => {
   // Filter out entries with empty keys or values
   const entries = Object.entries(httpHeaders).filter(
-    ([key, value]) => key.trim() !== "" && value.trim() !== ""
+    ([key, value]) => key.trim() !== "" && value.trim() !== "",
   );
   const maxVisibleChips = 3;
 
@@ -209,8 +209,8 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
       const classes = isSuccess
         ? "bg-emerald-100 text-emerald-700 border-emerald-200"
         : isTimeout
-        ? "bg-amber-100 text-amber-700 border-amber-200"
-        : "bg-red-100 text-red-700 border-red-200";
+          ? "bg-amber-100 text-amber-700 border-amber-200"
+          : "bg-red-100 text-red-700 border-red-200";
       return (
         <Badge variant="outline" className={classes}>
           <span className="font-mono">{code}</span>
@@ -251,7 +251,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
 
       const renderTooltip = (
         content: React.ReactNode,
-        tooltipContent: React.ReactNode
+        tooltipContent: React.ReactNode,
       ) => (
         <Tooltip>
           <TooltipTrigger asChild>{content}</TooltipTrigger>
@@ -270,11 +270,11 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
           try {
             const formattedStart = formatUTCtoLocal(
               start,
-              "dd/MM/yyyy HH:mm:ss"
+              "dd/MM/yyyy HH:mm:ss",
             );
             return renderTooltip(
               <span className="text-muted-foreground cursor-help">-</span>,
-              <span className="font-mono text-xs">{formattedStart}</span>
+              <span className="font-mono text-xs">{formattedStart}</span>,
             );
           } catch {
             return <span className="text-muted-foreground">-</span>;
@@ -296,7 +296,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
               <div>{formattedStart}</div>
               <div className="text-slate-400">to</div>
               <div>{formattedEnd}</div>
-            </div>
+            </div>,
           );
         } catch {
           return (
@@ -362,7 +362,7 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
   }, [sortBy]);
   const sortOrder = useMemo(
     () => (sorting[0]?.desc ? "desc" : "asc"),
-    [sorting]
+    [sorting],
   );
 
   const { data, isLoading } = useQuery<PagedResult<QueryExecution>>({
@@ -385,7 +385,7 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
         pageSize,
         serverSortBy,
         sortOrder,
-        "all"
+        "all",
       ),
     enabled: Boolean(fingerprint),
   });
