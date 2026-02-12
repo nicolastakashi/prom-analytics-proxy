@@ -17,6 +17,7 @@ RELEASE_VERSION ?=$(shell git describe --tags --abbrev=0 2>/dev/null || echo $(R
 BINARY_FOLDER=bin
 BINARY_NAME=prom-analytics-proxy
 ARTIFACT_NAME=coralogix/$(BINARY_NAME)
+DOCKER_TARGET ?= final-alpine
 GOCMD=go
 GOMAIN=main.go
 GOBUILD=$(GOCMD) build
@@ -37,7 +38,11 @@ LDFLAGS=$(STRIP_FLAG) -extldflags "-static" \
 
 .PHONY: docker-build
 docker-build:
-	@DOCKER_BUILDKIT=1 docker build -t ${ARTIFACT_NAME}:${RELEASE_VERSION} -f Dockerfile --progress=plain .
+	@DOCKER_BUILDKIT=1 docker build -t ${ARTIFACT_NAME}:${RELEASE_VERSION} -f Dockerfile --target $(DOCKER_TARGET) --progress=plain \
+		--build-arg REVISION=$(REVISION) \
+		--build-arg BRANCH=$(BRANCH) \
+		--build-arg RELEASE_VERSION=$(RELEASE_VERSION) \
+		.
 
 .PHONY: build
 build:
