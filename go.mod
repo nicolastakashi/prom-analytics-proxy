@@ -1,6 +1,6 @@
 module github.com/nicolastakashi/prom-analytics-proxy
 
-go 1.25.4
+go 1.26.0
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
