@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+.cursor
+tmp
+bin
+scripts
+docs
+examples
+**/node_modules
+ui/dist
+ui/build
+.DS_Store
+npm-debug.log
+yarn-error.log

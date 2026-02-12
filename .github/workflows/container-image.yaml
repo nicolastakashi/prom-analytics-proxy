@@ -6,7 +6,6 @@ on:
     tags: ["v*.*.*"]
     paths:
       - "Dockerfile"
-      - "Dockerfile.alpine"
       - "**/*.go"
       - "ui/**"
       - ".github/workflows/container-image.yaml"
@@ -15,7 +14,6 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
-      - "Dockerfile.alpine"
       - "**/*.go"
       - "ui/**"
       - ".github/workflows/container-image.yaml"
@@ -89,11 +87,16 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          target: final-distroless
           platforms: linux/amd64,linux/arm64
           # Push for: push events, or PRs from same repo (not forks)
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            REVISION=${{ github.sha }}
+            BRANCH=${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+            RELEASE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          cache-from: type=gha,scope=container-image
+          cache-to: type=gha,mode=max,scope=container-image
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -101,11 +104,16 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile.alpine
+          file: ./Dockerfile
+          target: final-alpine
           platforms: linux/amd64,linux/arm64
           # Push for: push events, or PRs from same repo (not forks)
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            REVISION=${{ github.sha }}
+            BRANCH=${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+            RELEASE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          cache-from: type=gha,scope=container-image
+          cache-to: type=gha,mode=max,scope=container-image
           tags: ${{ steps.meta-alpine.outputs.tags }}
           labels: ${{ steps.meta-alpine.outputs.labels }}
