@@ -250,6 +250,8 @@ Flags (api):
     	Timeout for processing each individual job (default 30s)
   -inventory-job-index-workers int
     	Number of worker goroutines for job index processing (default 10)
+  -inventory-metadata-sync-enabled
+    	Enable Prometheus metadata sync to populate metrics catalog (disable when OTLP ingester handles catalog population) (default true)
   -inventory-metadata-timeout duration
     	Timeout for metadata collection step (default 30s)
   -inventory-run-timeout duration
@@ -334,6 +336,14 @@ Flags (metrics ingester):
     	TTL for caching 'used' metric states (default 1h0m0s)
   -ingester-cache-username string
     	Cache username (optional)
+  -ingester-catalog-sync-buffer-size int
+    	Maximum number of unique metrics to buffer before dropping (per flush interval) (default 10000)
+  -ingester-catalog-sync-enabled
+    	Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this)
+  -ingester-catalog-sync-flush-interval duration
+    	How often to flush buffered metrics to the catalog DB (default 30s)
+  -ingester-catalog-sync-seen-ttl duration
+    	How long a metric is suppressed from re-flushing after first write (reduces duplicate DB upserts) (default 1h0m0s)
   -ingester-denied-jobs value
     	Comma-separated list of denied jobs to ingest metrics from
   -ingester-drain-delay duration
