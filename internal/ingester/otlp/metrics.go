@@ -115,6 +115,43 @@ var (
 		},
 	)
 
+	// Catalog sync metrics
+	catalogBufferSize = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ingester_catalog_buffer_size",
+			Help: "Current number of unique metrics in the catalog buffer",
+		},
+	)
+
+	catalogBufferDroppedTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingester_catalog_buffer_dropped_total",
+			Help: "Total number of metrics dropped from the catalog buffer due to buffer full",
+		},
+	)
+
+	catalogFlushDurationSeconds = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingester_catalog_flush_duration_seconds",
+			Help:    "Duration of catalog flush operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
+
+	catalogFlushMetricsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingester_catalog_flush_metrics_total",
+			Help: "Total number of metrics flushed to the catalog",
+		},
+	)
+
+	catalogFlushErrorsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingester_catalog_flush_errors_total",
+			Help: "Total number of catalog flush errors",
+		},
+	)
+
 	canonicalServerLabels = prometheus.Labels{
 		"rpc.system":        rpcSystem,
 		"rpc.service":       rpcService,

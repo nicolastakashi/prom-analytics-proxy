@@ -2,6 +2,7 @@ package ingester
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -1047,4 +1048,124 @@ func TestOTLPIngester_Integration_DownstreamCollector(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, out, "used_metric")
 	assert.NotContains(t, out, "unused_metric")
+}
+
+// TestOTLPIngester_Integration_CatalogSync_PostgreSQL verifies that when CatalogSync is
+// enabled, metrics arriving via OTLP Export are buffered and correctly flushed to the
+// metrics_catalog table in PostgreSQL. It also verifies that the SeenTTL suppresses
+// duplicate writes within the TTL window.
+func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
+	prov, cleanup := runPostgres(t)
+	defer cleanup()
+
+	// Build a config that enables catalog sync with an in-memory seen cache (no Redis).
+	cfg := *config.DefaultConfig
+	cfg.Ingester.CatalogSync.Enabled = true
+	cfg.Ingester.CatalogSync.FlushInterval = 5 * time.Minute // manual flush only
+	cfg.Ingester.CatalogSync.BufferSize = 100
+	cfg.Ingester.CatalogSync.SeenTTL = 1 * time.Hour
+
+	buildGauge := func(name string) *metricspb.Metric {
+		return &metricspb.Metric{
+			Name: name,
+			Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}},
+		}
+	}
+	buildHistogram := func(name string) *metricspb.Metric {
+		return &metricspb.Metric{
+			Name: name,
+			Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{DataPoints: []*metricspb.HistogramDataPoint{{Attributes: []*commonpb.KeyValue{}}}}},
+		}
+	}
+
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{
+					buildGauge("catalog_metric_a"),
+					buildHistogram("catalog_metric_b"),
+					buildGauge("catalog_metric_c"),
+				},
+			}},
+		}},
+	}
+
+	ing, err := NewOtlpIngester(&cfg, prov)
+	assert.NoError(t, err)
+	// Use a no-op exporter so forwarding doesn't fail with no downstream.
+	ing.SetExporter(&captureExporter{})
+
+	// Export populates the catalog buffer.
+	ctx := context.Background()
+	_, err = ing.Export(ctx, req)
+	assert.NoError(t, err)
+
+	// Flush the buffer manually and verify the catalog rows were written.
+	ing.FlushCatalog(ctx)
+
+	// Query the DB directly via WithDB to inspect the catalog.
+	type catalogRow struct {
+		name     string
+		metaType string
+	}
+	var catalogRows []catalogRow
+	prov.WithDB(func(sqlDB *sql.DB) {
+		rows, err := sqlDB.QueryContext(ctx, `SELECT name, type FROM metrics_catalog ORDER BY name`)
+		if err != nil {
+			t.Fatalf("query metrics_catalog: %v", err)
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var r catalogRow
+			if err := rows.Scan(&r.name, &r.metaType); err != nil {
+				t.Fatalf("scan row: %v", err)
+			}
+			catalogRows = append(catalogRows, r)
+		}
+	})
+
+	assert.Len(t, catalogRows, 3, "all three metrics should be in the catalog")
+	assert.Equal(t, "catalog_metric_a", catalogRows[0].name)
+	assert.Equal(t, "gauge", catalogRows[0].metaType)
+	assert.Equal(t, "catalog_metric_b", catalogRows[1].name)
+	assert.Equal(t, "histogram", catalogRows[1].metaType)
+	assert.Equal(t, "catalog_metric_c", catalogRows[2].name)
+
+	// A second Export + FlushCatalog within the SeenTTL window should not produce
+	// additional writes (deduplication suppresses re-flushing the same metrics).
+	req2 := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{
+					buildGauge("catalog_metric_a"), // already seen
+					buildGauge("catalog_metric_d"), // new metric
+				},
+			}},
+		}},
+	}
+	_, err = ing.Export(ctx, req2)
+	assert.NoError(t, err)
+	ing.FlushCatalog(ctx)
+
+	var catalogRows2 []catalogRow
+	prov.WithDB(func(sqlDB *sql.DB) {
+		rows, err := sqlDB.QueryContext(ctx, `SELECT name, type FROM metrics_catalog ORDER BY name`)
+		if err != nil {
+			t.Fatalf("query metrics_catalog (2nd flush): %v", err)
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var r catalogRow
+			if err := rows.Scan(&r.name, &r.metaType); err != nil {
+				t.Fatalf("scan row (2nd flush): %v", err)
+			}
+			catalogRows2 = append(catalogRows2, r)
+		}
+	})
+
+	// catalog_metric_d is new → should be added; catalog_metric_a is suppressed by SeenTTL.
+	assert.Len(t, catalogRows2, 4, "new metric catalog_metric_d should have been added")
+	assert.Equal(t, "catalog_metric_d", catalogRows2[3].name)
 }

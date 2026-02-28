@@ -122,6 +122,7 @@ If you don't see any data, verify that your clients are actually sending queries
 - [Configure the database backend](../README.md#database-configuration) (PostgreSQL or SQLite)
 - [Tune performance settings](../README.md#performance-tuning) for your workload
 - [Configure inventory sync](../README.md#inventory-configuration) for metrics discovery
+- [Set up the OTLP ingester](ingester.md) for write-path filtering and live catalog population
 - [Set up tracing](../README.md#tracing-support) (optional)
 - Explore the [API Reference](../README.md#api-reference) for programmatic access
 
@@ -234,6 +235,42 @@ Deploy a single proxy instance that all your query clients (Grafana, Perses, cus
 ### Pattern 4: Per-Team Proxies
 
 Deploy separate proxy instances for different teams, each with their own database. This provides team-specific analytics and isolation.
+
+### Pattern 5: Ingester Mode (OTLP write-path filtering)
+
+Run the ingester as a standalone process that receives OTLP metrics, filters unused ones, and forwards the rest. The API server handles analytics and the catalog UI. Both share the same database.
+
+```bash
+# API server — usage aggregation only, catalog populated by the ingester
+./prom-analytics-proxy api \
+  -upstream http://prometheus:9090 \
+  -database-provider postgresql \
+  -postgresql-addr postgres.example.com \
+  -inventory-metadata-sync-enabled=false
+
+# Ingester — receives OTLP, filters unused metrics, populates catalog
+./prom-analytics-proxy ingester \
+  -database-provider postgresql \
+  -postgresql-addr postgres.example.com \
+  -otlp-downstream-address collector:4317 \
+  -ingester-catalog-sync-enabled \
+  -ingester-cache-enabled \
+  -ingester-cache-addr redis:6379
+```
+
+Or with a config file:
+
+```yaml
+# ingester-config.yaml
+ingester:
+  catalog_sync:
+    enabled: true
+    flush_interval: 30s
+    seen_ttl: 1h
+  redis:
+    enabled: true
+    addr: redis:6379
+```
 
 ## Getting Help
 
