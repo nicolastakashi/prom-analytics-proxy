@@ -27,14 +27,14 @@ func makeGauge(name, help, unit string) *metricsv1pb.Metric {
 	}
 }
 
-func TestCatalogBuffer_AddAndSnapshot(t *testing.T) {
+func TestCatalogBuffer_AddAndDrain(t *testing.T) {
 	buf := newCatalogBuffer(100, time.Hour, nil)
 
 	bufAdd(buf, makeGauge("http_requests_total", "Total HTTP requests", ""))
 	bufAdd(buf, makeGauge("http_request_duration_seconds", "Request latency", "s"))
 	bufAdd(buf, makeGauge("memory_usage_bytes", "Memory usage", "By"))
 
-	items := buf.snapshot()
+	items := buf.drain()
 	require.Len(t, items, 3)
 
 	byName := make(map[string]string, len(items))
@@ -46,14 +46,14 @@ func TestCatalogBuffer_AddAndSnapshot(t *testing.T) {
 	assert.Equal(t, "gauge", byName["memory_usage_bytes"])
 }
 
-func TestCatalogBuffer_SnapshotClearsBuffer(t *testing.T) {
+func TestCatalogBuffer_DrainClearsBuffer(t *testing.T) {
 	buf := newCatalogBuffer(100, time.Hour, nil)
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
 
-	first := buf.snapshot()
+	first := buf.drain()
 	require.Len(t, first, 1)
 
-	second := buf.snapshot()
+	second := buf.drain()
 	assert.Empty(t, second)
 }
 
@@ -63,7 +63,7 @@ func TestCatalogBuffer_DeduplicatesWithinFlushInterval(t *testing.T) {
 
 	bufAdd(buf, m, m, m)
 
-	items := buf.snapshot()
+	items := buf.drain()
 	assert.Len(t, items, 1)
 }
 
@@ -71,12 +71,13 @@ func TestCatalogBuffer_SuppressesReFlushWithinTTL(t *testing.T) {
 	buf := newCatalogBuffer(100, time.Hour, nil)
 
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	first := buf.snapshot()
+	first := buf.drain()
 	require.Len(t, first, 1)
+	buf.markFlushed(first, time.Now())
 
 	// Same metric again within TTL - should be suppressed.
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	second := buf.snapshot()
+	second := buf.drain()
 	assert.Empty(t, second)
 }
 
@@ -84,14 +85,15 @@ func TestCatalogBuffer_ReFlushesAfterTTLExpiry(t *testing.T) {
 	buf := newCatalogBuffer(100, 1*time.Millisecond, nil)
 
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	first := buf.snapshot()
+	first := buf.drain()
 	require.Len(t, first, 1)
+	buf.markFlushed(first, time.Now())
 
 	time.Sleep(5 * time.Millisecond)
 
 	// TTL expired - should re-queue for next flush.
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	second := buf.snapshot()
+	second := buf.drain()
 	assert.Len(t, second, 1)
 }
 
@@ -104,7 +106,7 @@ func TestCatalogBuffer_DropWhenFull(t *testing.T) {
 		makeGauge("metric_c", "C", ""), // should be dropped
 	)
 
-	items := buf.snapshot()
+	items := buf.drain()
 	assert.Len(t, items, 2)
 }
 
@@ -120,14 +122,14 @@ func TestCatalogBuffer_RemoteSeenSuppressesAddBatch(t *testing.T) {
 	remotelySeenNames := map[string]bool{"metric_a": true}
 	buf.addBatch(candidates, remotelySeenNames)
 
-	items := buf.snapshot()
+	items := buf.drain()
 	require.Len(t, items, 1)
 	assert.Equal(t, "metric_b", items[0].Name)
 }
 
 func TestCatalogBuffer_RemoteSeenDoesNotPopulateLocalSeen(t *testing.T) {
 	// When seenCache is nil, there is no Redis. RemotelySeenNames should not
-	// interfere with the in-memory seen map - that map is only written by snapshot().
+	// interfere with the in-memory seen map - that map is only written by markFlushed().
 	buf := newCatalogBuffer(100, time.Hour, nil)
 	m := makeGauge("metric_a", "A", "")
 
@@ -135,9 +137,36 @@ func TestCatalogBuffer_RemoteSeenDoesNotPopulateLocalSeen(t *testing.T) {
 	buf.addBatch(candidates, map[string]bool{"metric_a": true})
 
 	// metric_a was skipped by addBatch (remote seen), but the in-memory seen map
-	// is only updated via snapshot(), so it is still a candidate until flushed.
+	// is only updated via markFlushed(), so it is still a candidate until flushed.
 	candidates2 := buf.candidatesForBuffer([]*metricsv1pb.Metric{m})
 	assert.Len(t, candidates2, 1)
+}
+
+func TestCatalogBuffer_DrainDoesNotMarkSeenBeforeAck(t *testing.T) {
+	buf := newCatalogBuffer(100, time.Hour, nil)
+	m := makeGauge("metric_a", "A", "")
+
+	bufAdd(buf, m)
+	drained := buf.drain()
+	require.Len(t, drained, 1)
+
+	// Simulate a failed flush (no markFlushed call). Metric should still be re-bufferable.
+	bufAdd(buf, m)
+	drainedAgain := buf.drain()
+	require.Len(t, drainedAgain, 1)
+	assert.Equal(t, "metric_a", drainedAgain[0].Name)
+}
+
+func TestCatalogBuffer_RequeueRestoresFailedFlushItems(t *testing.T) {
+	buf := newCatalogBuffer(100, time.Hour, nil)
+
+	bufAdd(buf, makeGauge("metric_a", "A", ""), makeGauge("metric_b", "B", ""))
+	drained := buf.drain()
+	require.Len(t, drained, 2)
+
+	buf.requeue(drained)
+	retried := buf.drain()
+	require.Len(t, retried, 2)
 }
 
 // fakeCatalogSeenCache is an in-memory CatalogSeenCache for testing Redis path behaviour.
@@ -191,7 +220,7 @@ func TestCatalogBuffer_WithSeenCache_SuppressesAfterRemoteMark(t *testing.T) {
 	seen, _ := fakeCache.HasMany(context.Background(), []string{"metric_a"})
 	buf.addBatch(candidates, seen)
 
-	items := buf.snapshot()
+	items := buf.drain()
 	assert.Empty(t, items) // suppressed by Redis
 }
 

@@ -1169,3 +1169,86 @@ func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
 	assert.Len(t, catalogRows2, 4, "new metric catalog_metric_d should have been added")
 	assert.Equal(t, "catalog_metric_d", catalogRows2[3].name)
 }
+
+func TestOTLPIngester_CatalogFlush_RequeuesOnDBFailure(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	cfg.Ingester.CatalogSync.Enabled = true
+	cfg.Ingester.CatalogSync.FlushInterval = 5 * time.Minute
+	cfg.Ingester.CatalogSync.BufferSize = 100
+	cfg.Ingester.CatalogSync.SeenTTL = 1 * time.Hour
+
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+	ing.SetExporter(&captureExporter{})
+
+	req := buildExportRequest(buildGaugeMetric("retry_metric", 1))
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "retry_metric", QueryCount: 1},
+	}, nil).Once()
+
+	upsertMatcher := mock.MatchedBy(func(items []db.MetricCatalogItem) bool {
+		return len(items) == 1 && items[0].Name == "retry_metric"
+	})
+	mp.On("UpsertMetricsCatalog", mock.Anything, upsertMatcher).Return(assert.AnError).Once()
+	mp.On("UpsertMetricsCatalog", mock.Anything, upsertMatcher).Return(nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// First flush fails and must requeue for retry.
+	ing.FlushCatalog(context.Background())
+	// Second flush must retry the same buffered item.
+	ing.FlushCatalog(context.Background())
+
+	mp.AssertExpectations(t)
+}
+
+func TestOTLPIngester_Run_ShutdownFlushesCatalogBuffer(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	cfg.Ingester.OTLP.ListenAddress = "127.0.0.1:0"
+	cfg.Ingester.GracefulShutdownTimeout = 2 * time.Second
+	cfg.Ingester.CatalogSync.Enabled = true
+	cfg.Ingester.CatalogSync.FlushInterval = 5 * time.Minute
+	cfg.Ingester.CatalogSync.BufferSize = 100
+	cfg.Ingester.CatalogSync.SeenTTL = 1 * time.Hour
+
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+	ing.SetExporter(&captureExporter{})
+
+	req := buildExportRequest(buildGaugeMetric("shutdown_metric", 1))
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "shutdown_metric", QueryCount: 1},
+	}, nil).Once()
+	mp.On(
+		"UpsertMetricsCatalog",
+		mock.MatchedBy(func(ctx context.Context) bool { return ctx.Err() == nil }),
+		mock.MatchedBy(func(items []db.MetricCatalogItem) bool {
+			return len(items) == 1 && items[0].Name == "shutdown_metric"
+		}),
+	).Return(nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- ing.Run(runCtx)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case runErr := <-runDone:
+		assert.NoError(t, runErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ingester did not stop in time")
+	}
+
+	mp.AssertExpectations(t)
+}

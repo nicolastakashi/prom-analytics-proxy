@@ -203,15 +203,6 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 			time.Sleep(d)
 		}
 		_ = lis.Close()
-		if i.exporter != nil {
-			_ = i.exporter.Close()
-		}
-		if i.metricCache != nil {
-			_ = i.metricCache.Close()
-		}
-		if i.catalogBuf != nil && i.catalogBuf.seenCache != nil {
-			_ = i.catalogBuf.seenCache.Close()
-		}
 		shutdownDone := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()
@@ -221,13 +212,29 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		if timeout <= 0 {
 			timeout = 30 * time.Second
 		}
+		timedOut := false
 		select {
 		case <-shutdownDone:
-			return nil
 		case <-time.After(timeout):
 			grpcServer.Stop()
+			timedOut = true
+		}
+
+		i.flushCatalogOnShutdown(timeout)
+
+		if i.exporter != nil {
+			_ = i.exporter.Close()
+		}
+		if i.metricCache != nil {
+			_ = i.metricCache.Close()
+		}
+		if i.catalogBuf != nil && i.catalogBuf.seenCache != nil {
+			_ = i.catalogBuf.seenCache.Close()
+		}
+		if timedOut {
 			return ctx.Err()
 		}
+		return nil
 	case err := <-serveErrCh:
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			return err
@@ -874,27 +881,45 @@ func (i *OtlpIngester) runCatalogFlusher(ctx context.Context) {
 	}
 }
 
-// FlushCatalog snapshots the catalog buffer and writes any pending metrics to the DB.
+func (i *OtlpIngester) flushCatalogOnShutdown(timeout time.Duration) {
+	if i.catalogBuf == nil {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	flushCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	i.FlushCatalog(flushCtx)
+}
+
+// FlushCatalog drains the catalog buffer and writes any pending metrics to the DB.
 // It is called automatically by the background flusher, but can also be called directly
 // in tests or on shutdown to ensure no buffered entries are lost.
 func (i *OtlpIngester) FlushCatalog(ctx context.Context) {
+	if i.catalogBuf == nil {
+		return
+	}
 	i.flushCatalog(ctx)
 }
 
 func (i *OtlpIngester) flushCatalog(ctx context.Context) {
-	items := i.catalogBuf.snapshot()
+	items := i.catalogBuf.drain()
 	if len(items) == 0 {
 		return
 	}
 
 	start := time.Now()
 	if err := i.db.UpsertMetricsCatalog(ctx, items); err != nil {
+		// Keep items in memory for a future retry on transient DB errors.
+		i.catalogBuf.requeue(items)
 		slog.ErrorContext(ctx, "ingester.catalog.flush.failed",
 			"err", err,
 			"metrics_count", len(items))
 		catalogFlushErrorsTotal.Inc()
 		return
 	}
+	i.catalogBuf.markFlushed(items, time.Now())
 
 	elapsed := time.Since(start)
 	catalogFlushDurationSeconds.Observe(elapsed.Seconds())

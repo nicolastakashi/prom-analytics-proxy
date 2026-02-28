@@ -105,10 +105,10 @@ func (b *catalogBuffer) addBatch(candidates []*metricspb.Metric, remotelySeenNam
 	}
 }
 
-// snapshot atomically returns all pending items and clears the pending queue.
-// When using in-memory deduplication (no seenCache), flush timestamps are recorded
-// in the seen map so re-queuing is suppressed within SeenTTL.
-func (b *catalogBuffer) snapshot() []db.MetricCatalogItem {
+// drain atomically returns all pending items and clears the pending queue.
+// It does not update the seen map. Call markFlushed only after the DB upsert
+// succeeds so transient flush failures can be retried safely.
+func (b *catalogBuffer) drain() []db.MetricCatalogItem {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -117,15 +117,52 @@ func (b *catalogBuffer) snapshot() []db.MetricCatalogItem {
 	}
 
 	out := make([]db.MetricCatalogItem, 0, len(b.pending))
-	for name, item := range b.pending {
+	for _, item := range b.pending {
 		out = append(out, item)
-		if b.seen != nil {
-			b.seen[name] = time.Now()
-		}
 	}
 	b.pending = make(map[string]db.MetricCatalogItem, b.maxSize)
 	catalogBufferSize.Set(0)
 	return out
+}
+
+// requeue merges previously drained items back into pending after a failed flush.
+// Existing pending entries are preserved so newer buffered values win.
+func (b *catalogBuffer) requeue(items []db.MetricCatalogItem) {
+	if len(items) == 0 {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, item := range items {
+		if item.Name == "" {
+			continue
+		}
+		if _, exists := b.pending[item.Name]; exists {
+			continue
+		}
+		b.pending[item.Name] = item
+	}
+	catalogBufferSize.Set(float64(len(b.pending)))
+}
+
+// markFlushed records successful flush timestamps in the in-memory seen map.
+// No-op when a distributed seen cache is used.
+func (b *catalogBuffer) markFlushed(items []db.MetricCatalogItem, flushedAt time.Time) {
+	if b.seen == nil || len(items) == 0 {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, item := range items {
+		if item.Name == "" {
+			continue
+		}
+		b.seen[item.Name] = flushedAt
+	}
 }
 
 // otlpTypeToPrometheus maps an OTLP metric data type to the equivalent Prometheus type string
