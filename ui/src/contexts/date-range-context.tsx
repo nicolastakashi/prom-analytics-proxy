@@ -10,7 +10,7 @@ import type { DateRange } from "react-day-picker";
 import { fromUTC, formatLocalToUTC } from "@/lib/utils/date-utils";
 
 interface DateRangeContextType {
-  dateRange: DateRange | undefined;
+  dateRange: DateRange;
   setDateRange: (range: DateRange) => void;
 }
 
@@ -21,7 +21,7 @@ const DateRangeContext = createContext<DateRangeContextType | undefined>(
 export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const dateRange: DateRange | undefined = useMemo(() => {
+  const dateRange: DateRange = useMemo(() => {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
 
@@ -38,7 +38,16 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         console.error("Error parsing dates from URL", error);
       }
     }
-    return undefined;
+
+    // Default to last 15 minutes
+    const now = new Date();
+    // Zero milliseconds for consistency
+    now.setMilliseconds(0);
+    const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+    return {
+      from: fifteenMinutesAgo,
+      to: now,
+    };
   }, [searchParams]);
 
   const setDateRange = useCallback(
