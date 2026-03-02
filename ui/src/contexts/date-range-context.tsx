@@ -1,7 +1,13 @@
-import { createContext, useContext, ReactNode } from 'react';
-import { useSearchParams } from 'wouter';
-import type { DateRange } from 'react-day-picker';
-import { fromUTC, formatLocalToUTC } from '@/lib/utils/date-utils';
+import {
+  createContext,
+  useContext,
+  ReactNode,
+  useMemo,
+  useCallback,
+} from "react";
+import { useSearchParams } from "wouter";
+import type { DateRange } from "react-day-picker";
+import { fromUTC, formatLocalToUTC } from "@/lib/utils/date-utils";
 
 interface DateRangeContextType {
   dateRange: DateRange | undefined;
@@ -26,7 +32,7 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
         const toDate = fromUTC(to);
 
         if (!isNaN(fromDate.getTime()) && !isNaN(toDate.getTime())) {
-          setInternalDateRange({ from: fromDate, to: toDate });
+          return { from: fromDate, to: toDate };
         }
       } catch (error) {
         console.error("Error parsing dates from URL", error);

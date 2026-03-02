@@ -1,5 +1,5 @@
-import { type LucideIcon } from "lucide-react"
-import { useLocation } from "wouter"
+import { type LucideIcon } from "lucide-react";
+import { useLocation } from "wouter";
 
 import {
   SidebarGroup,
