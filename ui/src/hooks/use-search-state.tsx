@@ -1,7 +1,7 @@
 import { useSearchParams } from "wouter";
 
 // A custom hook to manage a specific search parameter in the URL
-// TODO: handle debounce if needed + remove from state if value is equal to defaultValue
+// TODO: handle debounce inputs (in a new hook)
 export function useSearchState<T>(
   key: string,
   defaultValue?: T,
