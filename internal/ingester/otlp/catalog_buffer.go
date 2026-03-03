@@ -127,6 +127,7 @@ func (b *catalogBuffer) drain() []db.MetricCatalogItem {
 
 // requeue merges previously drained items back into pending after a failed flush.
 // Existing pending entries are preserved so newer buffered values win.
+// The buffer size cap is enforced to avoid unbounded growth during sustained DB outages.
 func (b *catalogBuffer) requeue(items []db.MetricCatalogItem) {
 	if len(items) == 0 {
 		return
@@ -140,6 +141,11 @@ func (b *catalogBuffer) requeue(items []db.MetricCatalogItem) {
 			continue
 		}
 		if _, exists := b.pending[item.Name]; exists {
+			continue
+		}
+		if len(b.pending) >= b.maxSize {
+			slog.Debug("ingester.catalog.buffer.full", "dropped_metric", item.Name, "buffer_size", b.maxSize, "source", "requeue")
+			catalogBufferDroppedTotal.Inc()
 			continue
 		}
 		b.pending[item.Name] = item

@@ -75,14 +75,25 @@ func (c *redisCatalogSeenCache) HasMany(ctx context.Context, names []string) (ma
 	return out, nil
 }
 
+func redisTTLSeconds(ttl time.Duration) int64 {
+	if ttl <= 0 {
+		return 3600
+	}
+	ttlSeconds := int64(ttl / time.Second)
+	if ttl%time.Second != 0 {
+		ttlSeconds++
+	}
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
+	}
+	return ttlSeconds
+}
+
 func (c *redisCatalogSeenCache) MarkMany(ctx context.Context, names []string, ttl time.Duration) error {
 	if len(names) == 0 {
 		return nil
 	}
-	ttlSeconds := int64(ttl.Seconds())
-	if ttlSeconds <= 0 {
-		ttlSeconds = 3600
-	}
+	ttlSeconds := redisTTLSeconds(ttl)
 
 	cmds := make([]rueidis.Completed, 0, len(names))
 	for _, name := range names {

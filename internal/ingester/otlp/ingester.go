@@ -31,6 +31,11 @@ const (
 	rpcMethod  = "Export"
 	rpcService = "opentelemetry.proto.collector.metrics.v1.MetricsService"
 	rpcOkCode  = "OK"
+
+	defaultCatalogBufferSize       = 10000
+	defaultCatalogFlushInterval    = 30 * time.Second
+	defaultCatalogSeenTTL          = time.Hour
+	defaultGracefulShutdownTimeout = 30 * time.Second
 )
 
 type OtlpIngester struct {
@@ -85,15 +90,15 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	if config.Ingester.CatalogSync.Enabled {
 		bufSize := config.Ingester.CatalogSync.BufferSize
 		if bufSize <= 0 {
-			bufSize = 10000
+			bufSize = defaultCatalogBufferSize
 		}
 		catFlushIv = config.Ingester.CatalogSync.FlushInterval
 		if catFlushIv <= 0 {
-			catFlushIv = 30 * time.Second
+			catFlushIv = defaultCatalogFlushInterval
 		}
 		catSeenTTL = config.Ingester.CatalogSync.SeenTTL
 		if catSeenTTL <= 0 {
-			catSeenTTL = time.Hour
+			catSeenTTL = defaultCatalogSeenTTL
 		}
 
 		// Wire up Redis seen cache when Redis is already configured, reusing the same
@@ -210,7 +215,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		}()
 		timeout := i.config.Ingester.GracefulShutdownTimeout
 		if timeout <= 0 {
-			timeout = 30 * time.Second
+			timeout = defaultGracefulShutdownTimeout
 		}
 		timedOut := false
 		select {
@@ -886,7 +891,7 @@ func (i *OtlpIngester) flushCatalogOnShutdown(timeout time.Duration) {
 		return
 	}
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = defaultGracefulShutdownTimeout
 	}
 	flushCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metricsv1pb "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -167,6 +168,29 @@ func TestCatalogBuffer_RequeueRestoresFailedFlushItems(t *testing.T) {
 	buf.requeue(drained)
 	retried := buf.drain()
 	require.Len(t, retried, 2)
+}
+
+func TestCatalogBuffer_RequeueRespectsMaxSize(t *testing.T) {
+	buf := newCatalogBuffer(2, time.Hour, nil)
+	bufAdd(buf, makeGauge("metric_new", "new", ""))
+
+	// Requeue two failed items while only one slot is available.
+	buf.requeue([]db.MetricCatalogItem{
+		{Name: "metric_a", Type: "gauge"},
+		{Name: "metric_b", Type: "gauge"},
+	})
+
+	items := buf.drain()
+	require.Len(t, items, 2)
+	names := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		names[item.Name] = struct{}{}
+	}
+
+	_, hasNew := names["metric_new"]
+	_, hasA := names["metric_a"]
+	assert.True(t, hasNew)
+	assert.True(t, hasA)
 }
 
 // fakeCatalogSeenCache is an in-memory CatalogSeenCache for testing Redis path behaviour.
