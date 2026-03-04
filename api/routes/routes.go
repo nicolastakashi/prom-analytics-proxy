@@ -130,6 +130,7 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 func WithProxy(upstream *url.URL) Option {
 	return func(r *routes) {
 		proxy := httputil.NewSingleHostReverseProxy(upstream)
+		proxy.Director = nil // Clear Director since we're using Rewrite (Go 1.20+ requires exactly one)
 		proxy.Rewrite = func(pr *httputil.ProxyRequest) {
 			pr.SetURL(upstream)
 			pr.Out.Host = upstream.Host // Set the Host header to the target host
