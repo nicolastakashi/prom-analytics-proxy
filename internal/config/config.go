@@ -176,10 +176,14 @@ var DefaultConfig = &Config{
 		GracefulShutdownTimeout: 30 * time.Second,
 		DrainDelay:              2 * time.Second,
 		Redis: RedisCacheConfig{
-			Enabled:   false,
-			UsedTTL:   1 * time.Hour,
-			UnusedTTL: 2 * time.Minute,
-			UsedOnly:  false,
+			Enabled:          false,
+			UsedTTL:          1 * time.Hour,
+			UnusedTTL:        2 * time.Minute,
+			UsedOnly:         false,
+			OperationTimeout: 200 * time.Millisecond,
+			DialTimeout:      5 * time.Second,
+			ConnWriteTimeout: 10 * time.Second,
+			BatchSize:        100,
 		},
 		CatalogSync: CatalogSyncConfig{
 			Enabled:       false,
@@ -290,6 +294,14 @@ type RedisCacheConfig struct {
 	UnusedTTL time.Duration `yaml:"unused_ttl,omitempty"`
 	// UsedOnly when true, only caches "used" states and never caches "unused" states
 	UsedOnly bool `yaml:"used_only,omitempty"`
+	// OperationTimeout is the timeout for individual cache get/set operations (default 200ms)
+	OperationTimeout time.Duration `yaml:"operation_timeout,omitempty"`
+	// DialTimeout is the TCP dial timeout for Redis connections (default 5s)
+	DialTimeout time.Duration `yaml:"dial_timeout,omitempty"`
+	// ConnWriteTimeout is the read/write timeout for Redis connections (default 10s)
+	ConnWriteTimeout time.Duration `yaml:"conn_write_timeout,omitempty"`
+	// BatchSize is the maximum number of commands per DoMulti batch (default 100)
+	BatchSize int `yaml:"batch_size,omitempty"`
 }
 
 func LoadConfig(path string) error {

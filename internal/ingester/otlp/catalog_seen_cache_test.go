@@ -28,3 +28,36 @@ func TestRedisTTLSeconds(t *testing.T) {
 		})
 	}
 }
+
+func TestNewRedisCatalogSeenCache_EmptyAddr(t *testing.T) {
+	_, err := newRedisCatalogSeenCache("", "", "", 0, 0, 0, 0)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "redis addr is required")
+}
+
+func TestNewRedisCatalogSeenCache_DefaultsApplied(t *testing.T) {
+	cache, err := newRedisCatalogSeenCache("localhost:6379", "", "", 0, 0, 0, 0)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisCatalogSeenCache)
+		assert.Equal(t, 100, redisCache.maxBatchSize)
+		_ = cache.Close()
+	}
+}
+
+func TestNewRedisCatalogSeenCache_CustomBatchSize(t *testing.T) {
+	cache, err := newRedisCatalogSeenCache("localhost:6379", "", "", 0, 5*time.Second, 10*time.Second, 75)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisCatalogSeenCache)
+		assert.Equal(t, 75, redisCache.maxBatchSize)
+		_ = cache.Close()
+	}
+}
+
+func TestRedisCatalogSeenCache_KeyGeneration(t *testing.T) {
+	cache, err := newRedisCatalogSeenCache("localhost:6379", "", "", 0, 0, 0, 0)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisCatalogSeenCache)
+		assert.Equal(t, "catalog_seen:test_metric", redisCache.key("test_metric"))
+		_ = cache.Close()
+	}
+}

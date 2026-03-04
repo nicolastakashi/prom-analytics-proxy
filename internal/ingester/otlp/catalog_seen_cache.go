@@ -3,6 +3,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/redis/rueidis"
@@ -22,15 +23,32 @@ type CatalogSeenCache interface {
 // redisCatalogSeenCache is a Redis-backed CatalogSeenCache. It uses a dedicated
 // key prefix ("catalog_seen:") to avoid collisions with the metric usage cache.
 type redisCatalogSeenCache struct {
-	client rueidis.Client
+	client       rueidis.Client
+	maxBatchSize int
 }
 
-func newRedisCatalogSeenCache(addr, username, password string, db int) (CatalogSeenCache, error) {
+func newRedisCatalogSeenCache(addr, username, password string, db int, dialTimeout, connWriteTimeout time.Duration, batchSize int) (CatalogSeenCache, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("redis addr is required")
 	}
+
+	if dialTimeout <= 0 {
+		dialTimeout = 5 * time.Second
+	}
+	if connWriteTimeout <= 0 {
+		connWriteTimeout = 10 * time.Second
+	}
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
 	opts := rueidis.ClientOption{
 		InitAddress: []string{addr},
+		Dialer: net.Dialer{
+			Timeout:   dialTimeout,
+			KeepAlive: 1 * time.Second,
+		},
+		ConnWriteTimeout: connWriteTimeout,
 	}
 	if username != "" {
 		opts.Username = username
@@ -45,7 +63,7 @@ func newRedisCatalogSeenCache(addr, username, password string, db int) (CatalogS
 	if err != nil {
 		return nil, fmt.Errorf("failed to create redis client for catalog seen cache: %w", err)
 	}
-	return &redisCatalogSeenCache{client: client}, nil
+	return &redisCatalogSeenCache{client: client, maxBatchSize: batchSize}, nil
 }
 
 func (c *redisCatalogSeenCache) key(name string) string {
@@ -57,21 +75,31 @@ func (c *redisCatalogSeenCache) HasMany(ctx context.Context, names []string) (ma
 		return make(map[string]bool), nil
 	}
 
-	cmds := make([]rueidis.Completed, 0, len(names))
-	for _, name := range names {
-		cmds = append(cmds, c.client.B().Exists().Key(c.key(name)).Build())
+	out := make(map[string]bool, len(names))
+
+	for i := 0; i < len(names); i += c.maxBatchSize {
+		end := i + c.maxBatchSize
+		if end > len(names) {
+			end = len(names)
+		}
+		batch := names[i:end]
+
+		cmds := make([]rueidis.Completed, 0, len(batch))
+		for _, name := range batch {
+			cmds = append(cmds, c.client.B().Exists().Key(c.key(name)).Build())
+		}
+
+		results := c.client.DoMulti(ctx, cmds...)
+		for j, name := range batch {
+			n, err := results[j].AsInt64()
+			if err != nil {
+				out[name] = false
+				continue
+			}
+			out[name] = n > 0
+		}
 	}
 
-	results := c.client.DoMulti(ctx, cmds...)
-	out := make(map[string]bool, len(names))
-	for i, name := range names {
-		n, err := results[i].AsInt64()
-		if err != nil {
-			out[name] = false
-			continue
-		}
-		out[name] = n > 0
-	}
 	return out, nil
 }
 
@@ -95,18 +123,30 @@ func (c *redisCatalogSeenCache) MarkMany(ctx context.Context, names []string, tt
 	}
 	ttlSeconds := redisTTLSeconds(ttl)
 
-	cmds := make([]rueidis.Completed, 0, len(names))
-	for _, name := range names {
-		cmds = append(cmds, c.client.B().Set().Key(c.key(name)).Value("1").ExSeconds(ttlSeconds).Build())
-	}
+	var firstErr error
+	for i := 0; i < len(names); i += c.maxBatchSize {
+		end := i + c.maxBatchSize
+		if end > len(names) {
+			end = len(names)
+		}
+		batch := names[i:end]
 
-	results := c.client.DoMulti(ctx, cmds...)
-	for _, result := range results {
-		if err := result.Error(); err != nil {
-			return err
+		cmds := make([]rueidis.Completed, 0, len(batch))
+		for _, name := range batch {
+			cmds = append(cmds, c.client.B().Set().Key(c.key(name)).Value("1").ExSeconds(ttlSeconds).Build())
+		}
+
+		results := c.client.DoMulti(ctx, cmds...)
+		for _, result := range results {
+			if err := result.Error(); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
 		}
 	}
-	return nil
+
+	return firstErr
 }
 
 func (c *redisCatalogSeenCache) Close() error {

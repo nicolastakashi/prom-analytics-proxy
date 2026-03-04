@@ -111,6 +111,9 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 				config.Ingester.Redis.Username,
 				config.Ingester.Redis.Password,
 				config.Ingester.Redis.DB,
+				config.Ingester.Redis.DialTimeout,
+				config.Ingester.Redis.ConnWriteTimeout,
+				config.Ingester.Redis.BatchSize,
 			)
 			if err != nil {
 				slog.Error("ingester.catalog.seen_cache.init.failed", "err", err)
@@ -614,7 +617,10 @@ func (i *OtlpIngester) lookupCache(ctx context.Context, batch []string) (usedFro
 
 // computeCacheTimeout calculates the timeout for cache operations.
 func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
-	cacheTimeout := 50 * time.Millisecond
+	cacheTimeout := 200 * time.Millisecond
+	if i.config != nil && i.config.Ingester.Redis.OperationTimeout > 0 {
+		cacheTimeout = i.config.Ingester.Redis.OperationTimeout
+	}
 	if exportTimeout := computeExportTimeout(ctx, i.exportTimeout); exportTimeout > 0 && exportTimeout/10 < cacheTimeout {
 		cacheTimeout = exportTimeout / 10
 	}
@@ -987,6 +993,10 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UsedTTL, "ingester-cache-used-ttl", config.DefaultConfig.Ingester.Redis.UsedTTL, "TTL for caching 'used' metric states")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UnusedTTL, "ingester-cache-unused-ttl", config.DefaultConfig.Ingester.Redis.UnusedTTL, "TTL for caching 'unused' metric states")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.UsedOnly, "ingester-cache-used-only", config.DefaultConfig.Ingester.Redis.UsedOnly, "Only cache 'used' states, never cache 'unused' states")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.DialTimeout, "ingester-cache-dial-timeout", config.DefaultConfig.Ingester.Redis.DialTimeout, "TCP dial timeout for Redis connections")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "ingester-cache-conn-write-timeout", config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "Read/write timeout for Redis connections")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.Redis.BatchSize, "ingester-cache-batch-size", config.DefaultConfig.Ingester.Redis.BatchSize, "Max commands per DoMulti batch")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.CatalogSync.Enabled, "ingester-catalog-sync-enabled", config.DefaultConfig.Ingester.CatalogSync.Enabled, "Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this)")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.CatalogSync.FlushInterval, "ingester-catalog-sync-flush-interval", config.DefaultConfig.Ingester.CatalogSync.FlushInterval, "How often to flush buffered metrics to the catalog DB")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.CatalogSync.BufferSize, "ingester-catalog-sync-buffer-size", config.DefaultConfig.Ingester.CatalogSync.BufferSize, "Maximum number of unique metrics to buffer before dropping (per flush interval)")
