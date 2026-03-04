@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strconv"
 	"time"
 
@@ -37,10 +38,11 @@ type MetricUsageCache interface {
 }
 
 type redisMetricUsageCache struct {
-	client    rueidis.Client
-	usedTTL   time.Duration
-	unusedTTL time.Duration
-	usedOnly  bool
+	client       rueidis.Client
+	usedTTL      time.Duration
+	unusedTTL    time.Duration
+	usedOnly     bool
+	maxBatchSize int
 }
 
 func NewRedisMetricUsageCache(cfg config.RedisCacheConfig) (MetricUsageCache, error) {
@@ -51,8 +53,22 @@ func NewRedisMetricUsageCache(cfg config.RedisCacheConfig) (MetricUsageCache, er
 		return nil, fmt.Errorf("redis addr is required when redis is enabled")
 	}
 
+	dialTimeout := cfg.DialTimeout
+	if dialTimeout <= 0 {
+		dialTimeout = 5 * time.Second
+	}
+	connWriteTimeout := cfg.ConnWriteTimeout
+	if connWriteTimeout <= 0 {
+		connWriteTimeout = 10 * time.Second
+	}
+
 	opts := rueidis.ClientOption{
 		InitAddress: []string{cfg.Addr},
+		Dialer: net.Dialer{
+			Timeout:   dialTimeout,
+			KeepAlive: 1 * time.Second,
+		},
+		ConnWriteTimeout: connWriteTimeout,
 	}
 	if cfg.Username != "" {
 		opts.Username = cfg.Username
@@ -77,12 +93,17 @@ func NewRedisMetricUsageCache(cfg config.RedisCacheConfig) (MetricUsageCache, er
 	if unusedTTL <= 0 {
 		unusedTTL = 2 * time.Minute
 	}
+	maxBatchSize := cfg.BatchSize
+	if maxBatchSize <= 0 {
+		maxBatchSize = 100
+	}
 
 	return &redisMetricUsageCache{
-		client:    client,
-		usedTTL:   usedTTL,
-		unusedTTL: unusedTTL,
-		usedOnly:  cfg.UsedOnly,
+		client:       client,
+		usedTTL:      usedTTL,
+		unusedTTL:    unusedTTL,
+		usedOnly:     cfg.UsedOnly,
+		maxBatchSize: maxBatchSize,
 	}, nil
 }
 
@@ -95,32 +116,41 @@ func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (
 		return make(map[string]MetricUsageState), nil
 	}
 
-	cmds := make([]rueidis.Completed, 0, len(names))
-	for _, name := range names {
-		cmds = append(cmds, c.client.B().Get().Key(c.key(name)).Build())
-	}
-
-	results := c.client.DoMulti(ctx, cmds...)
-
 	states := make(map[string]MetricUsageState, len(names))
-	for i, name := range names {
-		val, err := results[i].AsInt64()
-		if err != nil {
-			states[name] = StateUnknown
-			continue
+
+	for i := 0; i < len(names); i += c.maxBatchSize {
+		end := i + c.maxBatchSize
+		if end > len(names) {
+			end = len(names)
+		}
+		batch := names[i:end]
+
+		cmds := make([]rueidis.Completed, 0, len(batch))
+		for _, name := range batch {
+			cmds = append(cmds, c.client.B().Get().Key(c.key(name)).Build())
 		}
 
-		switch CacheValue(val) {
-		case CacheValueUsed:
-			states[name] = StateUsed
-		case CacheValueUnused:
-			if !c.usedOnly {
-				states[name] = StateUnused
-			} else {
+		results := c.client.DoMulti(ctx, cmds...)
+
+		for j, name := range batch {
+			val, err := results[j].AsInt64()
+			if err != nil {
+				states[name] = StateUnknown
+				continue
+			}
+
+			switch CacheValue(val) {
+			case CacheValueUsed:
+				states[name] = StateUsed
+			case CacheValueUnused:
+				if !c.usedOnly {
+					states[name] = StateUnused
+				} else {
+					states[name] = StateUnknown
+				}
+			default:
 				states[name] = StateUnknown
 			}
-		default:
-			states[name] = StateUnknown
 		}
 	}
 
@@ -164,13 +194,21 @@ func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string
 		return nil
 	}
 
-	results := c.client.DoMulti(ctx, cmds...)
 	var firstErr error
-	for i, result := range results {
-		if err := result.Error(); err != nil {
-			slog.ErrorContext(ctx, "ingester.cache.set.failed", "index", i, "err", err)
-			if firstErr == nil {
-				firstErr = err
+	for i := 0; i < len(cmds); i += c.maxBatchSize {
+		end := i + c.maxBatchSize
+		if end > len(cmds) {
+			end = len(cmds)
+		}
+		batch := cmds[i:end]
+
+		results := c.client.DoMulti(ctx, batch...)
+		for j, result := range results {
+			if err := result.Error(); err != nil {
+				slog.ErrorContext(ctx, "ingester.cache.set.failed", "index", i+j, "err", err)
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
 	}

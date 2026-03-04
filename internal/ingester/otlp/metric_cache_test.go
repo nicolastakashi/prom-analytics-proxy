@@ -139,3 +139,60 @@ func TestRedisMetricUsageCache_KeyGeneration(t *testing.T) {
 		_ = cache.Close()
 	}
 }
+
+func TestNewRedisMetricUsageCache_BatchSizeDefaults(t *testing.T) {
+	cfg := config.RedisCacheConfig{
+		Enabled:   true,
+		Addr:      "localhost:6379",
+		BatchSize: 0,
+	}
+	cache, err := NewRedisMetricUsageCache(cfg)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisMetricUsageCache)
+		assert.Equal(t, 100, redisCache.maxBatchSize)
+		_ = cache.Close()
+	}
+}
+
+func TestNewRedisMetricUsageCache_CustomBatchSize(t *testing.T) {
+	cfg := config.RedisCacheConfig{
+		Enabled:   true,
+		Addr:      "localhost:6379",
+		BatchSize: 50,
+	}
+	cache, err := NewRedisMetricUsageCache(cfg)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisMetricUsageCache)
+		assert.Equal(t, 50, redisCache.maxBatchSize)
+		_ = cache.Close()
+	}
+}
+
+func TestNewRedisMetricUsageCache_TimeoutDefaults(t *testing.T) {
+	cfg := config.RedisCacheConfig{
+		Enabled:          true,
+		Addr:             "localhost:6379",
+		DialTimeout:      0,
+		ConnWriteTimeout: 0,
+	}
+	cache, err := NewRedisMetricUsageCache(cfg)
+	if err == nil && cache != nil {
+		_ = cache.Close()
+	}
+}
+
+func TestNewRedisMetricUsageCache_CustomTimeouts(t *testing.T) {
+	cfg := config.RedisCacheConfig{
+		Enabled:          true,
+		Addr:             "localhost:6379",
+		DialTimeout:      10 * time.Second,
+		ConnWriteTimeout: 20 * time.Second,
+		BatchSize:        200,
+	}
+	cache, err := NewRedisMetricUsageCache(cfg)
+	if err == nil && cache != nil {
+		redisCache := cache.(*redisMetricUsageCache)
+		assert.Equal(t, 200, redisCache.maxBatchSize)
+		_ = cache.Close()
+	}
+}

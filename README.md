@@ -250,6 +250,8 @@ Flags (api):
     	Timeout for processing each individual job (default 30s)
   -inventory-job-index-workers int
     	Number of worker goroutines for job index processing (default 10)
+  -inventory-metadata-sync-enabled
+    	Enable Prometheus metadata sync to populate metrics catalog (disable when OTLP ingester handles catalog population) (default true)
   -inventory-metadata-timeout duration
     	Timeout for metadata collection step (default 30s)
   -inventory-run-timeout duration
@@ -334,6 +336,14 @@ Flags (metrics ingester):
     	TTL for caching 'used' metric states (default 1h0m0s)
   -ingester-cache-username string
     	Cache username (optional)
+  -ingester-catalog-sync-buffer-size int
+    	Maximum number of unique metrics to buffer before dropping (per flush interval) (default 10000)
+  -ingester-catalog-sync-enabled
+    	Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this)
+  -ingester-catalog-sync-flush-interval duration
+    	How often to flush buffered metrics to the catalog DB (default 30s)
+  -ingester-catalog-sync-seen-ttl duration
+    	How long a metric is suppressed from re-flushing after first write (reduces duplicate DB upserts) (default 1h0m0s)
   -ingester-denied-jobs value
     	Comma-separated list of denied jobs to ingest metrics from
   -ingester-drain-delay duration
@@ -461,15 +471,17 @@ The inventory syncer maintains a catalog of metrics and their usage patterns. It
 
 ```yaml
 inventory:
-  enabled: true # Enable inventory syncing (default: true)
-  sync_interval: 10m # How often to sync inventory (default: 10m)
-  time_window: 720h # Time window for usage analysis (default: 30 days)
-  run_timeout: 30s # Timeout for entire sync run (default: 30s)
+  enabled: true              # Enable inventory syncing (default: true)
+  metadata_sync_enabled: true # Fetch metric metadata from Prometheus to populate the catalog (default: true)
+                             # Set to false when using the OTLP ingester to populate the catalog instead.
+  sync_interval: 10m         # How often to sync inventory (default: 10m)
+  time_window: 720h          # Time window for usage analysis (default: 30 days)
+  run_timeout: 30s           # Timeout for entire sync run (default: 30s)
   metadata_step_timeout: 15s # Timeout for metadata fetch (default: 15s)
-  summary_step_timeout: 10s # Timeout for usage summary refresh (default: 10s)
-  job_index_label_timeout: 10s # Timeout for job label fetch (default: 10s)
+  summary_step_timeout: 10s  # Timeout for usage summary refresh (default: 10s)
+  job_index_label_timeout: 10s  # Timeout for job label fetch (default: 10s)
   job_index_per_job_timeout: 5s # Timeout per job for series fetch (default: 5s)
-  job_index_workers: 10 # Number of concurrent workers for job processing (default: 10)
+  job_index_workers: 10      # Number of concurrent workers for job processing (default: 10)
 ```
 
 **Performance Notes:**
@@ -477,6 +489,17 @@ inventory:
 - For environments with hundreds of jobs (500+), increase `job_index_workers` to 20-50 for faster processing
 - Increase `run_timeout` proportionally when processing many jobs (e.g., 300s for 1000+ jobs)
 - Each worker processes one job at a time, so more workers = faster job index building
+
+### Ingester & Deployment Modes
+
+The OTLP ingester enables write-path filtering of unused metrics and can populate the metrics catalog directly from live traffic — without depending on the Prometheus metadata API.
+
+The proxy supports two deployment modes:
+
+- **Analytics-Only** (default) — single instance, catalog populated from Prometheus metadata sync.
+- **Ingester Mode** — two separate instances sharing a database; the ingester populates the catalog, the API server handles usage aggregation only.
+
+**📖 See the [Ingester & Deployment Modes guide](docs/ingester.md) for full configuration details, architecture diagrams, and observability metrics.**
 
 ## Troubleshooting
 

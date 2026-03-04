@@ -19,11 +19,12 @@ import (
 )
 
 type Syncer struct {
-	dbProvider  db.Provider
-	promAPI     v1.API
-	timeWindow  time.Duration
-	interval    time.Duration
-	metadataLim string
+	dbProvider          db.Provider
+	promAPI             v1.API
+	timeWindow          time.Duration
+	interval            time.Duration
+	metadataLim         string
+	metadataSyncEnabled bool
 
 	runTimeout            time.Duration
 	metadataStepTimeout   time.Duration
@@ -53,6 +54,7 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 		timeWindow:            cfg.Inventory.TimeWindow,
 		interval:              cfg.Inventory.SyncInterval,
 		metadataLim:           lim,
+		metadataSyncEnabled:   cfg.Inventory.MetadataSyncEnabled,
 		runTimeout:            cfg.Inventory.RunTimeout,
 		metadataStepTimeout:   cfg.Inventory.MetadataStepTimeout,
 		summaryStepTimeout:    cfg.Inventory.SummaryStepTimeout,
@@ -145,6 +147,25 @@ func (s *Syncer) runOnce(ctx context.Context) {
 }
 
 func (s *Syncer) syncCatalogAndSummary(ctx context.Context) error {
+	if s.metadataSyncEnabled {
+		if err := s.syncMetadataCatalog(ctx); err != nil {
+			return err
+		}
+	} else {
+		slog.Info("inventory: metadata sync disabled, skipping catalog population")
+	}
+
+	sumCtx, cancelSum := context.WithTimeout(ctx, s.summaryStepTimeout)
+	defer cancelSum()
+	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
+	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, tr); err != nil {
+		slog.Error("inventory: refresh summary", "err", err)
+		return err
+	}
+	return nil
+}
+
+func (s *Syncer) syncMetadataCatalog(ctx context.Context) error {
 	metaCtx, cancelMeta := context.WithTimeout(ctx, s.metadataStepTimeout)
 	defer cancelMeta()
 	meta, err := s.promAPI.Metadata(metaCtx, "", s.metadataLim)
@@ -179,14 +200,6 @@ func (s *Syncer) syncCatalogAndSummary(ctx context.Context) error {
 	}
 	if err := s.dbProvider.UpsertMetricsCatalog(metaCtx, items); err != nil {
 		slog.Error("inventory: upsert catalog", "err", err)
-		return err
-	}
-
-	sumCtx, cancelSum := context.WithTimeout(ctx, s.summaryStepTimeout)
-	defer cancelSum()
-	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
-	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, tr); err != nil {
-		slog.Error("inventory: refresh summary", "err", err)
 		return err
 	}
 	return nil
