@@ -1,3 +1,4 @@
+name: prom-analytics-proxy
 services:
   prometheus-backend:
     image: prom/prometheus

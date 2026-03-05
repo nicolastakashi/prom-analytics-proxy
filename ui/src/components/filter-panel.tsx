@@ -9,16 +9,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { CalendarIcon, RefreshCw } from "lucide-react";
-import type { DateRange, DayClickEventHandler } from "react-day-picker";
+import type { DateRange, DayEventHandler } from "react-day-picker";
 import {
   format,
   subDays,
   startOfDay,
   differenceInMilliseconds,
 } from "date-fns";
-import { useSearchParams } from "wouter";
 import { useDateRange } from "@/contexts/date-range-context";
-import { fromUTC } from "@/lib/utils/date-utils";
 
 // Types
 interface TimeRange {
@@ -75,52 +73,29 @@ function generateQuickRanges(): TimeRange[] {
 
 export function FilterPanel() {
   const { dateRange, setDateRange } = useDateRange();
-  const [searchParams] = useSearchParams();
+
   const [isOpen, setIsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Local state for the calendar selection
-  const [calendarState, setCalendarState] = useState<DateRange | undefined>(
-    dateRange,
+  const [calendarState, setCalendarState] = useState<DateRange>(dateRange);
+
+  // Local time states
+  const [fromTime, setFromTime] = useState(
+    dateRange.from ? format(dateRange.from, "HH:mm") : "00:00",
   );
 
-  // Time states
-  const [fromTime, setFromTime] = useState("00:00");
-  const [toTime, setToTime] = useState("23:59");
+  const [toTime, setToTime] = useState(
+    dateRange.to ? format(dateRange.to, "HH:mm") : "23:59",
+  );
 
   // Memoize quick ranges
   const quickRanges = useMemo(generateQuickRanges, []);
 
-  // Initialize from URL params
-  useEffect(() => {
-    const fromParam = searchParams.get("from");
-    const toParam = searchParams.get("to");
-
-    if (fromParam && toParam) {
-      const from = fromUTC(fromParam);
-      const to = fromUTC(toParam);
-      setCalendarState({ from, to });
-      setDateRange({ from, to });
-      setFromTime(format(from, "HH:mm"));
-      setToTime(format(to, "HH:mm"));
-    } else {
-      // Default to last 15 minutes
-      const now = new Date();
-      // Zero milliseconds for consistency
-      now.setMilliseconds(0);
-      const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
-      const range = {
-        from: fifteenMinutesAgo,
-        to: now,
-      };
-      setCalendarState(range);
-      setDateRange(range);
-      setFromTime(format(range.from, "HH:mm"));
-      setToTime(format(range.to, "HH:mm"));
-    }
-  }, []);
-
-  const handleDayClick: DayClickEventHandler = (day, modifiers) => {
+  const handleDayClick: DayEventHandler<React.MouseEvent> = (
+    day,
+    modifiers,
+  ) => {
     if (modifiers.disabled) return;
 
     const range = {
@@ -171,17 +146,32 @@ export function FilterPanel() {
       const to = now;
       const from = new Date(now.getTime() - rangeDuration);
 
-      // Format times for display
-      setFromTime(format(from, "HH:mm"));
-      setToTime(format(to, "HH:mm"));
-
       // Update both states with the precise times
       setDateRange({ from, to });
       setCalendarState({ from, to });
+      setFromTime(format(from, "HH:mm"));
+      setToTime(format(to, "HH:mm"));
       setIsOpen(false);
     },
     [setDateRange],
   );
+
+  // Mainly used if user only changes time inputs and not calendar selection
+  const handleApply = useCallback(() => {
+    if (!calendarState?.from || !calendarState?.to) return;
+
+    const newFrom = new Date(calendarState.from);
+    const newTo = new Date(calendarState.to);
+
+    // Apply times
+    const [fromHours, fromMinutes] = fromTime.split(":");
+    const [toHours, toMinutes] = toTime.split(":");
+
+    newFrom.setHours(parseInt(fromHours), parseInt(fromMinutes), 0, 0);
+    newTo.setHours(parseInt(toHours), parseInt(toMinutes), 59, 999);
+
+    setDateRange({ from: newFrom, to: newTo });
+  }, [calendarState, fromTime, toTime, setDateRange]);
 
   // Handle refresh functionality
   const handleRefresh = useCallback(() => {
@@ -204,10 +194,6 @@ export function FilterPanel() {
       // Update the date range
       setDateRange({ from: newFrom, to: newTo });
       setCalendarState({ from: newFrom, to: newTo });
-
-      // Update time inputs
-      setFromTime(format(newFrom, "HH:mm"));
-      setToTime(format(newTo, "HH:mm"));
     } catch (error) {
       console.error("Error refreshing date range", error);
     } finally {
@@ -320,6 +306,7 @@ export function FilterPanel() {
               onClick={() => {
                 setCalendarState(dateRange);
                 setIsOpen(false);
+                handleApply();
               }}
             >
               Apply
