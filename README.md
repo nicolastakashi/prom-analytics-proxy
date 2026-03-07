@@ -322,10 +322,18 @@ Flags (metrics ingester):
     	Comma-separated list of allowed jobs to ingest metrics from
   -ingester-cache-addr string
     	Cache server address (host:port)
+  -ingester-cache-batch-size int
+    	Max commands per DoMulti batch (default 100)
+  -ingester-cache-conn-write-timeout duration
+    	Read/write timeout for Redis connections (default 10s)
   -ingester-cache-db int
     	Cache database number
+  -ingester-cache-dial-timeout duration
+    	TCP dial timeout for Redis connections (default 5s)
   -ingester-cache-enabled
     	Enable metric usage caching
+  -ingester-cache-operation-timeout duration
+    	Timeout for cache get/set operations (default 200ms)
   -ingester-cache-password string
     	Cache password (optional)
   -ingester-cache-unused-ttl duration
