@@ -1,0 +1,43 @@
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: "node"
+          static_configs:
+            - targets: ["node:9100"]
+
+        - job_name: "otel-collector"
+          static_configs:
+            - targets: ["localhost:8888"]
+
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+
+exporters:
+  otlp/ingester:
+    endpoint: prom-analytics-proxy-ingester:4319
+    tls:
+      insecure: true
+
+  otlphttp/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+
+service:
+  pipelines:
+    metrics/to-ingester:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [otlp/ingester]
+
+    metrics/to-prometheus:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/prometheus]

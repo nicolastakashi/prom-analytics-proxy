@@ -1,0 +1,824 @@
+kind: Dashboard
+metadata:
+  name: opentelemetry-collector
+  createdAt: 0001-01-01T00:00:00Z
+  updatedAt: 0001-01-01T00:00:00Z
+  version: 0
+  project: default
+spec:
+  display:
+    name: OpenTelemetry Collector
+  variables:
+    - kind: ListVariable
+      spec:
+        allowAllValue: false
+        allowMultiple: false
+        plugin:
+          kind: PrometheusPromQLVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus-datasource
+            expr: group by (job) ({__name__=~'otelcol_process_uptime.*'})
+            labelName: job
+        name: job
+    - kind: ListVariable
+      spec:
+        allowAllValue: true
+        allowMultiple: false
+        plugin:
+          kind: PrometheusPromQLVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus-datasource
+            expr: group by (receiver) ({__name__=~'otelcol_receiver_.+', job='$job'})
+            labelName: receiver
+        name: receiver
+    - kind: ListVariable
+      spec:
+        allowAllValue: true
+        allowMultiple: false
+        plugin:
+          kind: PrometheusPromQLVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus-datasource
+            expr: group by (processor) ({__name__=~'otelcol_processor_.+', job='$job'})
+            labelName: processor
+        name: processor
+    - kind: ListVariable
+      spec:
+        allowAllValue: true
+        allowMultiple: false
+        plugin:
+          kind: PrometheusPromQLVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus-datasource
+            expr: group by (exporter) ({__name__=~'otelcol_exporter_.+', job='$job'})
+            labelName: exporter
+        name: exporter
+  panels:
+    "0_0":
+      kind: Panel
+      spec:
+        display:
+          name: Span Rate
+          description: |-
+            Accepted: rate of spans successfully pushed into the pipeline.
+            		Refused: rate of spans that could not be pushed into the pipeline.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(otelcol_receiver_accepted_spans_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Accepted: {{receiver}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(otelcol_receiver_refused_spans_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Refused: {{receiver}}"
+    "0_1":
+      kind: Panel
+      spec:
+        display:
+          name: Metic Points Rate
+          description: |-
+            Accepted: rate of metric points successfully pushed into the pipeline.
+            		Refused: rate of metric points that could not be pushed into the pipeline.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(
+                        otelcol_receiver_accepted_metric_points_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Accepted: {{receiver}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(
+                        otelcol_receiver_refused_metric_points_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Refused: {{receiver}}"
+    "0_2":
+      kind: Panel
+      spec:
+        display:
+          name: Log Records Rate
+          description: |-
+            Accepted: rate of log records successfully pushed into the pipeline.
+            		Refused: rate of log records that could not be pushed into the pipeline.
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(
+                        otelcol_receiver_accepted_log_records_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Accepted: {{receiver}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, receiver) (
+                      rate(
+                        otelcol_receiver_refused_log_records_total{job=~"$job",receiver=~"$receiver"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Refused: {{receiver}}"
+    "1_0":
+      kind: Panel
+      spec:
+        display:
+          name: Span Rate
+          description: Rate of span processors
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_incoming_items_total{job=~"$job",otel_signal=~"traces",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Incoming: {{processor}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_outgoing_items_total{job=~"$job",otel_signal=~"traces",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Outgoing: {{processor}}"
+    "1_1":
+      kind: Panel
+      spec:
+        display:
+          name: Metric Rate
+          description: Rate of metric processors
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_incoming_items_total{job=~"$job",otel_signal=~"metrics",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Incoming: {{processor}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_outgoing_items_total{job=~"$job",otel_signal=~"metrics",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Outgoing: {{processor}}"
+    "1_2":
+      kind: Panel
+      spec:
+        display:
+          name: Log Rate
+          description: Rate of log processors
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_incoming_items_total{job=~"$job",otel_signal=~"logs",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Incoming: {{processor}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, otel_signal) (
+                      rate(
+                        otelcol_processor_outgoing_items_total{job=~"$job",otel_signal=~"logs",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Outgoing: {{processor}}"
+    "1_3":
+      kind: Panel
+      spec:
+        display:
+          name: Batch Send Size
+          description: Number of items in each batch being processed
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (job, processor, le) (
+                      increase(
+                        otelcol_processor_batch_batch_send_size_bucket{job=~"$job",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "{{le}}"
+    "1_4":
+      kind: Panel
+      spec:
+        display:
+          name: Batch Send Size Count
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values:
+                - last
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (processor) (
+                      rate(
+                        otelcol_processor_batch_batch_send_size_count{job=~"$job",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Batch send size count: {{processor}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (processor) (
+                      rate(
+                        otelcol_processor_batch_batch_send_size_sum{job=~"$job",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Batch send size sum: {{processor}}"
+    "1_5":
+      kind: Panel
+      spec:
+        display:
+          name: Batch Size Trigger Send
+          description: Number of batches being processed by the OpenTelemetry collector's batch processor
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (processor) (
+                      rate(
+                        otelcol_processor_batch_batch_size_trigger_send_total{job=~"$job",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Batch sent due to a timeout trigger: {{processor}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (processor) (
+                      rate(
+                        otelcol_processor_batch_timeout_trigger_send_total{job=~"$job",processor=~"$processor"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Batch sent due to a timeout trigger: {{processor}}"
+    "2_0":
+      kind: Panel
+      spec:
+        display:
+          name: Span Rate
+          description: Rate of spans being sent by the OpenTelemetry collector's span exporter
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(otelcol_exporter_sent_spans_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Sent: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(
+                        otelcol_exporter_enqueue_failed_spans_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Enqueue failed: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(otelcol_exporter_send_failed_spans_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Send failed: {{exporter}}"
+    "2_1":
+      kind: Panel
+      spec:
+        display:
+          name: Metric Rate
+          description: Rate of metrics being sent by the OpenTelemetry collector's metric exporter
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(otelcol_exporter_sent_metric_points_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Sent: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(
+                        otelcol_exporter_enqueue_failed_metric_points_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Enqueue failed: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(
+                        otelcol_exporter_send_failed_metric_points_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Send failed: {{exporter}}"
+    "2_2":
+      kind: Panel
+      spec:
+        display:
+          name: Log Rate
+          description: Rate of logs being sent by the OpenTelemetry collector's log exporter
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(otelcol_exporter_sent_log_records_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval])
+                    )
+                  seriesNameFormat: "Sent: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(
+                        otelcol_exporter_enqueue_failed_log_records_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Enqueue failed: {{exporter}}"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |-
+                    sum by (exporter) (
+                      rate(
+                        otelcol_exporter_send_failed_log_records_total{exporter=~"$exporter",job=~"$job"}[$__rate_interval]
+                      )
+                    )
+                  seriesNameFormat: "Send failed: {{exporter}}"
+    "2_3":
+      kind: Panel
+      spec:
+        display:
+          name: Exporter Queue Size
+          description: Current size of the retry queue (in batches)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: max by (exporter) (otelcol_exporter_queue_size{exporter=~"$exporter",job=~"$job"})
+                  seriesNameFormat: "Queue size: {{exporter}}"
+    "2_4":
+      kind: Panel
+      spec:
+        display:
+          name: Exporter Queue Capacity
+          description: Fixed capacity of the retry queue (in batches)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: min by (exporter) (otelcol_exporter_queue_capacity{exporter=~"$exporter",job=~"$job"})
+                  seriesNameFormat: "Queue capacity: {{exporter}}"
+    "2_5":
+      kind: Panel
+      spec:
+        display:
+          name: Exporter Queue Utilization
+          description: Utilization of the retry queue (in batches)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            yAxis:
+              format:
+                unit: percent
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus-datasource
+                  query: |4-
+                                      100
+                                    *
+                                        max by (exporter) (otelcol_exporter_queue_size{exporter=~"$exporter",job=~"$job"})
+                                      /
+                                        max by (exporter) (otelcol_exporter_queue_capacity{exporter=~"$exporter",job=~"$job"})
+                  seriesNameFormat: "Queue utilization: {{exporter}}"
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Receivers
+        items:
+          - x: 0
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/0_0"
+          - x: 8
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/0_1"
+          - x: 16
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/0_2"
+    - kind: Grid
+      spec:
+        display:
+          title: Processors
+        items:
+          - x: 0
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_0"
+          - x: 8
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_1"
+          - x: 16
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_2"
+          - x: 0
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_3"
+          - x: 8
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_4"
+          - x: 16
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/1_5"
+    - kind: Grid
+      spec:
+        display:
+          title: Exporters
+        items:
+          - x: 0
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_0"
+          - x: 8
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_1"
+          - x: 16
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_2"
+          - x: 0
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_3"
+          - x: 8
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_4"
+          - x: 16
+            "y": 8
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/2_5"
+  duration: 1h

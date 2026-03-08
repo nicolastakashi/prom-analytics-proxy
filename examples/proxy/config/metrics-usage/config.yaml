@@ -1,0 +1,21 @@
+perses_collector:
+  enable: true
+  period: 1m
+  perses_client:
+    url: "http://perses:8080"
+  metric_usage_client:
+    url: "http://prom-analytics-proxy:9091"
+
+metric_collector:
+  enable: true
+  period: 1m
+  http_client:
+    url: http://prom-analytics-proxy:9091
+
+rules_collectors:
+  - enable: true
+    period: 1m
+    prometheus_client:
+      url: http://prom-analytics-proxy:9091
+    metric_usage_client:
+      url: http://prom-analytics-proxy:9091
