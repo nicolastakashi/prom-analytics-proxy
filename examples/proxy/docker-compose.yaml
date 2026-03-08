@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: prom-analytics-proxy
+      POSTGRES_USER: prom-analytics-proxy
+      POSTGRES_PASSWORD: prom-analytics-proxy_dev
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - data:/var/lib/postgresql/data
+    networks:
+      - proxy-demo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prom-analytics-proxy -d prom-analytics-proxy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus
+    command:
+      - --web.listen-address=:9092
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ../config/prometheus/rules.yml:/etc/prometheus/rules.yml
+    ports:
+      - "9092:9092"
+    networks:
+      - proxy-demo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9092/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  prometheus-proxy:
+    image: nginx:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - proxy-demo
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  prom-analytics-proxy:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.alpine
+    image: prom-analytics-proxy:examples
+    command:
+      - --insecure-listen-address=0.0.0.0:9091
+      - --upstream=http://prometheus-proxy:9090
+      - --database-provider=postgresql
+      - --postgresql-addr=postgres
+      - --postgresql-port=5432
+      - --postgresql-user=prom-analytics-proxy
+      - --postgresql-password=prom-analytics-proxy_dev
+      - --postgresql-database=prom-analytics-proxy
+      - --postgresql-sslmode=disable
+      - --inventory-enabled=true
+      - --inventory-sync-interval=1m
+    ports:
+      - "9091:9091"
+    networks:
+      - proxy-demo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prometheus-proxy:
+        condition: service_started
+
+  perses:
+    image: persesdev/perses:v0.53-distroless-debug
+    command: "--config=/etc/perses/config/config.yaml"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ../config/perses/config.yaml:/etc/perses/config/config.yaml
+      - ./config/perses/datasource.yaml:/etc/perses/resources/datasource.yaml
+      - ../config/perses/project.yaml:/etc/perses/resources/project.yaml
+      - ../config/perses/dashboards:/etc/perses/resources/dashboard
+    networks:
+      - proxy-demo
+    depends_on:
+      prom-analytics-proxy:
+        condition: service_started
+
+  metrics-usage:
+    image: persesdev/metrics-usage
+    command: "--config=/app/config.yaml"
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    depends_on:
+      - perses
+    volumes:
+      - ./config/metrics-usage/config.yaml:/app/config.yaml
+    networks:
+      - proxy-demo
+
+volumes:
+  data:
+
+networks:
+  proxy-demo:
+    driver: bridge
