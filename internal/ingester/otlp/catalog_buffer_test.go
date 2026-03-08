@@ -28,6 +28,33 @@ func makeGauge(name, help, unit string) *metricsv1pb.Metric {
 	}
 }
 
+func makeMonotonicSum(name, help, unit string) *metricsv1pb.Metric {
+	return &metricsv1pb.Metric{
+		Name:        name,
+		Description: help,
+		Unit:        unit,
+		Data:        &metricsv1pb.Metric_Sum{Sum: &metricsv1pb.Sum{IsMonotonic: true}},
+	}
+}
+
+func makeSummary(name, help, unit string) *metricsv1pb.Metric {
+	return &metricsv1pb.Metric{
+		Name:        name,
+		Description: help,
+		Unit:        unit,
+		Data:        &metricsv1pb.Metric_Summary{Summary: &metricsv1pb.Summary{}},
+	}
+}
+
+func makeHistogram(name, help, unit string) *metricsv1pb.Metric {
+	return &metricsv1pb.Metric{
+		Name:        name,
+		Description: help,
+		Unit:        unit,
+		Data:        &metricsv1pb.Metric_Histogram{Histogram: &metricsv1pb.Histogram{}},
+	}
+}
+
 func TestCatalogBuffer_AddAndDrain(t *testing.T) {
 	buf := newCatalogBuffer(100, time.Hour, nil)
 
@@ -66,6 +93,52 @@ func TestCatalogBuffer_DeduplicatesWithinFlushInterval(t *testing.T) {
 
 	items := buf.drain()
 	assert.Len(t, items, 1)
+}
+
+func TestCatalogBuffer_NormalizesMonotonicSumNames(t *testing.T) {
+	buf := newCatalogBuffer(100, time.Hour, nil)
+
+	bufAdd(buf, makeMonotonicSum("node_cpu_seconds", "CPU time", "s"))
+
+	items := buf.drain()
+	require.Len(t, items, 1)
+	assert.Equal(t, "node_cpu_seconds_total", items[0].Name)
+	assert.Equal(t, "counter", items[0].Type)
+}
+
+func TestCatalogBuffer_ExpandsSummaryNames(t *testing.T) {
+	buf := newCatalogBuffer(100, time.Hour, nil)
+
+	bufAdd(buf, makeSummary("http_request_duration_seconds", "Request duration", "s"))
+
+	items := buf.drain()
+	require.Len(t, items, 3)
+
+	names := make(map[string]string, len(items))
+	for _, item := range items {
+		names[item.Name] = item.Type
+	}
+	assert.Equal(t, "summary", names["http_request_duration_seconds"])
+	assert.Equal(t, "summary", names["http_request_duration_seconds_sum"])
+	assert.Equal(t, "summary", names["http_request_duration_seconds_count"])
+}
+
+func TestCatalogBuffer_ExpandsHistogramNames(t *testing.T) {
+	buf := newCatalogBuffer(100, time.Hour, nil)
+
+	bufAdd(buf, makeHistogram("http_request_duration_seconds", "Request duration", "s"))
+
+	items := buf.drain()
+	require.Len(t, items, 4)
+
+	names := make(map[string]string, len(items))
+	for _, item := range items {
+		names[item.Name] = item.Type
+	}
+	assert.Equal(t, "histogram", names["http_request_duration_seconds"])
+	assert.Equal(t, "histogram", names["http_request_duration_seconds_bucket"])
+	assert.Equal(t, "histogram", names["http_request_duration_seconds_sum"])
+	assert.Equal(t, "histogram", names["http_request_duration_seconds_count"])
 }
 
 func TestCatalogBuffer_SuppressesReFlushWithinTTL(t *testing.T) {

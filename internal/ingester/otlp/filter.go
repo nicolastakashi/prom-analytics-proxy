@@ -97,7 +97,7 @@ func filterScopeMetrics(res *resourcepb.Resource, sm *metricspb.ScopeMetrics, cf
 }
 
 func shouldDropMetric(ctx FilterContext, cfg FilterConfig) bool {
-	name := ctx.Metric.GetName()
+	name := prometheusMetricName(ctx.Metric)
 	if cfg.DropMetricNames != nil {
 		if _, ok := cfg.DropMetricNames[name]; ok {
 			return true

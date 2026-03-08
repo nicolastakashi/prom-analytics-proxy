@@ -1125,12 +1125,17 @@ func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
 		}
 	})
 
-	assert.Len(t, catalogRows, 3, "all three metrics should be in the catalog")
-	assert.Equal(t, "catalog_metric_a", catalogRows[0].name)
-	assert.Equal(t, "gauge", catalogRows[0].metaType)
-	assert.Equal(t, "catalog_metric_b", catalogRows[1].name)
-	assert.Equal(t, "histogram", catalogRows[1].metaType)
-	assert.Equal(t, "catalog_metric_c", catalogRows[2].name)
+	assert.Len(t, catalogRows, 6, "histograms should expand into Prometheus catalog variants")
+	byName := make(map[string]string, len(catalogRows))
+	for _, row := range catalogRows {
+		byName[row.name] = row.metaType
+	}
+	assert.Equal(t, "gauge", byName["catalog_metric_a"])
+	assert.Equal(t, "histogram", byName["catalog_metric_b"])
+	assert.Equal(t, "histogram", byName["catalog_metric_b_bucket"])
+	assert.Equal(t, "histogram", byName["catalog_metric_b_count"])
+	assert.Equal(t, "histogram", byName["catalog_metric_b_sum"])
+	assert.Equal(t, "gauge", byName["catalog_metric_c"])
 
 	// A second Export + FlushCatalog within the SeenTTL window should not produce
 	// additional writes (deduplication suppresses re-flushing the same metrics).
@@ -1166,8 +1171,12 @@ func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
 	})
 
 	// catalog_metric_d is new → should be added; catalog_metric_a is suppressed by SeenTTL.
-	assert.Len(t, catalogRows2, 4, "new metric catalog_metric_d should have been added")
-	assert.Equal(t, "catalog_metric_d", catalogRows2[3].name)
+	assert.Len(t, catalogRows2, 7, "new metric catalog_metric_d should have been added alongside histogram variants")
+	byName2 := make(map[string]string, len(catalogRows2))
+	for _, row := range catalogRows2 {
+		byName2[row.name] = row.metaType
+	}
+	assert.Equal(t, "gauge", byName2["catalog_metric_d"])
 }
 
 func TestOTLPIngester_CatalogFlush_RequeuesOnDBFailure(t *testing.T) {

@@ -58,7 +58,7 @@ func (b *catalogBuffer) candidatesForBuffer(metrics []*metricspb.Metric) []*metr
 
 	var candidates []*metricspb.Metric
 	for _, m := range metrics {
-		name := m.GetName()
+		name := prometheusMetricName(m)
 		if name == "" {
 			continue
 		}
@@ -83,25 +83,21 @@ func (b *catalogBuffer) addBatch(candidates []*metricspb.Metric, remotelySeenNam
 	defer b.mu.Unlock()
 
 	for _, m := range candidates {
-		name := m.GetName()
-		if remotelySeenNames[name] {
-			continue
+		for _, item := range prometheusCatalogItems(m) {
+			if remotelySeenNames[item.Name] {
+				continue
+			}
+			if _, inPending := b.pending[item.Name]; inPending {
+				continue
+			}
+			if len(b.pending) >= b.maxSize {
+				slog.Debug("ingester.catalog.buffer.full", "dropped_metric", item.Name, "buffer_size", b.maxSize)
+				catalogBufferDroppedTotal.Inc()
+				continue
+			}
+			b.pending[item.Name] = item
+			catalogBufferSize.Set(float64(len(b.pending)))
 		}
-		if _, inPending := b.pending[name]; inPending {
-			continue
-		}
-		if len(b.pending) >= b.maxSize {
-			slog.Debug("ingester.catalog.buffer.full", "dropped_metric", name, "buffer_size", b.maxSize)
-			catalogBufferDroppedTotal.Inc()
-			continue
-		}
-		b.pending[name] = db.MetricCatalogItem{
-			Name: name,
-			Type: otlpTypeToPrometheus(m),
-			Help: m.GetDescription(),
-			Unit: m.GetUnit(),
-		}
-		catalogBufferSize.Set(float64(len(b.pending)))
 	}
 }
 

@@ -360,7 +360,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		rpcServerDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
 	}()
 
-	namesSet, histogramBases, catalogMetrics, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
+	namesSet, histogramBases, summaryBases, catalogMetrics, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
 	if seenDatapoints > 0 {
 		receiverReceivedMetricPointsTotal.Add(float64(seenDatapoints))
 	}
@@ -374,7 +374,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		i.bufferCatalogEntries(ctx, catalogMetrics)
 	}
 
-	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases)
+	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases, summaryBases)
 	if !ok {
 		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
@@ -460,9 +460,10 @@ func (i *OtlpIngester) IsReady(ctx context.Context) bool {
 	return resp.Status == healthpb.HealthCheckResponse_SERVING
 }
 
-func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, []*metricsv1pb.Metric, int64, int64) {
+func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, map[string]struct{}, []*metricsv1pb.Metric, int64, int64) {
 	names := make(map[string]struct{})
 	histogramBases := make(map[string]struct{})
+	summaryBases := make(map[string]struct{})
 	var catalogMetrics []*metricsv1pb.Metric
 	var metricsCount int64
 	var datapoints int64
@@ -470,7 +471,7 @@ func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsService
 		for _, sm := range rm.ScopeMetrics {
 			metricsCount += int64(len(sm.Metrics))
 			for _, m := range sm.Metrics {
-				name := m.GetName()
+				name := prometheusMetricName(m)
 				if name == "" {
 					datapoints += int64(countMetricDatapoints(m))
 					continue
@@ -485,6 +486,12 @@ func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsService
 					names[name+"_sum"] = struct{}{}
 				}
 
+				if _, isSummary := m.Data.(*metricsv1pb.Metric_Summary); isSummary {
+					summaryBases[name] = struct{}{}
+					names[name+"_count"] = struct{}{}
+					names[name+"_sum"] = struct{}{}
+				}
+
 				if i.catalogBuf != nil {
 					catalogMetrics = append(catalogMetrics, m)
 				}
@@ -493,7 +500,7 @@ func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsService
 			}
 		}
 	}
-	return names, histogramBases, catalogMetrics, metricsCount, datapoints
+	return names, histogramBases, summaryBases, catalogMetrics, metricsCount, datapoints
 }
 
 // bufferCatalogEntries queues metrics for the next catalog flush. It checks the in-memory
@@ -514,9 +521,7 @@ func (i *OtlpIngester) bufferCatalogEntries(ctx context.Context, metrics []*metr
 	remotelySeenNames := make(map[string]bool)
 	if i.catalogBuf.seenCache != nil {
 		names := make([]string, 0, len(candidates))
-		for _, m := range candidates {
-			names = append(names, m.GetName())
-		}
+		names = append(names, prometheusCatalogNames(candidates)...)
 		cacheCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 		defer cancel()
 		seen, err := i.catalogBuf.seenCache.HasMany(cacheCtx, names)
@@ -543,9 +548,10 @@ type histogramVariantState struct {
 	unusedSum    bool
 }
 
-func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases map[string]struct{}) (map[string]struct{}, bool) {
+func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases, summaryBases map[string]struct{}) (map[string]struct{}, bool) {
 	unused := make(map[string]struct{})
 	histogramStates := i.initHistogramStates(histogramBases)
+	summaryStates := i.initSummaryStates(summaryBases)
 
 	chunkSize := i.lookupChunkSize
 	batch := make([]string, 0, chunkSize)
@@ -556,10 +562,10 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		}
 
 		usedFromCache, unusedFromCache, misses := i.lookupCache(ctx, batch)
-		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, unused, ctx)
+		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 
 		if len(misses) > 0 {
-			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, unused) {
+			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, summaryBases, summaryStates, unused) {
 				return false
 			}
 		}
@@ -582,7 +588,25 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 	}
 
 	i.reconcileHistogramBases(histogramStates, unused, ctx)
+	i.reconcileSummaryBases(summaryStates, unused, ctx)
 	return unused, true
+}
+
+type summaryVariantState struct {
+	seenBase    bool
+	unusedBase  bool
+	seenCount   bool
+	unusedCount bool
+	seenSum     bool
+	unusedSum   bool
+}
+
+func (i *OtlpIngester) initSummaryStates(summaryBases map[string]struct{}) map[string]*summaryVariantState {
+	states := make(map[string]*summaryVariantState, len(summaryBases))
+	for baseName := range summaryBases {
+		states[baseName] = &summaryVariantState{}
+	}
+	return states
 }
 
 // initHistogramStates initializes histogram variant state tracking.
@@ -657,14 +681,17 @@ func (i *OtlpIngester) partitionCacheResults(batch []string, cacheStates map[str
 }
 
 // processCacheHits updates histogram states and unused map based on cache hits.
-func (i *OtlpIngester) processCacheHits(usedFromCache, unusedFromCache []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) {
+func (i *OtlpIngester) processCacheHits(usedFromCache, unusedFromCache []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) {
 	for _, name := range usedFromCache {
 		i.updateHistogramState(name, histogramBases, histogramStates, false)
+		i.updateSummaryState(name, summaryBases, summaryStates, false)
 	}
 
 	for _, name := range unusedFromCache {
 		if _, isVariant := i.isHistogramVariant(name, histogramBases); isVariant {
 			i.updateHistogramState(name, histogramBases, histogramStates, true)
+		} else if _, isVariant := i.isSummaryVariant(name, summaryBases); isVariant || i.isSummaryBase(name, summaryBases) {
+			i.updateSummaryState(name, summaryBases, summaryStates, true)
 		} else {
 			unused[name] = struct{}{}
 			slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", name, "source", "cache")
@@ -697,8 +724,35 @@ func (i *OtlpIngester) updateHistogramState(name string, histogramBases map[stri
 	}
 }
 
+func (i *OtlpIngester) updateSummaryState(name string, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, isUnused bool) {
+	if _, ok := summaryBases[name]; ok {
+		if state, exists := summaryStates[name]; exists {
+			state.seenBase = true
+			state.unusedBase = isUnused
+		}
+		return
+	}
+
+	baseName, isVariant := i.isSummaryVariant(name, summaryBases)
+	if !isVariant {
+		return
+	}
+	state, ok := summaryStates[baseName]
+	if !ok {
+		return
+	}
+	switch name {
+	case baseName + "_count":
+		state.seenCount = true
+		state.unusedCount = isUnused
+	case baseName + "_sum":
+		state.seenSum = true
+		state.unusedSum = isUnused
+	}
+}
+
 // processDBMisses queries the database for cache misses and updates states.
-func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}) bool {
+func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}) bool {
 	t0 := time.Now()
 	metas, err := i.db.GetSeriesMetadataByNames(ctx, misses, "")
 	if err != nil {
@@ -708,13 +762,13 @@ func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, his
 	}
 	processorLookupDurationSeconds.Observe(time.Since(t0).Seconds())
 
-	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, unused, ctx)
+	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 	i.writeBackToCache(ctx, cacheWriteBack)
 	return true
 }
 
 // processMetadata processes database metadata and updates histogram states and unused map.
-func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) map[string]MetricUsageState {
+func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) map[string]MetricUsageState {
 	cacheWriteBack := make(map[string]MetricUsageState)
 
 	for _, mm := range metas {
@@ -726,6 +780,20 @@ func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramB
 			case baseName + "_bucket":
 				state.seenBucket = true
 				state.unusedBucket = isUnused
+			case baseName + "_count":
+				state.seenCount = true
+				state.unusedCount = isUnused
+			case baseName + "_sum":
+				state.seenSum = true
+				state.unusedSum = isUnused
+			}
+		} else if _, isSummaryBase := summaryBases[mm.Name]; isSummaryBase {
+			state := summaryStates[mm.Name]
+			state.seenBase = true
+			state.unusedBase = isUnused
+		} else if baseName, isSummaryVariant := i.isSummaryVariant(mm.Name, summaryBases); isSummaryVariant {
+			state := summaryStates[baseName]
+			switch mm.Name {
 			case baseName + "_count":
 				state.seenCount = true
 				state.unusedCount = isUnused
@@ -791,11 +859,44 @@ func (i *OtlpIngester) reconcileHistogramBases(histogramStates map[string]*histo
 	}
 }
 
+func (i *OtlpIngester) reconcileSummaryBases(summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) {
+	for baseName, state := range summaryStates {
+		if state.seenBase && !state.unusedBase {
+			delete(unused, baseName)
+			continue
+		}
+		if !state.seenCount || !state.seenSum {
+			delete(unused, baseName)
+			continue
+		}
+		if state.unusedBase && state.unusedCount && state.unusedSum {
+			unused[baseName] = struct{}{}
+			slog.DebugContext(ctx, "ingester.unused_summary.found", "metric_name", baseName)
+		} else {
+			delete(unused, baseName)
+		}
+	}
+}
+
 // isHistogramVariant checks if a metric name is a histogram variant (_bucket, _count, _sum)
 // and returns the base name if it is, along with a boolean indicating if it's a variant.
 func (i *OtlpIngester) isHistogramVariant(name string, histogramBases map[string]struct{}) (string, bool) {
 	for baseName := range histogramBases {
 		if name == baseName+"_bucket" || name == baseName+"_count" || name == baseName+"_sum" {
+			return baseName, true
+		}
+	}
+	return "", false
+}
+
+func (i *OtlpIngester) isSummaryBase(name string, summaryBases map[string]struct{}) bool {
+	_, ok := summaryBases[name]
+	return ok
+}
+
+func (i *OtlpIngester) isSummaryVariant(name string, summaryBases map[string]struct{}) (string, bool) {
+	for baseName := range summaryBases {
+		if name == baseName+"_count" || name == baseName+"_sum" {
 			return baseName, true
 		}
 	}
@@ -849,7 +950,7 @@ func (i *OtlpIngester) countWouldDrop(req *metricspb.ExportMetricsServiceRequest
 	for _, rm := range req.ResourceMetrics {
 		for _, sm := range rm.ScopeMetrics {
 			for _, m := range sm.Metrics {
-				if name := m.GetName(); name != "" {
+				if name := prometheusMetricName(m); name != "" {
 					if shouldDropUnused(rm.Resource, name, unused, allowed, denied) {
 						droppedMetrics++
 						droppedDatapoints += int64(countMetricDatapoints(m))
@@ -864,7 +965,7 @@ func (i *OtlpIngester) countWouldDrop(req *metricspb.ExportMetricsServiceRequest
 func (i *OtlpIngester) filterUnused(req *metricspb.ExportMetricsServiceRequest, unused, allowed, denied map[string]struct{}, beforeMetricsCount int64) (int64, int64) {
 	cfg := FilterConfig{
 		MetricKeep: func(ctx FilterContext) bool {
-			return !shouldDropUnused(ctx.Resource, ctx.Metric.GetName(), unused, allowed, denied)
+			return !shouldDropUnused(ctx.Resource, prometheusMetricName(ctx.Metric), unused, allowed, denied)
 		},
 	}
 	droppedDatapoints := int64(FilterExport(req, cfg))
