@@ -129,15 +129,16 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 
 func WithProxy(upstream *url.URL) Option {
 	return func(r *routes) {
-		proxy := httputil.NewSingleHostReverseProxy(upstream)
-		proxy.Rewrite = func(pr *httputil.ProxyRequest) {
-			pr.SetURL(upstream)
-			pr.Out.Host = upstream.Host // Set the Host header to the target host
-			if r.includeQueryStats {
-				query := pr.Out.URL.Query()
-				query.Add("stats", "true")
-				pr.Out.URL.RawQuery = query.Encode()
-			}
+		proxy := &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(upstream)
+				pr.Out.Host = upstream.Host // Set the Host header to the target host
+				if r.includeQueryStats {
+					query := pr.Out.URL.Query()
+					query.Add("stats", "true")
+					pr.Out.URL.RawQuery = query.Encode()
+				}
+			},
 		}
 		r.handler = proxy
 	}

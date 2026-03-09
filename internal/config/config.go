@@ -91,6 +91,10 @@ type CORSConfig struct {
 
 type InventoryConfig struct {
 	Enabled               bool          `yaml:"enabled,omitempty"`
+	// MetadataSyncEnabled controls whether the syncer fetches metric metadata from
+	// Prometheus and populates metrics_catalog. Set to false when the OTLP ingester
+	// handles catalog population, so the syncer only refreshes usage summaries.
+	MetadataSyncEnabled   bool          `yaml:"metadata_sync_enabled,omitempty"`
 	SyncInterval          time.Duration `yaml:"sync_interval,omitempty"`
 	TimeWindow            time.Duration `yaml:"time_window,omitempty"`
 	RunTimeout            time.Duration `yaml:"run_timeout,omitempty"`
@@ -124,6 +128,7 @@ var DefaultConfig = &Config{
 	},
 	Inventory: InventoryConfig{
 		Enabled:               true,
+		MetadataSyncEnabled:   true,
 		SyncInterval:          10 * time.Minute,
 		TimeWindow:            30 * 24 * time.Hour,
 		RunTimeout:            300 * time.Second,
@@ -171,10 +176,20 @@ var DefaultConfig = &Config{
 		GracefulShutdownTimeout: 30 * time.Second,
 		DrainDelay:              2 * time.Second,
 		Redis: RedisCacheConfig{
-			Enabled:    false,
-			UsedTTL:    1 * time.Hour,
-			UnusedTTL:  2 * time.Minute,
-			UsedOnly:   false,
+			Enabled:          false,
+			UsedTTL:          1 * time.Hour,
+			UnusedTTL:        2 * time.Minute,
+			UsedOnly:         false,
+			OperationTimeout: 200 * time.Millisecond,
+			DialTimeout:      5 * time.Second,
+			ConnWriteTimeout: 10 * time.Second,
+			BatchSize:        100,
+		},
+		CatalogSync: CatalogSyncConfig{
+			Enabled:       false,
+			FlushInterval: 30 * time.Second,
+			BufferSize:    10000,
+			SeenTTL:       1 * time.Hour,
 		},
 	},
 }
@@ -243,6 +258,23 @@ type IngesterConfig struct {
 	DeniedJobs []string `yaml:"denied_jobs,omitempty"`
 	// Redis configuration for metric usage caching
 	Redis RedisCacheConfig `yaml:"redis,omitempty"`
+	// CatalogSync controls catalog population from OTLP traffic.
+	// When enabled, the ingester populates metrics_catalog directly instead of
+	// relying on the Prometheus metadata sync (set inventory.metadata_sync_enabled=false).
+	CatalogSync CatalogSyncConfig `yaml:"catalog_sync,omitempty"`
+}
+
+type CatalogSyncConfig struct {
+	// Enabled controls whether the ingester populates metrics_catalog from OTLP traffic.
+	// When true, metrics seen in OTLP requests are buffered and periodically flushed to the DB.
+	Enabled       bool          `yaml:"enabled,omitempty"`
+	FlushInterval time.Duration `yaml:"flush_interval,omitempty"`
+	BufferSize    int           `yaml:"buffer_size,omitempty"`
+	// SeenTTL is how long a metric is suppressed from re-flushing after its first write.
+	// Prevents repeated upserts for metrics that are already in the catalog.
+	// After the TTL expires the metric is re-flushed to refresh last_synced_at.
+	// Defaults to 1h.
+	SeenTTL time.Duration `yaml:"seen_ttl,omitempty"`
 }
 
 type RedisCacheConfig struct {
@@ -262,6 +294,14 @@ type RedisCacheConfig struct {
 	UnusedTTL time.Duration `yaml:"unused_ttl,omitempty"`
 	// UsedOnly when true, only caches "used" states and never caches "unused" states
 	UsedOnly bool `yaml:"used_only,omitempty"`
+	// OperationTimeout is the timeout for individual cache get/set operations (default 200ms)
+	OperationTimeout time.Duration `yaml:"operation_timeout,omitempty"`
+	// DialTimeout is the TCP dial timeout for Redis connections (default 5s)
+	DialTimeout time.Duration `yaml:"dial_timeout,omitempty"`
+	// ConnWriteTimeout is the read/write timeout for Redis connections (default 10s)
+	ConnWriteTimeout time.Duration `yaml:"conn_write_timeout,omitempty"`
+	// BatchSize is the maximum number of commands per DoMulti batch (default 100)
+	BatchSize int `yaml:"batch_size,omitempty"`
 }
 
 func LoadConfig(path string) error {
@@ -327,6 +367,7 @@ func RegisterInventoryFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexLabelTimeout, "inventory-job-index-label-timeout", DefaultConfig.Inventory.JobIndexLabelTimeout, "Timeout for job label values collection")
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexPerJobTimeout, "inventory-job-index-per-job-timeout", DefaultConfig.Inventory.JobIndexPerJobTimeout, "Timeout for processing each individual job")
 	flagSet.IntVar(&DefaultConfig.Inventory.JobIndexWorkers, "inventory-job-index-workers", DefaultConfig.Inventory.JobIndexWorkers, "Number of worker goroutines for job index processing")
+	flagSet.BoolVar(&DefaultConfig.Inventory.MetadataSyncEnabled, "inventory-metadata-sync-enabled", DefaultConfig.Inventory.MetadataSyncEnabled, "Enable Prometheus metadata sync to populate metrics catalog (disable when OTLP ingester handles catalog population)")
 }
 
 // RegisterMemoryLimitFlags exposes CLI overrides for automatic GOMEMLIMIT management.

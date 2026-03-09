@@ -31,6 +31,11 @@ const (
 	rpcMethod  = "Export"
 	rpcService = "opentelemetry.proto.collector.metrics.v1.MetricsService"
 	rpcOkCode  = "OK"
+
+	defaultCatalogBufferSize       = 10000
+	defaultCatalogFlushInterval    = 30 * time.Second
+	defaultCatalogSeenTTL          = time.Hour
+	defaultGracefulShutdownTimeout = 30 * time.Second
 )
 
 type OtlpIngester struct {
@@ -46,7 +51,10 @@ type OtlpIngester struct {
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
 
-	metricCache MetricUsageCache
+	metricCache    MetricUsageCache
+	catalogBuf     *catalogBuffer
+	catalogFlushIv time.Duration
+	catalogSeenTTL time.Duration
 }
 
 func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngester, error) {
@@ -77,6 +85,52 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 		}
 	}
 
+	var catBuf *catalogBuffer
+	var catFlushIv, catSeenTTL time.Duration
+	if config.Ingester.CatalogSync.Enabled {
+		bufSize := config.Ingester.CatalogSync.BufferSize
+		if bufSize <= 0 {
+			bufSize = defaultCatalogBufferSize
+		}
+		catFlushIv = config.Ingester.CatalogSync.FlushInterval
+		if catFlushIv <= 0 {
+			catFlushIv = defaultCatalogFlushInterval
+		}
+		catSeenTTL = config.Ingester.CatalogSync.SeenTTL
+		if catSeenTTL <= 0 {
+			catSeenTTL = defaultCatalogSeenTTL
+		}
+
+		// Wire up Redis seen cache when Redis is already configured, reusing the same
+		// connection settings. Uses a separate key prefix ("catalog_seen:") to avoid
+		// collisions with the metric usage cache ("metric_usage:").
+		var seenCache CatalogSeenCache
+		if config.Ingester.Redis.Enabled {
+			rc, err := newRedisCatalogSeenCache(
+				config.Ingester.Redis.Addr,
+				config.Ingester.Redis.Username,
+				config.Ingester.Redis.Password,
+				config.Ingester.Redis.DB,
+				config.Ingester.Redis.DialTimeout,
+				config.Ingester.Redis.ConnWriteTimeout,
+				config.Ingester.Redis.BatchSize,
+			)
+			if err != nil {
+				slog.Error("ingester.catalog.seen_cache.init.failed", "err", err)
+			} else {
+				seenCache = rc
+				slog.Info("ingester.catalog.seen_cache.enabled", "addr", config.Ingester.Redis.Addr)
+			}
+		}
+
+		catBuf = newCatalogBuffer(bufSize, catSeenTTL, seenCache)
+		slog.Info("ingester.catalog.enabled",
+			"flush_interval", catFlushIv,
+			"buffer_size", bufSize,
+			"seen_ttl", catSeenTTL,
+			"redis_seen_cache", seenCache != nil)
+	}
+
 	return &OtlpIngester{
 		config:          config,
 		db:              dbProvider,
@@ -86,6 +140,9 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 		allowedJobs:     allowedJobs,
 		deniedJobs:      deniedJobs,
 		metricCache:     metricCache,
+		catalogBuf:      catBuf,
+		catalogFlushIv:  catFlushIv,
+		catalogSeenTTL:  catSeenTTL,
 	}, nil
 }
 
@@ -143,6 +200,10 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 
 	i.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
+	if i.catalogBuf != nil {
+		go i.runCatalogFlusher(ctx)
+	}
+
 	select {
 	case <-ctx.Done():
 		i.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
@@ -150,12 +211,6 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 			time.Sleep(d)
 		}
 		_ = lis.Close()
-		if i.exporter != nil {
-			_ = i.exporter.Close()
-		}
-		if i.metricCache != nil {
-			_ = i.metricCache.Close()
-		}
 		shutdownDone := make(chan struct{})
 		go func() {
 			grpcServer.GracefulStop()
@@ -163,15 +218,31 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		}()
 		timeout := i.config.Ingester.GracefulShutdownTimeout
 		if timeout <= 0 {
-			timeout = 30 * time.Second
+			timeout = defaultGracefulShutdownTimeout
 		}
+		timedOut := false
 		select {
 		case <-shutdownDone:
-			return nil
 		case <-time.After(timeout):
 			grpcServer.Stop()
+			timedOut = true
+		}
+
+		i.flushCatalogOnShutdown(timeout)
+
+		if i.exporter != nil {
+			_ = i.exporter.Close()
+		}
+		if i.metricCache != nil {
+			_ = i.metricCache.Close()
+		}
+		if i.catalogBuf != nil && i.catalogBuf.seenCache != nil {
+			_ = i.catalogBuf.seenCache.Close()
+		}
+		if timedOut {
 			return ctx.Err()
 		}
+		return nil
 	case err := <-serveErrCh:
 		if err != nil && !errors.Is(err, net.ErrClosed) {
 			return err
@@ -289,7 +360,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		rpcServerDurationSeconds.With(labels).Observe(time.Since(start).Seconds())
 	}()
 
-	namesSet, histogramBases, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
+	namesSet, histogramBases, summaryBases, catalogMetrics, beforeMetricsCount, seenDatapoints := i.collectNamesAndCounts(req)
 	if seenDatapoints > 0 {
 		receiverReceivedMetricPointsTotal.Add(float64(seenDatapoints))
 	}
@@ -299,7 +370,11 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases)
+	if i.catalogBuf != nil && len(catalogMetrics) > 0 {
+		i.bufferCatalogEntries(ctx, catalogMetrics)
+	}
+
+	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases, summaryBases)
 	if !ok {
 		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
@@ -385,30 +460,79 @@ func (i *OtlpIngester) IsReady(ctx context.Context) bool {
 	return resp.Status == healthpb.HealthCheckResponse_SERVING
 }
 
-func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, int64, int64) {
+func (i *OtlpIngester) collectNamesAndCounts(req *metricspb.ExportMetricsServiceRequest) (map[string]struct{}, map[string]struct{}, map[string]struct{}, []*metricsv1pb.Metric, int64, int64) {
 	names := make(map[string]struct{})
 	histogramBases := make(map[string]struct{})
+	summaryBases := make(map[string]struct{})
+	var catalogMetrics []*metricsv1pb.Metric
 	var metricsCount int64
 	var datapoints int64
 	for _, rm := range req.ResourceMetrics {
 		for _, sm := range rm.ScopeMetrics {
 			metricsCount += int64(len(sm.Metrics))
 			for _, m := range sm.Metrics {
-				if name := m.GetName(); name != "" {
-					names[name] = struct{}{}
-					// For histogram metrics, also collect derivative names used in Prometheus catalog
-					if _, isHistogram := m.Data.(*metricsv1pb.Metric_Histogram); isHistogram {
-						histogramBases[name] = struct{}{}
-						names[name+"_bucket"] = struct{}{}
-						names[name+"_count"] = struct{}{}
-						names[name+"_sum"] = struct{}{}
-					}
+				name := prometheusMetricName(m)
+				if name == "" {
+					datapoints += int64(countMetricDatapoints(m))
+					continue
 				}
+				names[name] = struct{}{}
+
+				if _, isHistogram := m.Data.(*metricsv1pb.Metric_Histogram); isHistogram {
+					// For histogram metrics, also collect derivative names used in Prometheus catalog
+					histogramBases[name] = struct{}{}
+					names[name+"_bucket"] = struct{}{}
+					names[name+"_count"] = struct{}{}
+					names[name+"_sum"] = struct{}{}
+				}
+
+				if _, isSummary := m.Data.(*metricsv1pb.Metric_Summary); isSummary {
+					summaryBases[name] = struct{}{}
+					names[name+"_count"] = struct{}{}
+					names[name+"_sum"] = struct{}{}
+				}
+
+				if i.catalogBuf != nil {
+					catalogMetrics = append(catalogMetrics, m)
+				}
+
 				datapoints += int64(countMetricDatapoints(m))
 			}
 		}
 	}
-	return names, histogramBases, metricsCount, datapoints
+	return names, histogramBases, summaryBases, catalogMetrics, metricsCount, datapoints
+}
+
+// bufferCatalogEntries queues metrics for the next catalog flush. It checks the in-memory
+// seen map first (L1), then the distributed seen cache (L2, e.g. Redis) for any misses,
+// so that metrics already in the catalog are not re-written unnecessarily.
+func (i *OtlpIngester) bufferCatalogEntries(ctx context.Context, metrics []*metricsv1pb.Metric) {
+	if len(metrics) == 0 {
+		return
+	}
+
+	// L1: filter out metrics already suppressed by the in-memory seen map.
+	candidates := i.catalogBuf.candidatesForBuffer(metrics)
+	if len(candidates) == 0 {
+		return
+	}
+
+	// L2: check distributed seen cache for any L1 misses (typically only after restart).
+	remotelySeenNames := make(map[string]bool)
+	if i.catalogBuf.seenCache != nil {
+		names := make([]string, 0, len(candidates))
+		names = append(names, prometheusCatalogNames(candidates)...)
+		cacheCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancel()
+		seen, err := i.catalogBuf.seenCache.HasMany(cacheCtx, names)
+		if err != nil {
+			slog.DebugContext(ctx, "ingester.catalog.seen_cache.lookup.failed", "err", err)
+		} else {
+			remotelySeenNames = seen
+		}
+	}
+
+	i.catalogBuf.addBatch(candidates, remotelySeenNames)
 }
 
 // histogramVariantState tracks the unused status of histogram variant metrics
@@ -424,9 +548,10 @@ type histogramVariantState struct {
 	unusedSum    bool
 }
 
-func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases map[string]struct{}) (map[string]struct{}, bool) {
+func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases, summaryBases map[string]struct{}) (map[string]struct{}, bool) {
 	unused := make(map[string]struct{})
 	histogramStates := i.initHistogramStates(histogramBases)
+	summaryStates := i.initSummaryStates(summaryBases)
 
 	chunkSize := i.lookupChunkSize
 	batch := make([]string, 0, chunkSize)
@@ -437,10 +562,10 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 		}
 
 		usedFromCache, unusedFromCache, misses := i.lookupCache(ctx, batch)
-		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, unused, ctx)
+		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 
 		if len(misses) > 0 {
-			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, unused) {
+			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, summaryBases, summaryStates, unused) {
 				return false
 			}
 		}
@@ -463,7 +588,25 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 	}
 
 	i.reconcileHistogramBases(histogramStates, unused, ctx)
+	i.reconcileSummaryBases(summaryStates, unused, ctx)
 	return unused, true
+}
+
+type summaryVariantState struct {
+	seenBase    bool
+	unusedBase  bool
+	seenCount   bool
+	unusedCount bool
+	seenSum     bool
+	unusedSum   bool
+}
+
+func (i *OtlpIngester) initSummaryStates(summaryBases map[string]struct{}) map[string]*summaryVariantState {
+	states := make(map[string]*summaryVariantState, len(summaryBases))
+	for baseName := range summaryBases {
+		states[baseName] = &summaryVariantState{}
+	}
+	return states
 }
 
 // initHistogramStates initializes histogram variant state tracking.
@@ -498,7 +641,10 @@ func (i *OtlpIngester) lookupCache(ctx context.Context, batch []string) (usedFro
 
 // computeCacheTimeout calculates the timeout for cache operations.
 func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
-	cacheTimeout := 50 * time.Millisecond
+	cacheTimeout := 200 * time.Millisecond
+	if i.config != nil && i.config.Ingester.Redis.OperationTimeout > 0 {
+		cacheTimeout = i.config.Ingester.Redis.OperationTimeout
+	}
 	if exportTimeout := computeExportTimeout(ctx, i.exportTimeout); exportTimeout > 0 && exportTimeout/10 < cacheTimeout {
 		cacheTimeout = exportTimeout / 10
 	}
@@ -535,14 +681,17 @@ func (i *OtlpIngester) partitionCacheResults(batch []string, cacheStates map[str
 }
 
 // processCacheHits updates histogram states and unused map based on cache hits.
-func (i *OtlpIngester) processCacheHits(usedFromCache, unusedFromCache []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) {
+func (i *OtlpIngester) processCacheHits(usedFromCache, unusedFromCache []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) {
 	for _, name := range usedFromCache {
 		i.updateHistogramState(name, histogramBases, histogramStates, false)
+		i.updateSummaryState(name, summaryBases, summaryStates, false)
 	}
 
 	for _, name := range unusedFromCache {
 		if _, isVariant := i.isHistogramVariant(name, histogramBases); isVariant {
 			i.updateHistogramState(name, histogramBases, histogramStates, true)
+		} else if _, isVariant := i.isSummaryVariant(name, summaryBases); isVariant || i.isSummaryBase(name, summaryBases) {
+			i.updateSummaryState(name, summaryBases, summaryStates, true)
 		} else {
 			unused[name] = struct{}{}
 			slog.DebugContext(ctx, "ingester.unused_metric.found", "metric_name", name, "source", "cache")
@@ -575,8 +724,35 @@ func (i *OtlpIngester) updateHistogramState(name string, histogramBases map[stri
 	}
 }
 
+func (i *OtlpIngester) updateSummaryState(name string, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, isUnused bool) {
+	if _, ok := summaryBases[name]; ok {
+		if state, exists := summaryStates[name]; exists {
+			state.seenBase = true
+			state.unusedBase = isUnused
+		}
+		return
+	}
+
+	baseName, isVariant := i.isSummaryVariant(name, summaryBases)
+	if !isVariant {
+		return
+	}
+	state, ok := summaryStates[baseName]
+	if !ok {
+		return
+	}
+	switch name {
+	case baseName + "_count":
+		state.seenCount = true
+		state.unusedCount = isUnused
+	case baseName + "_sum":
+		state.seenSum = true
+		state.unusedSum = isUnused
+	}
+}
+
 // processDBMisses queries the database for cache misses and updates states.
-func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}) bool {
+func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}) bool {
 	t0 := time.Now()
 	metas, err := i.db.GetSeriesMetadataByNames(ctx, misses, "")
 	if err != nil {
@@ -586,13 +762,13 @@ func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, his
 	}
 	processorLookupDurationSeconds.Observe(time.Since(t0).Seconds())
 
-	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, unused, ctx)
+	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 	i.writeBackToCache(ctx, cacheWriteBack)
 	return true
 }
 
 // processMetadata processes database metadata and updates histogram states and unused map.
-func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, unused map[string]struct{}, ctx context.Context) map[string]MetricUsageState {
+func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) map[string]MetricUsageState {
 	cacheWriteBack := make(map[string]MetricUsageState)
 
 	for _, mm := range metas {
@@ -604,6 +780,20 @@ func (i *OtlpIngester) processMetadata(metas []models.MetricMetadata, histogramB
 			case baseName + "_bucket":
 				state.seenBucket = true
 				state.unusedBucket = isUnused
+			case baseName + "_count":
+				state.seenCount = true
+				state.unusedCount = isUnused
+			case baseName + "_sum":
+				state.seenSum = true
+				state.unusedSum = isUnused
+			}
+		} else if _, isSummaryBase := summaryBases[mm.Name]; isSummaryBase {
+			state := summaryStates[mm.Name]
+			state.seenBase = true
+			state.unusedBase = isUnused
+		} else if baseName, isSummaryVariant := i.isSummaryVariant(mm.Name, summaryBases); isSummaryVariant {
+			state := summaryStates[baseName]
+			switch mm.Name {
 			case baseName + "_count":
 				state.seenCount = true
 				state.unusedCount = isUnused
@@ -669,11 +859,44 @@ func (i *OtlpIngester) reconcileHistogramBases(histogramStates map[string]*histo
 	}
 }
 
+func (i *OtlpIngester) reconcileSummaryBases(summaryStates map[string]*summaryVariantState, unused map[string]struct{}, ctx context.Context) {
+	for baseName, state := range summaryStates {
+		if state.seenBase && !state.unusedBase {
+			delete(unused, baseName)
+			continue
+		}
+		if !state.seenCount || !state.seenSum {
+			delete(unused, baseName)
+			continue
+		}
+		if state.unusedBase && state.unusedCount && state.unusedSum {
+			unused[baseName] = struct{}{}
+			slog.DebugContext(ctx, "ingester.unused_summary.found", "metric_name", baseName)
+		} else {
+			delete(unused, baseName)
+		}
+	}
+}
+
 // isHistogramVariant checks if a metric name is a histogram variant (_bucket, _count, _sum)
 // and returns the base name if it is, along with a boolean indicating if it's a variant.
 func (i *OtlpIngester) isHistogramVariant(name string, histogramBases map[string]struct{}) (string, bool) {
 	for baseName := range histogramBases {
 		if name == baseName+"_bucket" || name == baseName+"_count" || name == baseName+"_sum" {
+			return baseName, true
+		}
+	}
+	return "", false
+}
+
+func (i *OtlpIngester) isSummaryBase(name string, summaryBases map[string]struct{}) bool {
+	_, ok := summaryBases[name]
+	return ok
+}
+
+func (i *OtlpIngester) isSummaryVariant(name string, summaryBases map[string]struct{}) (string, bool) {
+	for baseName := range summaryBases {
+		if name == baseName+"_count" || name == baseName+"_sum" {
 			return baseName, true
 		}
 	}
@@ -727,7 +950,7 @@ func (i *OtlpIngester) countWouldDrop(req *metricspb.ExportMetricsServiceRequest
 	for _, rm := range req.ResourceMetrics {
 		for _, sm := range rm.ScopeMetrics {
 			for _, m := range sm.Metrics {
-				if name := m.GetName(); name != "" {
+				if name := prometheusMetricName(m); name != "" {
 					if shouldDropUnused(rm.Resource, name, unused, allowed, denied) {
 						droppedMetrics++
 						droppedDatapoints += int64(countMetricDatapoints(m))
@@ -742,7 +965,7 @@ func (i *OtlpIngester) countWouldDrop(req *metricspb.ExportMetricsServiceRequest
 func (i *OtlpIngester) filterUnused(req *metricspb.ExportMetricsServiceRequest, unused, allowed, denied map[string]struct{}, beforeMetricsCount int64) (int64, int64) {
 	cfg := FilterConfig{
 		MetricKeep: func(ctx FilterContext) bool {
-			return !shouldDropUnused(ctx.Resource, ctx.Metric.GetName(), unused, allowed, denied)
+			return !shouldDropUnused(ctx.Resource, prometheusMetricName(ctx.Metric), unused, allowed, denied)
 		},
 	}
 	droppedDatapoints := int64(FilterExport(req, cfg))
@@ -754,6 +977,81 @@ func (i *OtlpIngester) filterUnused(req *metricspb.ExportMetricsServiceRequest, 
 	}
 	droppedMetrics := beforeMetricsCount - afterMetricsCount
 	return droppedMetrics, droppedDatapoints
+}
+
+func (i *OtlpIngester) runCatalogFlusher(ctx context.Context) {
+	ticker := time.NewTicker(i.catalogFlushIv)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			i.flushCatalog(ctx)
+		}
+	}
+}
+
+func (i *OtlpIngester) flushCatalogOnShutdown(timeout time.Duration) {
+	if i.catalogBuf == nil {
+		return
+	}
+	if timeout <= 0 {
+		timeout = defaultGracefulShutdownTimeout
+	}
+	flushCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	i.FlushCatalog(flushCtx)
+}
+
+// FlushCatalog drains the catalog buffer and writes any pending metrics to the DB.
+// It is called automatically by the background flusher, but can also be called directly
+// in tests or on shutdown to ensure no buffered entries are lost.
+func (i *OtlpIngester) FlushCatalog(ctx context.Context) {
+	if i.catalogBuf == nil {
+		return
+	}
+	i.flushCatalog(ctx)
+}
+
+func (i *OtlpIngester) flushCatalog(ctx context.Context) {
+	items := i.catalogBuf.drain()
+	if len(items) == 0 {
+		return
+	}
+
+	start := time.Now()
+	if err := i.db.UpsertMetricsCatalog(ctx, items); err != nil {
+		// Keep items in memory for a future retry on transient DB errors.
+		i.catalogBuf.requeue(items)
+		slog.ErrorContext(ctx, "ingester.catalog.flush.failed",
+			"err", err,
+			"metrics_count", len(items))
+		catalogFlushErrorsTotal.Inc()
+		return
+	}
+	i.catalogBuf.markFlushed(items, time.Now())
+
+	elapsed := time.Since(start)
+	catalogFlushDurationSeconds.Observe(elapsed.Seconds())
+	catalogFlushMetricsTotal.Add(float64(len(items)))
+	slog.DebugContext(ctx, "ingester.catalog.flush.success",
+		"metrics_count", len(items),
+		"duration_ms", elapsed.Milliseconds())
+
+	// Best-effort: propagate seen state to Redis so restarts don't cause a re-flush burst.
+	if i.catalogBuf.seenCache != nil {
+		names := make([]string, 0, len(items))
+		for _, item := range items {
+			names = append(names, item.Name)
+		}
+		cacheCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		defer cancel()
+		if err := i.catalogBuf.seenCache.MarkMany(cacheCtx, names, i.catalogSeenTTL); err != nil {
+			slog.DebugContext(ctx, "ingester.catalog.seen_cache.mark.failed", "err", err)
+		}
+	}
 }
 
 func RegisterOTLPFlags(flagSet *flag.FlagSet) {
@@ -796,4 +1094,12 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UsedTTL, "ingester-cache-used-ttl", config.DefaultConfig.Ingester.Redis.UsedTTL, "TTL for caching 'used' metric states")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UnusedTTL, "ingester-cache-unused-ttl", config.DefaultConfig.Ingester.Redis.UnusedTTL, "TTL for caching 'unused' metric states")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.UsedOnly, "ingester-cache-used-only", config.DefaultConfig.Ingester.Redis.UsedOnly, "Only cache 'used' states, never cache 'unused' states")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.DialTimeout, "ingester-cache-dial-timeout", config.DefaultConfig.Ingester.Redis.DialTimeout, "TCP dial timeout for Redis connections")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "ingester-cache-conn-write-timeout", config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "Read/write timeout for Redis connections")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.Redis.BatchSize, "ingester-cache-batch-size", config.DefaultConfig.Ingester.Redis.BatchSize, "Max commands per DoMulti batch")
+	flagSet.BoolVar(&config.DefaultConfig.Ingester.CatalogSync.Enabled, "ingester-catalog-sync-enabled", config.DefaultConfig.Ingester.CatalogSync.Enabled, "Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this)")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.CatalogSync.FlushInterval, "ingester-catalog-sync-flush-interval", config.DefaultConfig.Ingester.CatalogSync.FlushInterval, "How often to flush buffered metrics to the catalog DB")
+	flagSet.IntVar(&config.DefaultConfig.Ingester.CatalogSync.BufferSize, "ingester-catalog-sync-buffer-size", config.DefaultConfig.Ingester.CatalogSync.BufferSize, "Maximum number of unique metrics to buffer before dropping (per flush interval)")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.CatalogSync.SeenTTL, "ingester-catalog-sync-seen-ttl", config.DefaultConfig.Ingester.CatalogSync.SeenTTL, "How long a metric is suppressed from re-flushing after first write (reduces duplicate DB upserts)")
 }
