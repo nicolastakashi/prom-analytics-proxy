@@ -726,7 +726,12 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
         WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
-          AND (? = 'all' OR c.type = ?)
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+               END)
           AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
@@ -734,7 +739,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
           ))
     `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, boolToInt(params.Unused), params.Job, params.Job).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, params.Type, params.Type, boolToInt(params.Unused), params.Job, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count catalog: %w", err)
 	}
 
@@ -749,7 +754,12 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
         FROM metrics_catalog AS c
         LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
         WHERE (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
-          AND (? = 'all' OR c.type = ?)
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+               END)
           AND (CASE WHEN ? = 1 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE 1 END)
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
@@ -761,7 +771,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,
-		params.Type, params.Type,
+		params.Type, params.Type, params.Type, params.Type,
 		boolToInt(params.Unused),
 		params.Job, params.Job,
 		params.PageSize, (params.Page-1)*params.PageSize,

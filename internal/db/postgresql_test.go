@@ -6,6 +6,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
@@ -537,6 +538,34 @@ func TestPostgreSQL_HistogramSummaryMetricsCatalog(t *testing.T) {
 	res, err := p.GetSeriesMetadata(context.Background(), SeriesMetadataParams{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "all"})
 	assert.NoError(t, err, "GetSeriesMetadata")
 	assert.Equal(t, 6, res.Total, "Expected 6 metrics")
+
+	histogramRes, err := p.GetSeriesMetadata(context.Background(), SeriesMetadataParams{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "histogram"})
+	assert.NoError(t, err, "GetSeriesMetadata histogram filter")
+	assert.Equal(t, 3, histogramRes.Total, "Expected 3 histogram metrics")
+	if data, ok := histogramRes.Data.([]models.MetricMetadata); ok {
+		if assert.Len(t, data, 3) {
+			assert.ElementsMatch(t,
+				[]string{"histogram_bucket", "histogram_count", "histogram_sum"},
+				[]string{data[0].Type, data[1].Type, data[2].Type},
+			)
+		}
+	} else {
+		assert.Fail(t, "Expected histogram Data to be []models.MetricMetadata", "got %T", histogramRes.Data)
+	}
+
+	summaryRes, err := p.GetSeriesMetadata(context.Background(), SeriesMetadataParams{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "summary"})
+	assert.NoError(t, err, "GetSeriesMetadata summary filter")
+	assert.Equal(t, 3, summaryRes.Total, "Expected 3 summary metrics")
+	if data, ok := summaryRes.Data.([]models.MetricMetadata); ok {
+		if assert.Len(t, data, 3) {
+			assert.ElementsMatch(t,
+				[]string{"summary", "summary_count", "summary_sum"},
+				[]string{data[0].Type, data[1].Type, data[2].Type},
+			)
+		}
+	} else {
+		assert.Fail(t, "Expected summary Data to be []models.MetricMetadata", "got %T", summaryRes.Data)
+	}
 }
 
 func TestPostgreSQL_MetricsInventoryAndList(t *testing.T) {
