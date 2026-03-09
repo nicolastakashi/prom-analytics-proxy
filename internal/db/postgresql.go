@@ -713,7 +713,12 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
         WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
-          AND ($2 = 'all' OR c.type = $2)
+          AND ($2 = 'all' OR
+               CASE
+                 WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = $2
+               END)
           AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
@@ -734,7 +739,12 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
         WHERE ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
-          AND ($2 = 'all' OR c.type = $2)
+          AND ($2 = 'all' OR
+               CASE
+                 WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = $2
+               END)
           AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
