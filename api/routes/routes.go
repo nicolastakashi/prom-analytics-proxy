@@ -671,6 +671,7 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		SortOrder: "asc",
 		Filter:    "",
 		Type:      "",
+		Usage:     db.SeriesMetadataUsageAll,
 	}
 
 	if page, err := getQueryParamAsInt(req, "page", 1); err == nil {
@@ -714,8 +715,15 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 		params.Type = metricType
 	}
 
-	if unused := req.FormValue("unused"); unused == "true" {
-		params.Unused = true
+	if usage := req.FormValue("usage"); usage != "" {
+		normalizedUsage := strings.ToLower(strings.TrimSpace(usage))
+		if db.ValidSeriesMetadataUsageFilters[normalizedUsage] {
+			params.Usage = normalizedUsage
+		} else {
+			slog.Warn("invalid usage parameter provided", "usage", usage, "using_default", db.SeriesMetadataUsageAll)
+		}
+	} else if unused := req.FormValue("unused"); unused == "true" {
+		params.Usage = db.SeriesMetadataUsageUnused
 	}
 
 	if job := req.FormValue("job"); job != "" {

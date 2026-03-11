@@ -9,7 +9,9 @@ import { useDebounce } from "@/hooks/use-debounce";
 export default function MetricsExplorer() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [usageFilter, setUsageFilter] = useState<"all" | "unused">("all");
+  const [usageFilter, setUsageFilter] = useState<"all" | "used" | "unused">(
+    "all",
+  );
   const [jobFilter, setJobFilter] = useState<string>("");
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
@@ -26,7 +28,7 @@ export default function MetricsExplorer() {
   const { data, isLoading, error } = useSeriesMetadataTable(
     tableState,
     debouncedSearchQuery,
-    usageFilter === "unused",
+    usageFilter,
     jobFilter,
   );
 
