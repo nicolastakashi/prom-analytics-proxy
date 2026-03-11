@@ -390,6 +390,7 @@ func TestSeriesMetadataParams_Struct(t *testing.T) {
 		SortOrder: "asc",
 		Filter:    "type=counter",
 		Type:      "counter",
+		Usage:     SeriesMetadataUsageUsed,
 	}
 
 	assert.Equal(t, 1, params.Page)
@@ -398,4 +399,5 @@ func TestSeriesMetadataParams_Struct(t *testing.T) {
 	assert.Equal(t, "asc", params.SortOrder)
 	assert.Equal(t, "type=counter", params.Filter)
 	assert.Equal(t, "counter", params.Type)
+	assert.Equal(t, SeriesMetadataUsageUsed, params.Usage)
 }

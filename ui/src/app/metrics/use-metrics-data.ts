@@ -42,7 +42,7 @@ interface MetricUsageResponse {
 export function useSeriesMetadataTable(
   tableState?: TableState,
   searchQuery?: string,
-  unused?: boolean,
+  usage?: "all" | "used" | "unused",
   job?: string,
 ) {
   const {
@@ -50,7 +50,7 @@ export function useSeriesMetadataTable(
     isLoading,
     error,
   } = useQuery<PagedResult<MetricMetadata>>({
-    queryKey: ["metrics", tableState, searchQuery, unused, job],
+    queryKey: ["metrics", tableState, searchQuery, usage, job],
     queryFn: () =>
       getSeriesMetadata(
         tableState?.page || 1,
@@ -59,7 +59,7 @@ export function useSeriesMetadataTable(
         tableState?.sortOrder || "asc",
         searchQuery || "",
         tableState?.type || "all",
-        unused || false,
+        usage || "all",
         job,
       ),
   });

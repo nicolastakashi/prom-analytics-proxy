@@ -706,6 +706,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	if params.SortOrder == "" {
 		params.SortOrder = "asc"
 	}
+	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
 	// Count
 	countSQL := `
@@ -715,18 +716,29 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
           AND ($2 = 'all' OR
                CASE
-                 WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = $2
-               END)
-          AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND (
+                $3 = 'all'
+                OR ($3 = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+                OR ($3 = 'unused' AND
+                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
+                )
+          )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
           ))
     `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Unused, params.Job).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Usage, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
@@ -741,11 +753,22 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
         WHERE ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
           AND ($2 = 'all' OR
                CASE
-                 WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = $2
-               END)
-          AND (CASE WHEN $3 THEN COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0 ELSE TRUE END)
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND (
+                $3 = 'all'
+                OR ($3 = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+                OR ($3 = 'unused' AND
+                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
+                )
+          )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
@@ -754,7 +777,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	// Build complete query with safe ORDER BY clause to prevent SQL injection
 	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $5 OFFSET $6", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "name")
 
-	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Unused, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
+	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
 	}

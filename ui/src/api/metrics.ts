@@ -54,7 +54,7 @@ interface FetchOptions {
   from?: string;
   to?: string;
   kind?: string;
-  unused?: boolean;
+  usage?: "all" | "used" | "unused";
   job?: string;
 }
 
@@ -140,7 +140,9 @@ async function fetchApiData<T>(
     ...(from && { from: toUTC(from) }),
     ...(to && { to: toUTC(to) }),
     ...(kind && { kind }),
-    ...(options.unused ? { unused: "true" } : {}),
+    ...(options.usage && options.usage !== "all"
+      ? { usage: options.usage }
+      : {}),
     ...(job ? { job } : {}),
   });
 
@@ -173,14 +175,14 @@ export async function getSeriesMetadata(
   sortOrder: string = "asc",
   filter: string = "",
   type: string = "",
-  unused: boolean = false,
+  usage: "all" | "used" | "unused" = "all",
   job?: string,
 ): Promise<PagedResult<MetricMetadata>> {
   return withErrorHandling(
     () =>
       fetchApiData<PagedResult<MetricMetadata>>(
         API_CONFIG.endpoints.seriesMetadata,
-        { page, pageSize, sortBy, sortOrder, filter, type, unused, job },
+        { page, pageSize, sortBy, sortOrder, filter, type, usage, job },
       ),
     DEFAULT_ERROR_VALUES.seriesMetadata,
   );

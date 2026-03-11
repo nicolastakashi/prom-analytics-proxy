@@ -554,7 +554,7 @@ The proxy provides several API endpoints for accessing query analytics and metri
 - `sortOrder` (string): Sort direction - `asc` or `desc` (default: `asc`)
 - `filter` (string): Filter metrics by name or help text
 - `type` (string): Filter by metric type - `counter`, `gauge`, `histogram`, `summary`, etc.
-- `unused` (boolean): Filter to show only unused metrics (no alerts, recording rules, dashboards, or queries)
+- `usage` (string): Filter metrics by usage state - `all`, `used`, or `unused`
 - `job` (string): Filter to show metrics produced by a specific job
 
 #### Examples
@@ -563,11 +563,11 @@ The proxy provides several API endpoints for accessing query analytics and metri
 # Get all metrics with pagination
 curl "http://localhost:9091/api/v1/seriesMetadata?page=1&pageSize=20"
 
-# Find unused metrics
-curl "http://localhost:9091/api/v1/seriesMetadata?unused=true"
+# Find used metrics
+curl "http://localhost:9091/api/v1/seriesMetadata?usage=used"
 
 # Find unused metrics for a specific job
-curl "http://localhost:9091/api/v1/seriesMetadata?unused=true&job=myapp"
+curl "http://localhost:9091/api/v1/seriesMetadata?usage=unused&job=myapp"
 
 # Search for HTTP-related metrics
 curl "http://localhost:9091/api/v1/seriesMetadata?filter=http&type=counter"

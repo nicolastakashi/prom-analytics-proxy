@@ -13,8 +13,8 @@ interface MetricsExplorerHeaderProps {
   onSearchChange: (value: string) => void;
   typeFilter: string;
   onTypeFilterChange: (value: string) => void;
-  usageFilter?: "all" | "unused";
-  onUsageFilterChange?: (value: "all" | "unused") => void;
+  usageFilter?: "all" | "used" | "unused";
+  onUsageFilterChange?: (value: "all" | "used" | "unused") => void;
   jobs?: string[];
   jobFilter?: string;
   onJobFilterChange?: (value: string) => void;
@@ -88,9 +88,11 @@ export function MetricsExplorerHeader({
         </Select>
         <Select
           value={usageFilter}
-          onValueChange={(v) => onUsageFilterChange?.(v as "all" | "unused")}
+          onValueChange={(v) =>
+            onUsageFilterChange?.(v as "all" | "used" | "unused")
+          }
         >
-          <SelectTrigger className="sm:max-w-[160px]">
+          <SelectTrigger className="sm:max-w-[170px]">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4" />
               <SelectValue placeholder="All Metrics" />
@@ -98,6 +100,7 @@ export function MetricsExplorerHeader({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Metrics</SelectItem>
+            <SelectItem value="used">Used Only</SelectItem>
             <SelectItem value="unused">Unused Only</SelectItem>
           </SelectContent>
         </Select>

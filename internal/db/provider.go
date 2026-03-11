@@ -72,6 +72,18 @@ var ValidSeriesMetadataSortFields = map[string]bool{
 	"unit": true,
 }
 
+const (
+	SeriesMetadataUsageAll    = "all"
+	SeriesMetadataUsageUsed   = "used"
+	SeriesMetadataUsageUnused = "unused"
+)
+
+var ValidSeriesMetadataUsageFilters = map[string]bool{
+	SeriesMetadataUsageAll:    true,
+	SeriesMetadataUsageUsed:   true,
+	SeriesMetadataUsageUnused: true,
+}
+
 // ValidSortDirections centralizes valid sort directions
 var ValidSortDirections = map[string]bool{
 	"asc":  true,
@@ -278,8 +290,16 @@ type SeriesMetadataParams struct {
 	SortOrder string
 	Filter    string
 	Type      string
-	Unused    bool
+	Usage     string
 	Job       string
+}
+
+func NormalizeSeriesMetadataUsage(usage string) string {
+	normalized := strings.ToLower(strings.TrimSpace(usage))
+	if ValidSeriesMetadataUsageFilters[normalized] {
+		return normalized
+	}
+	return SeriesMetadataUsageAll
 }
 
 type MetricCatalogItem struct {

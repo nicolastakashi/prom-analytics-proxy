@@ -597,6 +597,59 @@ func TestPostgreSQL_MetricsInventoryAndList(t *testing.T) {
 	assert.Greater(t, res.Total, 0, "expected at least one metric in catalog")
 }
 
+func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "used_metric", Type: "gauge", Help: "used metric"},
+		{Name: "unused_metric", Type: "gauge", Help: "unused metric"},
+	})
+	mustInsertQueries(t, p, []Query{{
+		TS:            now.Add(-5 * time.Minute),
+		QueryParam:    "used_metric",
+		TimeParam:     now,
+		Duration:      10 * time.Millisecond,
+		StatusCode:    200,
+		LabelMatchers: LabelMatchers{{"__name__": "used_metric"}},
+		Type:          QueryTypeInstant,
+	}})
+
+	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}))
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "no_summary_metric", Type: "gauge", Help: "no summary metric"}})
+
+	tests := []struct {
+		name      string
+		usage     string
+		wantNames []string
+	}{
+		{name: "all metrics", usage: SeriesMetadataUsageAll, wantNames: []string{"no_summary_metric", "unused_metric", "used_metric"}},
+		{name: "used metrics", usage: SeriesMetadataUsageUsed, wantNames: []string{"used_metric"}},
+		{name: "unused metrics", usage: SeriesMetadataUsageUnused, wantNames: []string{"no_summary_metric", "unused_metric"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := p.GetSeriesMetadata(context.Background(), SeriesMetadataParams{
+				Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "all", Usage: tt.usage,
+			})
+			assert.NoError(t, err, "GetSeriesMetadata")
+
+			data, ok := res.Data.([]models.MetricMetadata)
+			if !assert.True(t, ok, "Expected Data to be []models.MetricMetadata") {
+				return
+			}
+
+			names := make([]string, 0, len(data))
+			for _, metric := range data {
+				names = append(names, metric.Name)
+			}
+			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
+}
+
 func TestPostgreSQL_DashboardUsage(t *testing.T) {
 	p, cleanup := newTestPostgreSQLProvider(t)
 	defer cleanup()
