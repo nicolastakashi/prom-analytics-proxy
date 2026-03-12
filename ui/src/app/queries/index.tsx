@@ -16,7 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { QueryDetails } from "@/components/query-details";
-import { useSearchState } from "@/hooks/use-search-state.tsx";
+import { useSearchNumberState, useSearchState } from "@/hooks/use-search-state";
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
@@ -83,16 +83,13 @@ export default function QueriesPage() {
   const { dateRange } = useDateRange();
   const fromISO = dateRange?.from?.toISOString();
   const toISO = dateRange?.to?.toISOString();
-  const [selectedQuery, setSelectedQuery] = useSearchState<string | null>(
+  const [selectedQuery, setSelectedQuery] = useSearchState(
     SELECTED_QUERY_KEY,
     null,
   );
-  const [searchQuery, setSearchQuery] = useSearchState<string>(
-    SEARCH_QUERY_KEY,
-    "",
-  );
-  const [page, setPage] = useSearchState<number>(PAGE_KEY, 1);
-  const [pageSize] = useSearchState<number>(PAGE_SIZE_KEY, 1);
+  const [searchQuery, setSearchQuery] = useSearchState(SEARCH_QUERY_KEY, "");
+  const [page, setPage] = useSearchNumberState(PAGE_KEY, 1);
+  const [pageSize] = useSearchNumberState(PAGE_SIZE_KEY, 10);
   const debouncedSearch = useDebounce(searchQuery, 750);
 
   const [sorting, setSorting] = useState<SortingState>([

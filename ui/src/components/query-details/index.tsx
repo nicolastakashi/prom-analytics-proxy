@@ -7,7 +7,7 @@ import QueryTimeRangeDistribution from "../query-time-range-distribution";
 import { QueryLatencyTrends } from "../query-latency-trends";
 import { QueryExecutions } from "./table";
 import { StatusBreakdown } from "../status-breakdown";
-import { useSearchState } from "@/hooks/use-search-state.tsx";
+import { useSearchState } from "@/hooks/use-search-state";
 
 const TAB_KEY = "queryDetailsTab";
 
@@ -18,7 +18,7 @@ interface QueryDetailsProps {
 }
 
 export function QueryDetails({ query, fingerprint }: QueryDetailsProps) {
-  const [tab, setTab] = useSearchState<string>(TAB_KEY, "overview");
+  const [tab, setTab] = useSearchState(TAB_KEY, "overview");
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(query);
