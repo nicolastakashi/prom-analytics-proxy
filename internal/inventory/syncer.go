@@ -19,12 +19,13 @@ import (
 )
 
 type Syncer struct {
-	dbProvider          db.Provider
-	promAPI             v1.API
-	timeWindow          time.Duration
-	interval            time.Duration
-	metadataLim         string
-	metadataSyncEnabled bool
+	dbProvider              db.Provider
+	promAPI                 v1.API
+	timeWindow              time.Duration
+	interval                time.Duration
+	metadataLim             string
+	metadataSyncEnabled     bool
+	metadataMetricsNameOnly bool
 
 	runTimeout            time.Duration
 	metadataStepTimeout   time.Duration
@@ -49,18 +50,19 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 		lim = strconv.FormatUint(cfg.MetadataLimit, 10)
 	}
 	s := &Syncer{
-		dbProvider:            dbp,
-		promAPI:               v1.NewAPI(client),
-		timeWindow:            cfg.Inventory.TimeWindow,
-		interval:              cfg.Inventory.SyncInterval,
-		metadataLim:           lim,
-		metadataSyncEnabled:   cfg.Inventory.MetadataSyncEnabled,
-		runTimeout:            cfg.Inventory.RunTimeout,
-		metadataStepTimeout:   cfg.Inventory.MetadataStepTimeout,
-		summaryStepTimeout:    cfg.Inventory.SummaryStepTimeout,
-		jobIndexLabelTimeout:  cfg.Inventory.JobIndexLabelTimeout,
-		jobIndexPerJobTimeout: cfg.Inventory.JobIndexPerJobTimeout,
-		jobIndexWorkers:       cfg.Inventory.JobIndexWorkers,
+		dbProvider:              dbp,
+		promAPI:                 v1.NewAPI(client),
+		timeWindow:              cfg.Inventory.TimeWindow,
+		interval:                cfg.Inventory.SyncInterval,
+		metadataLim:             lim,
+		metadataSyncEnabled:     cfg.Inventory.MetadataSyncEnabled,
+		metadataMetricsNameOnly: cfg.Inventory.MetadataMetricsNameOnly,
+		runTimeout:              cfg.Inventory.RunTimeout,
+		metadataStepTimeout:     cfg.Inventory.MetadataStepTimeout,
+		summaryStepTimeout:      cfg.Inventory.SummaryStepTimeout,
+		jobIndexLabelTimeout:    cfg.Inventory.JobIndexLabelTimeout,
+		jobIndexPerJobTimeout:   cfg.Inventory.JobIndexPerJobTimeout,
+		jobIndexWorkers:         cfg.Inventory.JobIndexWorkers,
 	}
 
 	if reg == nil {
@@ -148,8 +150,14 @@ func (s *Syncer) runOnce(ctx context.Context) {
 
 func (s *Syncer) syncCatalogAndSummary(ctx context.Context) error {
 	if s.metadataSyncEnabled {
-		if err := s.syncMetadataCatalog(ctx); err != nil {
-			return err
+		if s.metadataMetricsNameOnly {
+			if err := s.syncMetadataCatalogFromMetricNames(ctx); err != nil {
+				return err
+			}
+		} else {
+			if err := s.syncMetadataCatalog(ctx); err != nil {
+				return err
+			}
 		}
 	} else {
 		slog.Info("inventory: metadata sync disabled, skipping catalog population")
@@ -197,6 +205,32 @@ func (s *Syncer) syncMetadataCatalog(ctx context.Context) error {
 		default:
 			items = append(items, db.MetricCatalogItem{Name: name, Type: metricType, Help: info.Help, Unit: info.Unit})
 		}
+	}
+	if err := s.dbProvider.UpsertMetricsCatalog(metaCtx, items); err != nil {
+		slog.Error("inventory: upsert catalog", "err", err)
+		return err
+	}
+	return nil
+}
+
+func (s *Syncer) syncMetadataCatalogFromMetricNames(ctx context.Context) error {
+	metaCtx, cancelMeta := context.WithTimeout(ctx, s.metadataStepTimeout)
+	defer cancelMeta()
+	now := time.Now()
+	labelValues, _, err := s.promAPI.LabelValues(metaCtx, "__name__", nil, now.Add(-s.timeWindow), now)
+
+	if err != nil {
+		slog.Error("inventory: fetch label values", "err", err)
+		return err
+	}
+
+	items := make([]db.MetricCatalogItem, 0, len(labelValues))
+	for _, labelValue := range labelValues {
+		if !labelValue.IsValid() {
+			continue
+		}
+
+		items = append(items, db.MetricCatalogItem{Name: string(labelValue)})
 	}
 	if err := s.dbProvider.UpsertMetricsCatalog(metaCtx, items); err != nil {
 		slog.Error("inventory: upsert catalog", "err", err)
