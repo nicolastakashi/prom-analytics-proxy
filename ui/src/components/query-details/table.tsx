@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSearchParams } from "wouter";
 
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
   maxWidth?: string | number;
@@ -334,6 +335,10 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
   },
 ];
 
+const PAGE_KEY = "queryExecutionsPage";
+const PAGE_SIZE_KEY = "queryExecutionsPageSize";
+const SORTING_KEY = "queryExecutionsSorting";
+
 interface Props {
   fingerprint?: string;
 }
@@ -343,11 +348,35 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
   const fromISO = dateRange?.from?.toISOString();
   const toISO = dateRange?.to?.toISOString();
 
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "timestamp", desc: true },
-  ]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page: number = Number(searchParams.get(PAGE_KEY)) || 1;
+  const pageSize: number = Number(searchParams.get(PAGE_SIZE_KEY)) || 10;
+  const sorting: SortingState = useMemo(
+    () =>
+      searchParams.get(SORTING_KEY)
+        ? (JSON.parse(searchParams.get(SORTING_KEY) as string) as SortingState)
+        : [
+            {
+              id: "timestamp",
+              desc: true,
+            },
+          ],
+    [searchParams],
+  );
+
+  const handleSortingChange = (newSorting: SortingState) => {
+    setSearchParams((prev) => {
+      prev.set(SORTING_KEY, JSON.stringify(newSorting));
+      return prev;
+    });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setSearchParams((prev) => {
+      prev.set(PAGE_KEY, newPage.toString());
+      return prev;
+    });
+  };
 
   const sortBy = useMemo(() => sorting[0]?.id || "timestamp", [sorting]);
   const serverSortBy = useMemo(() => {
@@ -405,8 +434,8 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
       sortingState={sorting}
       currentPage={page}
       totalPages={data?.totalPages || 1}
-      onSortingChange={(s) => setSorting(s)}
-      onPaginationChange={(p) => setPage(p)}
+      onSortingChange={(s) => handleSortingChange(s)}
+      onPaginationChange={(p) => handlePageChange(p)}
     />
   );
 };

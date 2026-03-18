@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Settings } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import logo from "@/assets/logo.png";
 
 import { Navigation } from "@/components/navigation";
@@ -16,6 +16,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { routeConfigs } from "@/lib/routes";
+import { PreservedLink } from "@/components/preserved-link.tsx";
 
 const Logo: React.FC<{ className?: string }> = ({ className }) => {
   return (
@@ -59,7 +60,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         {/* Settings Menu Item */}
         <SidebarMenu className={isCollapsed ? "px-0" : "px-2"}>
           <SidebarMenuItem>
-            <Link href="/settings">
+            <PreservedLink href="/settings">
               <SidebarMenuButton
                 isActive={isSettingsActive}
                 className={`
@@ -74,7 +75,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   Settings
                 </span>
               </SidebarMenuButton>
-            </Link>
+            </PreservedLink>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
