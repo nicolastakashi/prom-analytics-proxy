@@ -90,19 +90,23 @@ type CORSConfig struct {
 }
 
 type InventoryConfig struct {
-	Enabled               bool          `yaml:"enabled,omitempty"`
+	Enabled bool `yaml:"enabled,omitempty"`
 	// MetadataSyncEnabled controls whether the syncer fetches metric metadata from
 	// Prometheus and populates metrics_catalog. Set to false when the OTLP ingester
 	// handles catalog population, so the syncer only refreshes usage summaries.
-	MetadataSyncEnabled   bool          `yaml:"metadata_sync_enabled,omitempty"`
-	SyncInterval          time.Duration `yaml:"sync_interval,omitempty"`
-	TimeWindow            time.Duration `yaml:"time_window,omitempty"`
-	RunTimeout            time.Duration `yaml:"run_timeout,omitempty"`
-	MetadataStepTimeout   time.Duration `yaml:"metadata_step_timeout,omitempty"`
-	SummaryStepTimeout    time.Duration `yaml:"summary_step_timeout,omitempty"`
-	JobIndexLabelTimeout  time.Duration `yaml:"job_index_label_timeout,omitempty"`
-	JobIndexPerJobTimeout time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
-	JobIndexWorkers       int           `yaml:"job_index_workers,omitempty"`
+	MetadataSyncEnabled bool `yaml:"metadata_sync_enabled,omitempty"`
+	// MetadataMetricsNameOnly ensure that /api/v1/label/__name__/values API is used instead of /api/v1/metadata
+	// This gives lighter inventory queries less prone to fail due to metadata limits in Prometheus, but may result
+	// in less complete inventory (no unit, type, ...).
+	MetadataMetricsNameOnly bool          `yaml:"metadata_metrics_name_only,omitempty"`
+	SyncInterval            time.Duration `yaml:"sync_interval,omitempty"`
+	TimeWindow              time.Duration `yaml:"time_window,omitempty"`
+	RunTimeout              time.Duration `yaml:"run_timeout,omitempty"`
+	MetadataStepTimeout     time.Duration `yaml:"metadata_step_timeout,omitempty"`
+	SummaryStepTimeout      time.Duration `yaml:"summary_step_timeout,omitempty"`
+	JobIndexLabelTimeout    time.Duration `yaml:"job_index_label_timeout,omitempty"`
+	JobIndexPerJobTimeout   time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
+	JobIndexWorkers         int           `yaml:"job_index_workers,omitempty"`
 }
 
 type RetentionConfig struct {
@@ -127,16 +131,17 @@ var DefaultConfig = &Config{
 		PushMetricsUsageTimeout: 30 * time.Second,
 	},
 	Inventory: InventoryConfig{
-		Enabled:               true,
-		MetadataSyncEnabled:   true,
-		SyncInterval:          10 * time.Minute,
-		TimeWindow:            30 * 24 * time.Hour,
-		RunTimeout:            300 * time.Second,
-		MetadataStepTimeout:   30 * time.Second,
-		SummaryStepTimeout:    30 * time.Second,
-		JobIndexLabelTimeout:  30 * time.Second,
-		JobIndexPerJobTimeout: 30 * time.Second,
-		JobIndexWorkers:       10,
+		Enabled:                 true,
+		MetadataSyncEnabled:     true,
+		MetadataMetricsNameOnly: false,
+		SyncInterval:            10 * time.Minute,
+		TimeWindow:              30 * 24 * time.Hour,
+		RunTimeout:              300 * time.Second,
+		MetadataStepTimeout:     30 * time.Second,
+		SummaryStepTimeout:      30 * time.Second,
+		JobIndexLabelTimeout:    30 * time.Second,
+		JobIndexPerJobTimeout:   30 * time.Second,
+		JobIndexWorkers:         10,
 	},
 	QueryProcessing: QueryProcessing{
 		ExtractHTTPHeaders: []string{"user-agent"},
