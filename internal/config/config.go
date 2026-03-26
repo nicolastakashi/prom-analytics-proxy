@@ -104,9 +104,12 @@ type InventoryConfig struct {
 	RunTimeout              time.Duration `yaml:"run_timeout,omitempty"`
 	MetadataStepTimeout     time.Duration `yaml:"metadata_step_timeout,omitempty"`
 	SummaryStepTimeout      time.Duration `yaml:"summary_step_timeout,omitempty"`
-	JobIndexLabelTimeout    time.Duration `yaml:"job_index_label_timeout,omitempty"`
-	JobIndexPerJobTimeout   time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
-	JobIndexWorkers         int           `yaml:"job_index_workers,omitempty"`
+	// JobSyncEnabled controls whether the syncer fetches job metadata from
+	// Prometheus and populates job_index. Set to false when you want to avoid heavy job queries.
+	JobSyncEnabled        bool          `yaml:"job_sync_enabled,omitempty"`
+	JobIndexLabelTimeout  time.Duration `yaml:"job_index_label_timeout,omitempty"`
+	JobIndexPerJobTimeout time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
+	JobIndexWorkers       int           `yaml:"job_index_workers,omitempty"`
 }
 
 type RetentionConfig struct {

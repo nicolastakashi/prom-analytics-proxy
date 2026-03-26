@@ -30,6 +30,7 @@ type Syncer struct {
 	runTimeout            time.Duration
 	metadataStepTimeout   time.Duration
 	summaryStepTimeout    time.Duration
+	jobSyncEnabled        bool
 	jobIndexLabelTimeout  time.Duration
 	jobIndexPerJobTimeout time.Duration
 
@@ -60,6 +61,7 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 		runTimeout:              cfg.Inventory.RunTimeout,
 		metadataStepTimeout:     cfg.Inventory.MetadataStepTimeout,
 		summaryStepTimeout:      cfg.Inventory.SummaryStepTimeout,
+		jobSyncEnabled:          cfg.Inventory.JobSyncEnabled,
 		jobIndexLabelTimeout:    cfg.Inventory.JobIndexLabelTimeout,
 		jobIndexPerJobTimeout:   cfg.Inventory.JobIndexPerJobTimeout,
 		jobIndexWorkers:         cfg.Inventory.JobIndexWorkers,
@@ -138,9 +140,11 @@ func (s *Syncer) runOnce(ctx context.Context) {
 		return
 	}
 
-	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
-	if err := s.syncJobIndex(runCtx, tr); err != nil {
-		slog.Error("inventory: job index", "err", err)
+	if s.jobSyncEnabled {
+		tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
+		if err := s.syncJobIndex(runCtx, tr); err != nil {
+			slog.Error("inventory: job index", "err", err)
+		}
 	}
 
 	slog.Info("inventory: sync complete")
