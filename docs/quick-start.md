@@ -148,6 +148,10 @@ The [`examples/`](../examples/) directory contains complete working configuratio
 - [`examples/config/perses/`](../examples/config/perses/) - Perses configuration with sample dashboards
 - [`examples/config/metrics-usage/`](../examples/config/metrics-usage/) - Metrics Usage integration config
 
+### Kubernetes
+
+The [`kube`](../examples/kube/) directory contains an opinionated set of Kubernetes YAML manifests.
+
 ### Command Line Examples
 
 #### Minimal Configuration (SQLite)
