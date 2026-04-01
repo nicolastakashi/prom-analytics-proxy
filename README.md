@@ -178,6 +178,12 @@ See the [examples/](examples/) directory for configuration templates and integra
 - Query Shortcuts for common patterns
 - Real-time analytics
 
+### High availability
+
+- Supported by default when database provider is set to `PostgreSQL`
+  - either flag `-database-provider=postgresql`
+  - or in config.yaml `database.provider: postgresql`
+
 ## Project Structure
 
 The project is organized into two main components:
