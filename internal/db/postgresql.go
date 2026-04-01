@@ -55,7 +55,7 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	postgresConfig := config.DefaultConfig.Database.PostgreSQL
 
 	psqlInfo := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d application_name=prom-analytics-proxy",
+		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy",
 		postgresConfig.Addr,
 		postgresConfig.Port,
 		postgresConfig.User,
