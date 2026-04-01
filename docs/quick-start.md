@@ -126,29 +126,48 @@ If you don't see any data, verify that your clients are actually sending queries
 - [Set up tracing](../README.md#tracing-support) (optional)
 - Explore the [API Reference](../README.md#api-reference) for programmatic access
 
-## Examples and Configuration
+## Examples
 
-### Ready-to-Use Examples
+The [`examples`](../examples/) directory contains complete working configurations.
 
-The [`examples/`](../examples/) directory contains complete working configurations:
+### Configuration
 
-#### Docker Compose Setup
+The [`config`](../examples/config/) directory contains some configurations examples (config.yaml).
 
-[`examples/docker-compose.yaml`](../examples/docker-compose.yaml) - Complete stack with:
+### Demo
+
+The [`demo`](../examples/demo/) directory contains 2 working demo.
+
+#### Proxy only
+
+[`docker-compose.yaml`](../examples/demo/proxy-only/docker-compose.yaml) - Complete stack with:
 
 - Prometheus with alerting rules
-- PostgreSQL database
+- NGINX configured as Prometheus proxy
+- PostgreSQL
 - prom-analytics-proxy configured to use PostgreSQL
 - Perses with sample dashboards
-- Metrics Usage integration
+- Perses Metrics Usage integration
 
-#### Configuration Examples
+#### Full
 
-- [`examples/config/prometheus/`](../examples/config/prometheus/) - Prometheus configuration with rules
-- [`examples/config/perses/`](../examples/config/perses/) - Perses configuration with sample dashboards
-- [`examples/config/metrics-usage/`](../examples/config/metrics-usage/) - Metrics Usage integration config
+[`docker-compose.yaml`](../examples/demo/full/docker-compose.yaml) - Complete stack with:
 
-### Command Line Examples
+- Prometheus with alerting rules
+- PostgreSQL
+- Redis
+- Node Exporter
+- Open Telemetry collector
+- prom-analytics-proxy API configured to use PostgreSQL
+- prom-analytics-proxy ingester configured to use PostgreSQL, Redis and Open Telemetry
+- Perses with sample dashboards
+- Perses Metrics Usage integration
+
+### Kubernetes
+
+The [`kube`](../examples/kube/) directory contains an opinionated set of Kubernetes YAML manifests.
+
+### Command Line
 
 #### Minimal Configuration (SQLite)
 

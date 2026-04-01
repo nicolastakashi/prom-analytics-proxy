@@ -1,0 +1,9 @@
+# Server
+upstream:
+  url: "http://prometheus.monitoring.svc.cluster.local:9090"
+
+# Database
+database:
+  provider: "sqlite"
+  sqlite:
+    database_path: "/etc/opt/data/prom-analytics-proxy.db"
