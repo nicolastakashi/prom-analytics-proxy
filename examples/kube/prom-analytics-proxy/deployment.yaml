@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom-analytics-proxy
+  labels:
+    app: prom-analytics-proxy
+spec:
+  replicas: 1 # Set multiple replicas for high availability
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: prom-analytics-proxy
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: prom-analytics-proxy
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: prom-analytics-proxy
+          image: ghcr.io/nicolastakashi/prom-analytics-proxy
+          imagePullPolicy: IfNotPresent
+          args:
+            - api
+            - -config-file=/etc/opt/prom-analytics-proxy/config.yaml
+            - -log-format=json # Log format (text, json) (default "text")
+            # - -log-level=DEBUG # Log level (default "INFO")
+          ports:
+            - name: api
+              containerPort: 9091
+          resources:
+            requests:
+              cpu: 150m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: api
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v1/seriesMetadata
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 5
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/opt/prom-analytics-proxy/config.yaml
+              subPath: config.yaml
+              name: config
+      volumes:
+        - name: config
+          secret:
+            secretName: prom-analytics-proxy
+      nodeSelector:
+        kubernetes.io/os: linux

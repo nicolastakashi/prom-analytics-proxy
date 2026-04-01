@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: prom-analytics-proxy
+  labels:
+    app: prom-analytics-proxy
+spec:
+  selector:
+    app: prom-analytics-proxy
+  ports:
+    - name: api
+      port: 9091
+      targetPort: api
