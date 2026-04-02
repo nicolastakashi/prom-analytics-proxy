@@ -24,6 +24,7 @@ jobs:
       ui: ${{ steps.filter.outputs.ui }}
       docs: ${{ steps.filter.outputs.docs }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      swagger: ${{ steps.filter.outputs.swagger }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +48,9 @@ jobs:
               - '**/*.md'
             workflows:
               - '.github/**'
+            swagger:
+              - 'api/routes/routes.go'
+              - 'docs/**'
 
   check-ui:
     needs: changes
@@ -234,6 +238,33 @@ jobs:
         run: make tidy
       - name: Check Documentation
         run: make check-docs
+
+  swagger:
+    needs: [ build-ui, changes ]
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.swagger == 'true' || needs.changes.outputs.workflows == 'true' }}
+    runs-on: ubuntu-latest
+    name: OpenAPI Spec Check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import environment variables from file
+        run: cat ".github/env" >> $GITHUB_ENV
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.golang-version }}"
+          check-latest: true
+          cache: true
+      - name: Download UI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Cache tooling binaries
+        uses: actions/cache@v4
+        with:
+          path: tmp/bin
+          key: tooling-${{ runner.os }}-${{ hashFiles('scripts/go.mod') }}
+      - name: Generate Swagger docs and check for drift
+        run: make check-swagger
 
   build:
     needs: [ build-ui, changes ]

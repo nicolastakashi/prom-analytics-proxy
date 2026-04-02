@@ -1,0 +1,1271 @@
+basePath: /
+definitions:
+  db.AverageDurationResult:
+    properties:
+      avg_duration:
+        type: number
+      delta_percent:
+        type: number
+    type: object
+  db.MetricProducersResult:
+    properties:
+      job:
+        type: string
+      series:
+        type: integer
+    type: object
+  db.MetricQueryPerformanceStatistics:
+    properties:
+      averageDuration:
+        type: number
+      averageSamples:
+        type: number
+      peakSamples:
+        type: integer
+      queryRate:
+        $ref: '#/definitions/db.QueryRateResult'
+      sampleRate:
+        type: number
+      totalQueries:
+        type: integer
+    type: object
+  db.MetricUsageStatics:
+    properties:
+      alertCount:
+        type: integer
+      dashboardCount:
+        type: integer
+      labelCount:
+        type: integer
+      producers:
+        items:
+          $ref: '#/definitions/db.MetricProducersResult'
+        type: array
+      recordCount:
+        type: integer
+      serieCount:
+        type: integer
+      totalAlerts:
+        type: integer
+      totalDashboards:
+        type: integer
+      totalRecords:
+        type: integer
+    type: object
+  db.QueriesBySerieNameResult:
+    properties:
+      avgDuration:
+        type: number
+      avgPeakySamples:
+        type: number
+      httpHeaders:
+        additionalProperties:
+          type: string
+        type: object
+      maxPeakSamples:
+        type: integer
+      query:
+        type: string
+      ts:
+        type: string
+    type: object
+  db.Query:
+    properties:
+      body_size:
+        type: integer
+      duration:
+        $ref: '#/definitions/time.Duration'
+      end:
+        type: string
+      http_headers:
+        additionalProperties:
+          type: string
+        type: object
+      peak_samples:
+        type: integer
+      query_param:
+        type: string
+      start:
+        type: string
+      status_code:
+        type: integer
+      step:
+        type: number
+      time_param:
+        type: string
+      total_queryable_samples:
+        type: integer
+      type:
+        $ref: '#/definitions/db.QueryType'
+    type: object
+  db.QueryErrorAnalysisResult:
+    properties:
+      time:
+        type: string
+      value:
+        type: number
+    type: object
+  db.QueryExecutionRow:
+    properties:
+      duration:
+        type: integer
+      end:
+        type: string
+      httpHeaders:
+        additionalProperties:
+          type: string
+        type: object
+      samples:
+        type: integer
+      start:
+        type: string
+      status:
+        type: integer
+      steps:
+        type: number
+      timestamp:
+        type: string
+      type:
+        type: string
+    type: object
+  db.QueryExpression:
+    properties:
+      avgDuration:
+        type: number
+      errorRatePercent:
+        type: number
+      executions:
+        type: integer
+      fingerprint:
+        type: string
+      peakSamples:
+        type: integer
+      query:
+        type: string
+    type: object
+  db.QueryLatencyTrendsResult:
+    properties:
+      p95:
+        type: integer
+      time:
+        type: string
+      value:
+        type: number
+    type: object
+  db.QueryRateResult:
+    properties:
+      error_rate_percent:
+        type: number
+      error_total:
+        type: integer
+      success_rate_percent:
+        type: number
+      success_total:
+        type: integer
+    type: object
+  db.QueryStatusDistributionResult:
+    properties:
+      2xx:
+        type: integer
+      4xx:
+        type: integer
+      5xx:
+        type: integer
+      time:
+        type: string
+    type: object
+  db.QueryThroughputAnalysisResult:
+    properties:
+      time:
+        type: string
+      value:
+        type: number
+    type: object
+  db.QueryTimeRangeDistributionResult:
+    properties:
+      count:
+        type: integer
+      label:
+        type: string
+      percent:
+        type: number
+    type: object
+  db.QueryType:
+    enum:
+    - range
+    - instant
+    type: string
+    x-enum-varnames:
+    - QueryTypeRange
+    - QueryTypeInstant
+  db.QueryTypesResult:
+    properties:
+      instant_percent:
+        type: number
+      range_percent:
+        type: number
+      total_queries:
+        type: integer
+    type: object
+  models.Data:
+    properties:
+      resultType:
+        type: string
+      stats:
+        $ref: '#/definitions/models.Stats'
+    type: object
+  models.ErrorResponse:
+    properties:
+      code:
+        type: integer
+      error:
+        type: string
+      traceId:
+        type: string
+    type: object
+  models.JobsResponse:
+    properties:
+      data:
+        items:
+          type: string
+        type: array
+    type: object
+  models.MetricMetadata:
+    properties:
+      alertCount:
+        type: integer
+      dashboardCount:
+        type: integer
+      help:
+        type: string
+      lastQueriedAt:
+        type: string
+      name:
+        type: string
+      queryCount:
+        type: integer
+      recordCount:
+        type: integer
+      type:
+        type: string
+      unit:
+        type: string
+    type: object
+  models.Response:
+    properties:
+      data:
+        $ref: '#/definitions/models.Data'
+      status:
+        type: string
+    type: object
+  models.Samples:
+    properties:
+      peakSamples:
+        type: integer
+      totalQueryableSamples:
+        type: integer
+    type: object
+  models.Stats:
+    properties:
+      samples:
+        $ref: '#/definitions/models.Samples'
+      timings:
+        $ref: '#/definitions/models.Timings'
+    type: object
+  models.Timings:
+    properties:
+      evalTotalTime:
+        type: number
+      execQueueTime:
+        type: number
+      execTotalTime:
+        type: number
+      innerEvalTime:
+        type: number
+      queryPreparationTime:
+        type: number
+      resultSortTime:
+        type: number
+    type: object
+  models.UnusedMetric:
+    properties:
+      name:
+        type: string
+      summary:
+        $ref: '#/definitions/models.UnusedSummary'
+      unused:
+        type: boolean
+    type: object
+  models.UnusedMetricsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/models.UnusedMetric'
+        type: array
+    type: object
+  models.UnusedSummary:
+    properties:
+      alert_count:
+        type: integer
+      dashboard_count:
+        type: integer
+      query_count:
+        type: integer
+      record_count:
+        type: integer
+    type: object
+  routes.MetricUsageItem:
+    properties:
+      created_at:
+        type: string
+      expression:
+        type: string
+      group_name:
+        type: string
+      id:
+        type: string
+      kind:
+        type: string
+      labels:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      serie:
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  routes.MetricUsageResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/routes.MetricUsageItem'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  routes.QueryExecutionsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/db.QueryExecutionRow'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  routes.QueryExpressionsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/db.QueryExpression'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  routes.SerieExpressionsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/db.QueriesBySerieNameResult'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  routes.SeriesMetadataResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/models.MetricMetadata'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
+info:
+  contact:
+    name: API Support
+    url: https://github.com/nicolastakashi/prom-analytics-proxy
+  description: API for Prometheus Analytics Proxy - provides query analytics, metrics
+    usage tracking, and proxy capabilities.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Prometheus Analytics Proxy API
+  version: "1.0"
+paths:
+  /api/v1/configs:
+    get:
+      description: Get sanitized server configuration (secrets redacted) as YAML.
+      produces:
+      - application/yaml
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get configuration
+      tags:
+      - config
+  /api/v1/jobs:
+    get:
+      description: Get list of distinct job labels from stored series.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.JobsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List jobs
+      tags:
+      - metrics
+  /api/v1/metricQueryPerformanceStatistics/{name}:
+    get:
+      description: Get query performance statistics for a specific metric including
+        query rate and performance metrics.
+      parameters:
+      - description: Metric name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/db.MetricQueryPerformanceStatistics'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get metric query performance statistics
+      tags:
+      - metrics
+  /api/v1/metricStatistics/{name}:
+    get:
+      description: Get detailed statistics for a specific metric including series
+        count, label count, and producers.
+      parameters:
+      - description: Metric name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/db.MetricUsageStatics'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get metric statistics
+      tags:
+      - metrics
+  /api/v1/metrics:
+    post:
+      consumes:
+      - application/json
+      description: Receive metrics usage data from Perses client (alerts, recording
+        rules, dashboards).
+      parameters:
+      - description: Metrics usage data from Perses
+        in: body
+        name: metricsUsage
+        required: true
+        schema: {}
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Push metrics usage
+      tags:
+      - metrics
+  /api/v1/metrics/unused:
+    get:
+      description: Check if given metrics are unused based on alerts, recording rules,
+        dashboards, and queries.
+      parameters:
+      - description: Comma-separated metric names (max 100)
+        in: query
+        name: name
+        required: true
+        type: string
+      - description: Filter by job label
+        in: query
+        name: job
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UnusedMetricsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Check unused metrics
+      tags:
+      - metrics
+  /api/v1/query:
+    get:
+      consumes:
+      - application/json
+      description: Execute an instant PromQL query and forward to Prometheus. Results
+        are logged for analytics.
+      parameters:
+      - description: PromQL query expression
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Evaluation timestamp (RFC3339 or Unix)
+        in: query
+        name: time
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query instant
+      tags:
+      - query
+  /api/v1/query/average_duration:
+    get:
+      description: Get average query duration in the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/db.AverageDurationResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Average duration
+      tags:
+      - analytics
+  /api/v1/query/errors:
+    get:
+      description: Get query error analysis in the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/db.QueryErrorAnalysisResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Error analysis
+      tags:
+      - analytics
+  /api/v1/query/executions:
+    get:
+      description: Get query execution history for a specific fingerprint with pagination.
+      parameters:
+      - description: Query fingerprint
+        in: query
+        name: fingerprint
+        required: true
+        type: string
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 10)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Sort field
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Query type filter (instant or range)
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.QueryExecutionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query executions
+      tags:
+      - analytics
+  /api/v1/query/expressions:
+    get:
+      description: Get list of unique query expressions in the given time range with
+        pagination.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 10)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Sort field (e.g., count, avg_duration)
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Filter by expression pattern
+        in: query
+        name: filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.QueryExpressionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query expressions
+      tags:
+      - analytics
+  /api/v1/query/latency:
+    get:
+      description: Get query latency trends over time in the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Metric name filter
+        in: query
+        name: metricName
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/db.QueryLatencyTrendsResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Latency trends
+      tags:
+      - analytics
+  /api/v1/query/push:
+    post:
+      consumes:
+      - application/json
+      description: Bulk push query execution data for analytics purposes.
+      parameters:
+      - description: Array of query execution records
+        in: body
+        name: queries
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/db.Query'
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Push query data
+      tags:
+      - analytics
+  /api/v1/query/rate:
+    get:
+      description: Get query rate (queries per second) in the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/db.QueryRateResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query rate
+      tags:
+      - analytics
+  /api/v1/query/status_distribution:
+    get:
+      description: Get distribution of HTTP status codes returned by queries in the
+        given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/db.QueryStatusDistributionResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Status distribution
+      tags:
+      - analytics
+  /api/v1/query/throughput:
+    get:
+      description: Get query throughput analysis (samples processed per second) in
+        the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/db.QueryThroughputAnalysisResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Throughput analysis
+      tags:
+      - analytics
+  /api/v1/query/time_range_distribution:
+    get:
+      description: Get distribution of query time ranges in the given time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/db.QueryTimeRangeDistributionResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Time range distribution
+      tags:
+      - analytics
+  /api/v1/query/types:
+    get:
+      description: Get distribution of query types (instant vs range) in the given
+        time range.
+      parameters:
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      - description: Fingerprint filter
+        in: query
+        name: fingerprint
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/db.QueryTypesResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query types
+      tags:
+      - analytics
+  /api/v1/query_range:
+    get:
+      consumes:
+      - application/json
+      description: Execute a range PromQL query and forward to Prometheus. Results
+        are logged for analytics.
+      parameters:
+      - description: PromQL query expression
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Start timestamp (RFC3339 or Unix)
+        in: query
+        name: start
+        required: true
+        type: string
+      - description: End timestamp (RFC3339 or Unix)
+        in: query
+        name: end
+        required: true
+        type: string
+      - description: Query resolution step (e.g., 15s)
+        in: query
+        name: step
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Query range
+      tags:
+      - query
+  /api/v1/serieExpressions/{name}:
+    get:
+      description: Get queries that referenced a specific series in the given time
+        range.
+      parameters:
+      - description: Series name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 1)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Sort field
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Filter by expression pattern
+        in: query
+        name: filter
+        type: string
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.SerieExpressionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Serie expressions
+      tags:
+      - metrics
+  /api/v1/serieUsage/{name}:
+    get:
+      description: Get usage information for a specific metric (dashboards, alerts,
+        recording rules).
+      parameters:
+      - description: Metric name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Usage kind (dashboard, alert, recording)
+        in: query
+        name: kind
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 1)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by name pattern
+        in: query
+        name: filter
+        type: string
+      - description: Sort field
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Start time (RFC3339 or Unix)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339 or Unix)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.MetricUsageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get metric usage
+      tags:
+      - metrics
+  /api/v1/seriesMetadata:
+    get:
+      description: Get metadata for all series with pagination and filtering options.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 10, max 100)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Sort field (name, seriesCount, type, usage)
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Filter by metric name pattern
+        in: query
+        name: filter
+        type: string
+      - description: Filter by metric type (gauge, counter, histogram, summary)
+        in: query
+        name: type
+        type: string
+      - description: Filter by usage type (all, used, unused)
+        in: query
+        name: usage
+        type: string
+      - description: Filter by job label
+        in: query
+        name: job
+        type: string
+      - description: Filter for unused metrics only
+        in: query
+        name: unused
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.SeriesMetadataResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Series metadata
+      tags:
+      - metrics
+swagger: "2.0"

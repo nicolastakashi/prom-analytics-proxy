@@ -1,3 +1,15 @@
+// @title           Prometheus Analytics Proxy API
+// @version         1.0
+// @description     API for Prometheus Analytics Proxy - provides query analytics, metrics usage tracking, and proxy capabilities.
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   API Support
+// @contact.url    https://github.com/nicolastakashi/prom-analytics-proxy
+// @license.name   Apache 2.0
+// @license.url    http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @BasePath  /
+
 package routes
 
 import (
@@ -21,6 +33,7 @@ import (
 	"github.com/metalmatze/signal/server/signalhttp"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/response"
+	_ "github.com/nicolastakashi/prom-analytics-proxy/docs"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
@@ -29,6 +42,7 @@ import (
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 	yaml "gopkg.in/yaml.v3"
@@ -123,6 +137,9 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
 
 		mux.Handle("/api/v1/query/push", http.HandlerFunc(r.queryPush))
+
+		mux.Handle("/swagger/", httpSwagger.Handler())
+
 		r.mux = mux
 	}
 }
@@ -304,6 +321,16 @@ func validateQuery(query db.Query) (db.Query, error) {
 	return query, nil
 }
 
+// @Summary Push query data
+// @Description Bulk push query execution data for analytics purposes.
+// @Tags analytics
+// @Accept json
+// @Produce json
+// @Param queries body []db.Query true "Array of query execution records"
+// @Success 200 {object} nil
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/push [post]
 func (r *routes) queryPush(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		writeErrorResponse(req, w, fmt.Errorf("invalid request method: %s", req.Method), http.StatusMethodNotAllowed)
@@ -355,6 +382,17 @@ func extractHeaders(req *http.Request, resp http.ResponseWriter, headerNames []s
 	return headers
 }
 
+// @Summary Query instant
+// @Description Execute an instant PromQL query and forward to Prometheus. Results are logged for analytics.
+// @Tags query
+// @Accept json
+// @Produce json
+// @Param query query string true "PromQL query expression"
+// @Param time query string false "Evaluation timestamp (RFC3339 or Unix)"
+// @Success 200 {object} models.Response
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query [get]
 func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
@@ -401,6 +439,19 @@ func (r *routes) query(w http.ResponseWriter, req *http.Request) {
 	r.queryIngester.Ingest(query)
 }
 
+// @Summary Query range
+// @Description Execute a range PromQL query and forward to Prometheus. Results are logged for analytics.
+// @Tags query
+// @Accept json
+// @Produce json
+// @Param query query string true "PromQL query expression"
+// @Param start query string true "Start timestamp (RFC3339 or Unix)"
+// @Param end query string true "End timestamp (RFC3339 or Unix)"
+// @Param step query string false "Query resolution step (e.g., 15s)"
+// @Success 200 {object} models.Response
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query_range [get]
 func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	start := time.Now().UTC()
 	query := db.Query{
@@ -452,6 +503,17 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 	r.queryIngester.Ingest(query)
 }
 
+// @Summary Query types
+// @Description Get distribution of query types (instant vs range) in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {object} db.QueryTypesResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/types [get]
 func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -475,6 +537,17 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Average duration
+// @Description Get average query duration in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {object} db.AverageDurationResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/average_duration [get]
 func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -490,6 +563,17 @@ func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Query rate
+// @Description Get query rate (queries per second) in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {object} db.QueryRateResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/rate [get]
 func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -505,6 +589,17 @@ func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Status distribution
+// @Description Get distribution of HTTP status codes returned by queries in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {array} db.QueryStatusDistributionResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/status_distribution [get]
 func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -520,6 +615,18 @@ func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Reques
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Latency trends
+// @Description Get query latency trends over time in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param metricName query string false "Metric name filter"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {array} db.QueryLatencyTrendsResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/latency [get]
 func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -537,6 +644,16 @@ func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Throughput analysis
+// @Description Get query throughput analysis (samples processed per second) in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Success 200 {array} db.QueryThroughputAnalysisResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/throughput [get]
 func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -551,6 +668,17 @@ func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Reques
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Error analysis
+// @Description Get query error analysis in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {array} db.QueryErrorAnalysisResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/errors [get]
 func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -566,6 +694,17 @@ func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Time range distribution
+// @Description Get distribution of query time ranges in the given time range.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param fingerprint query string false "Fingerprint filter"
+// @Success 200 {array} db.QueryTimeRangeDistributionResult
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/time_range_distribution [get]
 func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -581,6 +720,21 @@ func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Req
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Query expressions
+// @Description Get list of unique query expressions in the given time range with pagination.
+// @Tags analytics
+// @Produce json
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 10)"
+// @Param sortBy query string false "Sort field (e.g., count, avg_duration)"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param filter query string false "Filter by expression pattern"
+// @Success 200 {object} QueryExpressionsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/expressions [get]
 func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -620,6 +774,22 @@ func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Query executions
+// @Description Get query execution history for a specific fingerprint with pagination.
+// @Tags analytics
+// @Produce json
+// @Param fingerprint query string true "Query fingerprint"
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 10)"
+// @Param sortBy query string false "Sort field"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param type query string false "Query type filter (instant or range)"
+// @Success 200 {object} QueryExecutionsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/query/executions [get]
 func (r *routes) queryExecutions(w http.ResponseWriter, req *http.Request) {
 	from := getTimeParam(req, "from")
 	to := getTimeParam(req, "to")
@@ -663,6 +833,23 @@ func (r *routes) queryExecutions(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Series metadata
+// @Description Get metadata for all series with pagination and filtering options.
+// @Tags metrics
+// @Produce json
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 10, max 100)"
+// @Param sortBy query string false "Sort field (name, seriesCount, type, usage)"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param filter query string false "Filter by metric name pattern"
+// @Param type query string false "Filter by metric type (gauge, counter, histogram, summary)"
+// @Param usage query string false "Filter by usage type (all, used, unused)"
+// @Param job query string false "Filter by job label"
+// @Param unused query bool false "Filter for unused metrics only"
+// @Success 200 {object} SeriesMetadataResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/seriesMetadata [get]
 func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	params := db.SeriesMetadataParams{
 		Page:      1,
@@ -740,6 +927,17 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, data)
 }
 
+// @Summary Get metric statistics
+// @Description Get detailed statistics for a specific metric including series count, label count, and producers.
+// @Tags metrics
+// @Produce json
+// @Param name path string true "Metric name"
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Success 200 {object} db.MetricUsageStatics
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/metricStatistics/{name} [get]
 func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 	// TODO: Eventually we should cache this data
 
@@ -794,6 +992,17 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, statistics)
 }
 
+// @Summary Get metric query performance statistics
+// @Description Get query performance statistics for a specific metric including query rate and performance metrics.
+// @Tags metrics
+// @Produce json
+// @Param name path string true "Metric name"
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Success 200 {object} db.MetricQueryPerformanceStatistics
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/metricQueryPerformanceStatistics/{name} [get]
 func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
@@ -824,6 +1033,22 @@ func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req 
 	writeJSONResponse(req, w, queryPerformanceStatistics)
 }
 
+// @Summary Serie expressions
+// @Description Get queries that referenced a specific series in the given time range.
+// @Tags metrics
+// @Produce json
+// @Param name path string true "Series name"
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 1)"
+// @Param sortBy query string false "Sort field"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param filter query string false "Filter by expression pattern"
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Success 200 {object} SerieExpressionsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/serieExpressions/{name} [get]
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 
@@ -926,6 +1151,16 @@ func writeErrorResponse(r *http.Request, w http.ResponseWriter, err error, statu
 	}
 }
 
+// @Summary Push metrics usage
+// @Description Receive metrics usage data from Perses client (alerts, recording rules, dashboards).
+// @Tags metrics
+// @Accept json
+// @Produce json
+// @Param metricsUsage body interface{} true "Metrics usage data from Perses"
+// @Success 200 {object} nil
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/metrics [post]
 func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 	usage := make(map[string]*metricsUsageV1.MetricUsage)
 
@@ -987,6 +1222,23 @@ func (r *routes) PushMetricsUsage(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// @Summary Get metric usage
+// @Description Get usage information for a specific metric (dashboards, alerts, recording rules).
+// @Tags metrics
+// @Produce json
+// @Param name path string true "Metric name"
+// @Param kind query string true "Usage kind (dashboard, alert, recording)"
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 1)"
+// @Param filter query string false "Filter by name pattern"
+// @Param sortBy query string false "Sort field"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param from query string false "Start time (RFC3339 or Unix)"
+// @Param to query string false "End time (RFC3339 or Unix)"
+// @Success 200 {object} MetricUsageResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/serieUsage/{name} [get]
 func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 	if name == "" {
@@ -1064,6 +1316,13 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, alerts)
 }
 
+// @Summary Get configuration
+// @Description Get sanitized server configuration (secrets redacted) as YAML.
+// @Tags config
+// @Produce application/yaml
+// @Success 200 {string} string
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/configs [get]
 func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
 	if r.config == nil {
 		writeErrorResponse(req, w, fmt.Errorf("configuration not available"), http.StatusInternalServerError)
@@ -1083,6 +1342,13 @@ func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// @Summary List jobs
+// @Description Get list of distinct job labels from stored series.
+// @Tags metrics
+// @Produce json
+// @Success 200 {object} models.JobsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/jobs [get]
 func (r *routes) listJobs(w http.ResponseWriter, req *http.Request) {
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
 	defer cancel()
@@ -1097,6 +1363,16 @@ func (r *routes) listJobs(w http.ResponseWriter, req *http.Request) {
 	}{Data: jobs})
 }
 
+// @Summary Check unused metrics
+// @Description Check if given metrics are unused based on alerts, recording rules, dashboards, and queries.
+// @Tags metrics
+// @Produce json
+// @Param name query string true "Comma-separated metric names (max 100)"
+// @Param job query string false "Filter by job label"
+// @Success 200 {object} models.UnusedMetricsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/metrics/unused [get]
 func (r *routes) metricsUnused(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
