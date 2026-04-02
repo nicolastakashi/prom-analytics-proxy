@@ -131,6 +131,7 @@ var DefaultConfig = &Config{
 		IncludeQueryStats: true,
 	},
 	Server: ServerConfig{
+		InsecureListenAddress:   ":9091",
 		PushMetricsUsageTimeout: 30 * time.Second,
 	},
 	Inventory: InventoryConfig{
