@@ -113,6 +113,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	logConfig(cmd)
 	configureGoMemLimit(logger, config.DefaultConfig.MemoryLimit)
 	var shutdown func()
 	if config.DefaultConfig.IsTracingEnabled() {
@@ -153,6 +154,141 @@ func main() {
 			}
 			slog.Info("ingester: caught signal; exiting gracefully...")
 		}
+	}
+}
+
+func logConfig(cmd string) {
+	cfg := config.DefaultConfig.GetSanitizedConfig()
+
+	slog.Info("Upstream configuration",
+		"Upstream.URL", cfg.Upstream.URL,
+		"Upstream.IncludeQueryStats", cfg.Upstream.IncludeQueryStats,
+	)
+
+	slog.Info("Server configuration",
+		"Server.InsecureListenAddress", cfg.Server.InsecureListenAddress,
+		"Server.PushMetricsUsageTimeout", cfg.Server.PushMetricsUsageTimeout,
+	)
+
+	slog.Info("Database configuration",
+		"Database.Provider", cfg.Database.Provider,
+		"Database.PostgreSQL.Addr", cfg.Database.PostgreSQL.Addr,
+		"Database.PostgreSQL.Port", cfg.Database.PostgreSQL.Port,
+		"Database.PostgreSQL.Database", cfg.Database.PostgreSQL.Database,
+		"Database.PostgreSQL.User", cfg.Database.PostgreSQL.User,
+		"Database.PostgreSQL.SSLMode", cfg.Database.PostgreSQL.SSLMode,
+		"Database.PostgreSQL.MaxOpenConns", cfg.Database.PostgreSQL.MaxOpenConns,
+		"Database.PostgreSQL.MaxIdleConns", cfg.Database.PostgreSQL.MaxIdleConns,
+		"Database.PostgreSQL.DialTimeout", cfg.Database.PostgreSQL.DialTimeout,
+		"Database.PostgreSQL.ConnMaxLifetime", cfg.Database.PostgreSQL.ConnMaxLifetime,
+		"Database.PostgreSQL.ConnMaxIdleTime", cfg.Database.PostgreSQL.ConnMaxIdleTime,
+		"Database.SQLite.DatabasePath", cfg.Database.SQLite.DatabasePath,
+	)
+
+	slog.Info("Insert configuration",
+		"Insert.BatchSize", cfg.Insert.BatchSize,
+		"Insert.BufferSize", cfg.Insert.BufferSize,
+		"Insert.FlushInterval", cfg.Insert.FlushInterval,
+		"Insert.GracePeriod", cfg.Insert.GracePeriod,
+		"Insert.Timeout", cfg.Insert.Timeout,
+	)
+
+	slog.Info("Memory limit configuration",
+		"MemoryLimit.Enabled", cfg.MemoryLimit.Enabled,
+		"MemoryLimit.Ratio", cfg.MemoryLimit.Ratio,
+		"MemoryLimit.RefreshInterval", cfg.MemoryLimit.RefreshInterval,
+	)
+
+	slog.Info("Limits configuration",
+		"MetadataLimit", cfg.MetadataLimit,
+		"SeriesLimit", cfg.SeriesLimit,
+	)
+
+	slog.Info("CORS configuration",
+		"CORS.AllowedOrigins", cfg.CORS.AllowedOrigins,
+		"CORS.AllowedMethods", cfg.CORS.AllowedMethods,
+		"CORS.AllowedHeaders", cfg.CORS.AllowedHeaders,
+		"CORS.AllowCredentials", cfg.CORS.AllowCredentials,
+		"CORS.MaxAge", cfg.CORS.MaxAge,
+	)
+
+	slog.Info("Inventory configuration",
+		"Inventory.Enabled", cfg.Inventory.Enabled,
+		"Inventory.MetadataSyncEnabled", cfg.Inventory.MetadataSyncEnabled,
+		"Inventory.MetadataMetricsNameOnly", cfg.Inventory.MetadataMetricsNameOnly,
+		"Inventory.SyncInterval", cfg.Inventory.SyncInterval,
+		"Inventory.TimeWindow", cfg.Inventory.TimeWindow,
+		"Inventory.RunTimeout", cfg.Inventory.RunTimeout,
+		"Inventory.MetadataStepTimeout", cfg.Inventory.MetadataStepTimeout,
+		"Inventory.SummaryStepTimeout", cfg.Inventory.SummaryStepTimeout,
+		"Inventory.JobSyncEnabled", cfg.Inventory.JobSyncEnabled,
+		"Inventory.JobIndexLabelTimeout", cfg.Inventory.JobIndexLabelTimeout,
+		"Inventory.JobIndexPerJobTimeout", cfg.Inventory.JobIndexPerJobTimeout,
+		"Inventory.JobIndexWorkers", cfg.Inventory.JobIndexWorkers,
+	)
+
+	slog.Info("Query processing configuration",
+		"QueryProcessing.ExtractHTTPHeaders", cfg.QueryProcessing.ExtractHTTPHeaders,
+	)
+
+	slog.Info("Retention configuration",
+		"Retention.Enabled", cfg.Retention.Enabled,
+		"Retention.Interval", cfg.Retention.Interval,
+		"Retention.RunTimeout", cfg.Retention.RunTimeout,
+		"Retention.QueriesMaxAge", cfg.Retention.QueriesMaxAge,
+	)
+
+	if cmd == "ingester" {
+		slog.Info("Ingester configuration",
+			"Ingester.Protocol", cfg.Ingester.Protocol,
+			"Ingester.MetricsListenAddress", cfg.Ingester.MetricsListenAddress,
+			"Ingester.DryRun", cfg.Ingester.DryRun,
+			"Ingester.GracefulShutdownTimeout", cfg.Ingester.GracefulShutdownTimeout,
+			"Ingester.DrainDelay", cfg.Ingester.DrainDelay,
+			"Ingester.AllowedJobs", cfg.Ingester.AllowedJobs,
+			"Ingester.DeniedJobs", cfg.Ingester.DeniedJobs,
+		)
+
+		slog.Info("Ingester OTLP configuration",
+			"Ingester.OTLP.ListenAddress", cfg.Ingester.OTLP.ListenAddress,
+			"Ingester.OTLP.DownstreamAddress", cfg.Ingester.OTLP.DownstreamAddress,
+			"Ingester.OTLP.GRPCMaxRecvMsgSizeBytes", cfg.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes,
+			"Ingester.OTLP.GRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.GRPCMaxSendMsgSizeBytes,
+			"Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+			"Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+			"Ingester.OTLP.DownstreamRetryMaxAttempts", cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
+			"Ingester.OTLP.DownstreamRetryInitialBackoff", cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
+			"Ingester.OTLP.DownstreamRetryMaxBackoff", cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,
+			"Ingester.OTLP.DownstreamRetryBackoffMultiplier", cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
+			"Ingester.OTLP.DownstreamRetryCodes", cfg.Ingester.OTLP.DownstreamRetryCodes,
+			"Ingester.OTLP.BalancerName", cfg.Ingester.OTLP.BalancerName,
+			"Ingester.OTLP.DownstreamConnectMinTimeout", cfg.Ingester.OTLP.DownstreamConnectMinTimeout,
+			"Ingester.OTLP.DownstreamConnectBaseDelay", cfg.Ingester.OTLP.DownstreamConnectBaseDelay,
+			"Ingester.OTLP.DownstreamConnectMaxDelay", cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
+			"Ingester.OTLP.DownstreamConnectBackoffMultiplier", cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
+			"Ingester.OTLP.LookupChunkSize", cfg.Ingester.OTLP.LookupChunkSize,
+		)
+
+		slog.Info("Ingester Redis configuration",
+			"Ingester.Redis.Enabled", cfg.Ingester.Redis.Enabled,
+			"Ingester.Redis.Addr", cfg.Ingester.Redis.Addr,
+			"Ingester.Redis.Username", cfg.Ingester.Redis.Username,
+			"Ingester.Redis.DB", cfg.Ingester.Redis.DB,
+			"Ingester.Redis.UsedTTL", cfg.Ingester.Redis.UsedTTL,
+			"Ingester.Redis.UnusedTTL", cfg.Ingester.Redis.UnusedTTL,
+			"Ingester.Redis.UsedOnly", cfg.Ingester.Redis.UsedOnly,
+			"Ingester.Redis.OperationTimeout", cfg.Ingester.Redis.OperationTimeout,
+			"Ingester.Redis.DialTimeout", cfg.Ingester.Redis.DialTimeout,
+			"Ingester.Redis.ConnWriteTimeout", cfg.Ingester.Redis.ConnWriteTimeout,
+			"Ingester.Redis.BatchSize", cfg.Ingester.Redis.BatchSize,
+		)
+
+		slog.Info("Ingester catalog sync configuration",
+			"Ingester.CatalogSync.Enabled", cfg.Ingester.CatalogSync.Enabled,
+			"Ingester.CatalogSync.FlushInterval", cfg.Ingester.CatalogSync.FlushInterval,
+			"Ingester.CatalogSync.BufferSize", cfg.Ingester.CatalogSync.BufferSize,
+			"Ingester.CatalogSync.SeenTTL", cfg.Ingester.CatalogSync.SeenTTL,
+		)
 	}
 }
 
