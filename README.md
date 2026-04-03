@@ -91,15 +91,29 @@ Get up and running in 3 simple steps:
 
 ### 1. Start the Proxy
 
-```bash
+```shell
 git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
 cd prom-analytics-proxy
-cd ui
-npm install
-npm run build
-cd ..
-make build
-./prom-analytics-proxy -upstream http://your-prometheus-server:9090
+
+export GOSUMDB="sum.golang.org"
+
+make uidependencies
+make uibuild
+make all
+
+./bin/prom-analytics-proxy api \
+    -upstream=http://localhost:9090 \
+    -database-provider=sqlite \
+    -sqlite-database-path=./bin/prom-analytics-proxy.db \
+    -log-level=DEBUG
+```
+
+Alternatively, using a config file:
+
+```shell
+./bin/prom-analytics-proxy api \
+    -config-file=./bin/config.yaml \
+    -log-level=DEBUG
 ```
 
 The proxy listens on port `:9091` by default.
@@ -163,6 +177,12 @@ See the [examples/](examples/) directory for configuration templates and integra
 - Query performance visualization
 - Query Shortcuts for common patterns
 - Real-time analytics
+
+### High availability
+
+- Supported by default when database provider is set to `PostgreSQL`
+  - either flag `-database-provider=postgresql`
+  - or in config.yaml `database.provider: postgresql`
 
 ## Project Structure
 
