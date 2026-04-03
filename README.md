@@ -95,6 +95,7 @@ Get up and running in 3 simple steps:
 git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
 cd prom-analytics-proxy
 
+# OPTIONAL, in case of issues upgrading Golang version to one of the latest
 export GOSUMDB="sum.golang.org"
 
 make uidependencies
