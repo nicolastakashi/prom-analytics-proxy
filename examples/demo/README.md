@@ -1,10 +1,10 @@
-# Examples
+# Demo
 
 Two demos are available:
 
 ## Proxy Only
 
-Path: `examples/proxy`
+Path: `examples/demo/proxy-only`
 
 Use this when you want to show only the query analytics story:
 - Prometheus as backend
@@ -15,13 +15,13 @@ Use this when you want to show only the query analytics story:
 Start it with:
 
 ```bash
-cd examples/proxy
+cd examples/demo/proxy-only
 docker compose up -d
 ```
 
 ## Full Demo
 
-Path: `examples/full`
+Path: `examples/demo/full`
 
 Use this when you want the full story:
 - query analytics through the proxy API
@@ -32,7 +32,7 @@ Use this when you want the full story:
 Start it with:
 
 ```bash
-cd examples/full
+cd examples/demo/full
 docker compose up -d
 ```
 
