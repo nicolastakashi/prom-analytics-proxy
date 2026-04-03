@@ -131,6 +131,7 @@ var DefaultConfig = &Config{
 		IncludeQueryStats: true,
 	},
 	Server: ServerConfig{
+		InsecureListenAddress:   ":9091",
 		PushMetricsUsageTimeout: 30 * time.Second,
 	},
 	Inventory: InventoryConfig{
@@ -355,14 +356,14 @@ func (c *Config) GetTracingServiceName() string {
 // that excludes sensitive information
 func (c *Config) GetSanitizedConfig() *Config {
 
-	// Copy Database config
-	if c.Database.Provider == "postgresql" {
-		c.Database.PostgreSQL.User = ""
-		c.Database.PostgreSQL.Password = ""
-		c.Database.SQLite.DatabasePath = ""
+	// Copy the config before sanitize it
+	sanitizedCfg := *c
+	if sanitizedCfg.Database.Provider == "postgresql" {
+		sanitizedCfg.Database.PostgreSQL.User = ""
+		sanitizedCfg.Database.PostgreSQL.Password = ""
 	}
 
-	return c
+	return &sanitizedCfg
 }
 
 // RegisterInventoryFlags registers all inventory-related command-line flags

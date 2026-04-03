@@ -112,7 +112,7 @@ Alternatively, using a config file:
 
 ```shell
 ./bin/prom-analytics-proxy api \
-    -config-file=./bin/config.yaml \
+    -config-file=./examples/config/api/dev.yaml \
     -log-level=DEBUG
 ```
 
@@ -495,7 +495,7 @@ The `prom-analytics-proxy` application integrates with Perses Metrics Usage to g
 
 Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
 
-**Try it out:** The [examples/proxy](examples/proxy) and [examples/full](examples/full) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/proxy/config/metrics-usage/).
+**Try it out:** The [proxy-only](examples/demo/proxy-only) and [full](examples/demo/full) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/demo/proxy-only/config/metrics-usage/).
 
 ### Inventory Configuration
 
