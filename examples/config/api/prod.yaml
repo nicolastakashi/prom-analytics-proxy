@@ -1,0 +1,35 @@
+# Server
+upstream:
+  url: "http://prometheus.monitoring.svc.cluster.local:9090"
+memory_limit:
+  enabled: true
+
+# Database
+database:
+  provider: "postgresql"
+  postgresql:
+    addr: "localhost"
+    port: 5432
+    database: "postgres"
+    user: "postgres"
+    password: "postgres"
+    sslmode: "disable"
+
+# Performance tuning
+insert:
+  batch_size: 50
+  buffer_size: 500
+  flush_interval: "10s"
+  grace_period: "5s"
+  timeout: "1s"
+
+# Retention
+retention:
+  enabled: true
+  interval: 72h
+  queries_max_age: 4320h
+  run_timeou: 30m
+
+# Inventory
+inventory:
+  sync_interval: 30m
