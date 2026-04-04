@@ -5,7 +5,6 @@
 tmp
 bin
 scripts
-docs
 examples
 **/node_modules
 ui/dist

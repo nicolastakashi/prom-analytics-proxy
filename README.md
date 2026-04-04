@@ -495,7 +495,7 @@ The `prom-analytics-proxy` application integrates with Perses Metrics Usage to g
 
 Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
 
-**Try it out:** The [examples/proxy](examples/proxy) and [examples/full](examples/full) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/proxy/config/metrics-usage/).
+**Try it out:** The [examples/proxy](examples/demo/proxy-only) and [examples/full](examples/demo/full/) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/demo/full/config/metrics-usage/).
 
 ### Inventory Configuration
 
@@ -560,11 +560,11 @@ Tune the insert buffer settings and consider using PostgreSQL instead of SQLite 
 
 ## API Reference
 
-The proxy provides several API endpoints for accessing query analytics and metrics inventory data:
+The proxy provides several API endpoints for accessing query analytics and metrics inventory data. The full OpenAPI specification is available in [`docs/swagger.yaml`](docs/swagger.yaml) and can be viewed interactively when the server is running at `/swagger/` (if configured with Swagger UI).
 
 ### Query Analytics API
 
-- `GET /api/v1/queries` - Retrieve query analytics data with pagination and filtering
+- `GET /api/v1/query/expressions` - Retrieve query analytics data with pagination and filtering
 
 ### Series Metadata
 
