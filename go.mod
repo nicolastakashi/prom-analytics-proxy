@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
-	github.com/lib/pq v1.12.1
+	github.com/lib/pq v1.12.3
 	github.com/oklog/run v1.2.0
 	github.com/perses/metrics-usage v0.7.0
 	github.com/pressly/goose/v3 v3.27.0
@@ -17,11 +17,11 @@ require (
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
-	go.opentelemetry.io/otel v1.42.0
-	go.opentelemetry.io/otel/sdk v1.42.0
-	go.opentelemetry.io/otel/trace v1.42.0
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/sdk v1.43.0
+	go.opentelemetry.io/otel/trace v1.43.0
 	go.opentelemetry.io/proto/otlp v1.10.0
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.80.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -107,7 +107,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.41.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.41.0 // indirect
-	go.opentelemetry.io/otel/metric v1.42.0 // indirect
+	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
@@ -142,5 +142,5 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	modernc.org/sqlite v1.48.0
+	modernc.org/sqlite v1.48.1
 )
