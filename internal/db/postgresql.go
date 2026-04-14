@@ -55,7 +55,7 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	postgresConfig := config.DefaultConfig.Database.PostgreSQL
 
 	psqlInfo := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d application_name=prom-analytics-proxy",
+		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy",
 		postgresConfig.Addr,
 		postgresConfig.Port,
 		postgresConfig.User,
@@ -120,7 +120,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 	// Use a prepared INSERT to batch rows within a single transaction
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
-		return QueryError(err, "begin copy tx", "")
+		return QueryError(err, "begin insert tx", "")
 	}
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO queries (
 		ts, queryparam, timeparam, duration, statuscode, bodysize,
@@ -129,7 +129,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`)
 	if err != nil {
 		_ = tx.Rollback()
-		return QueryError(err, "prepare copyin", "")
+		return QueryError(err, "prepare insert", "")
 	}
 
 	for _, q := range queries {
@@ -165,16 +165,16 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 		); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
-			return QueryError(err, "copyin exec", "")
+			return QueryError(err, "insert exec", "")
 		}
 	}
 
 	if err := stmt.Close(); err != nil {
 		_ = tx.Rollback()
-		return QueryError(err, "copyin close", "")
+		return QueryError(err, "insert close", "")
 	}
 	if err := tx.Commit(); err != nil {
-		return QueryError(err, "copyin commit", "")
+		return QueryError(err, "insert commit", "")
 	}
 	return nil
 }

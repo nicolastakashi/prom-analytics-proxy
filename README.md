@@ -560,11 +560,11 @@ Tune the insert buffer settings and consider using PostgreSQL instead of SQLite 
 
 ## API Reference
 
-The proxy provides several API endpoints for accessing query analytics and metrics inventory data:
+The proxy provides several API endpoints for accessing query analytics and metrics inventory data. The full OpenAPI specification is available in [`docs/swagger.yaml`](docs/swagger.yaml) and can be viewed interactively when the server is running at `/swagger/` (if configured with Swagger UI).
 
 ### Query Analytics API
 
-- `GET /api/v1/queries` - Retrieve query analytics data with pagination and filtering
+- `GET /api/v1/query/expressions` - Retrieve query analytics data with pagination and filtering
 
 ### Series Metadata
 
