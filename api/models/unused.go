@@ -12,3 +12,7 @@ type UnusedMetric struct {
 	Unused  bool          `json:"unused"`
 	Summary UnusedSummary `json:"summary"`
 }
+
+type UnusedMetricsResponse struct {
+	Data []UnusedMetric `json:"data"`
+}

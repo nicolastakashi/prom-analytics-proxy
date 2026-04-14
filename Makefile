@@ -4,9 +4,10 @@ export PATH := $(TOOLS_BIN_DIR):$(PATH)
 
 GOLANGCILINTER_BINARY=$(TOOLS_BIN_DIR)/golangci-lint
 MDOX_BINARY=$(TOOLS_BIN_DIR)/mdox
+SWAG_BINARY=$(TOOLS_BIN_DIR)/swag
 MDOX_VALIDATE_CONFIG?=.mdox.validate.yaml
 
-TOOLING=$(MDOX_BINARY) $(GOLANGCILINTER_BINARY)
+TOOLING=$(MDOX_BINARY) $(GOLANGCILINTER_BINARY) $(SWAG_BINARY)
 
 MD_FILES_TO_FORMAT=$(shell ls *.md)
 
@@ -131,3 +132,18 @@ $(TOOLING): $(TOOLS_BIN_DIR)
 .PHONY: run-promql-smith
 run-promql-smith:
 	go run examples/promqlsmith/main.go
+
+SWAG=$(TOOLS_BIN_DIR)/swag
+
+.PHONY: generate-swagger
+generate-swagger: $(SWAG)
+	$(SWAG) init -g api/routes/routes.go -d . --parseDependency --parseInternal --output docs
+
+$(SWAG): $(TOOLS_BIN_DIR)
+	@echo Installing swag
+	@GOBIN=$(TOOLS_BIN_DIR) go install github.com/swaggo/swag/cmd/swag@latest
+
+.PHONY: check-swagger
+check-swagger: generate-swagger
+	@echo ">> checking swagger docs are up to date"
+	@git diff --exit-code docs/
