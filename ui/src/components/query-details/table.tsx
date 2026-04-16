@@ -234,7 +234,11 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     ),
     cell: ({ row }) => {
       const v = Number(row.getValue("samples"));
-      return <div className="text-right">{Number.isFinite(v) ? formatUnit(v) : "-"}</div>;
+      return (
+        <div className="text-right">
+          {Number.isFinite(v) ? formatUnit(v) : "-"}
+        </div>
+      );
     },
   },
   {

@@ -121,6 +121,9 @@ export function DataTable<TData>({
     }
   }, [data, serverSide]);
 
+  // TanStack Table returns non-memoizable helpers; this component is already
+  // opted out of React Compiler memoization with "use no memo".
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
