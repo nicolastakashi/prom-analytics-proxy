@@ -17,7 +17,7 @@ import {
   useMetricQueryPerformanceStatistics,
   useQueryLatencyTrends,
 } from "@/app/metrics/use-metrics-data";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface MetricPerformanceProps {

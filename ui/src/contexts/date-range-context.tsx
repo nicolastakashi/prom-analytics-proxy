@@ -1,22 +1,8 @@
-import {
-  createContext,
-  useContext,
-  ReactNode,
-  useMemo,
-  useCallback,
-} from "react";
+import { ReactNode, useMemo, useCallback } from "react";
 import { useSearchParams } from "wouter";
 import type { DateRange } from "react-day-picker";
+import { DateRangeContext } from "@/contexts/date-range";
 import { fromUTC, formatLocalToUTC } from "@/lib/utils/date-utils";
-
-interface DateRangeContextType {
-  dateRange: DateRange;
-  setDateRange: (range: DateRange) => void;
-}
-
-const DateRangeContext = createContext<DateRangeContextType | undefined>(
-  undefined,
-);
 
 export function DateRangeProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -68,12 +54,4 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
       {children}
     </DateRangeContext.Provider>
   );
-}
-
-export function useDateRange() {
-  const context = useContext(DateRangeContext);
-  if (context === undefined) {
-    throw new Error("useDateRange must be used within a DateRangeProvider");
-  }
-  return context;
 }

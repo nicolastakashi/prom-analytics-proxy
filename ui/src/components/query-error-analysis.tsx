@@ -13,7 +13,7 @@ import {
 } from "recharts";
 
 import { useQuery } from "@tanstack/react-query";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { getQueryErrorAnalysis } from "@/api/queries";
 import { Skeleton } from "@/components/ui/skeleton";
 

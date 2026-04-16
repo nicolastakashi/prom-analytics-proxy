@@ -1,12 +1,6 @@
-import { createContext, useContext, useState, ReactNode } from "react";
-import { TableState } from "@/lib/types";
-
-interface TableContextType {
-  tableState: TableState;
-  setTableState: (state: TableState) => void;
-}
-
-const TableContext = createContext<TableContextType | undefined>(undefined);
+import { useState, ReactNode } from "react";
+import type { TableState } from "@/lib/types";
+import { TableContext } from "@/contexts/table";
 
 export function TableProvider({ children }: { children: ReactNode }) {
   const [tableState, setTableState] = useState<TableState>({
@@ -23,12 +17,4 @@ export function TableProvider({ children }: { children: ReactNode }) {
       {children}
     </TableContext.Provider>
   );
-}
-
-export function useTable() {
-  const context = useContext(TableContext);
-  if (context === undefined) {
-    throw new Error("useTable must be used within a TableProvider");
-  }
-  return context;
 }

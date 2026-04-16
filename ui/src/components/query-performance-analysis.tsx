@@ -13,7 +13,7 @@ import { QueryThroughputAnalysisResult } from "@/lib/types";
 import { formatTimestampByGranularity } from "@/lib/utils/date-formatting";
 
 import { useQuery } from "@tanstack/react-query";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { getQueryThroughputAnalysis } from "@/api/queries";
 import { Skeleton } from "@/components/ui/skeleton";
 

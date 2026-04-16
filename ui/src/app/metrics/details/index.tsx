@@ -2,7 +2,7 @@
 
 import { useParams } from "wouter";
 import { MetricDetailHeader } from "@/components/metrics-explorer/metric-detail-header";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MetricStats } from "@/components/metrics-explorer/metric-stats";
 import { MetricPerformance } from "@/components/metrics-explorer/metric-performance";

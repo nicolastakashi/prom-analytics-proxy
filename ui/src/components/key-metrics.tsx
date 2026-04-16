@@ -13,7 +13,7 @@ import { PieChart, Pie, ResponsiveContainer, Cell, Tooltip } from "recharts";
 const COLORS = ["hsl(var(--primary))", "hsl(var(--primary) / 0.3)"];
 
 import { useQuery } from "@tanstack/react-query";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { getQueryTypes, getAverageDuration, getQueryRate } from "@/api/queries";
 import { Skeleton } from "@/components/ui/skeleton";
 

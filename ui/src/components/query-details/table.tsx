@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { getQueryExecutions } from "@/api/queries";
 import type { PagedResult, QueryExecution } from "@/lib/types";
 import { formatUTCtoLocal } from "@/lib/utils/date-utils";

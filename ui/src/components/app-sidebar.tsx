@@ -13,8 +13,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
+import { useSidebar } from "@/components/ui/sidebar-context";
 import { routeConfigs } from "@/lib/routes";
 import { PreservedLink } from "@/components/preserved-link.tsx";
 

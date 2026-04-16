@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 
 import { useMetricStatistics } from "@/app/metrics/use-metrics-data";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface MetricProducersProps {

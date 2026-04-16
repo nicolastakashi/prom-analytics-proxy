@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bell, BarChart3, Database, GitMerge } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMetricStatistics } from "@/app/metrics/use-metrics-data";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { formatUnit } from "@/lib/utils";
 
 interface MetricStatsProps {
