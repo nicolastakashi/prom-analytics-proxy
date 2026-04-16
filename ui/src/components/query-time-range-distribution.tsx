@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 import { getQueryTimeRangeDistribution } from "@/api/queries";
 import { QueryTimeRangeDistributionResult } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";

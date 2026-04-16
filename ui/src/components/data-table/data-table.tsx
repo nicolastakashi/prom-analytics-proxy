@@ -1,5 +1,3 @@
-"use no memo";
-
 import { useState, useEffect } from "react";
 import {
   flexRender,
@@ -48,6 +46,8 @@ export function DataTable<TData>({
   onFilterChange,
   onPaginationChange,
 }: DataTableProps<TData>) {
+  "use no memo";
+
   // Local state for client-side operations
   const [sorting, setSorting] = useState<SortingState>(
     externalSortingState || [],

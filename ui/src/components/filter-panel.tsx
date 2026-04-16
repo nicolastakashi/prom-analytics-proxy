@@ -16,7 +16,7 @@ import {
   startOfDay,
   differenceInMilliseconds,
 } from "date-fns";
-import { useDateRange } from "@/contexts/date-range-context";
+import { useDateRange } from "@/contexts/date-range";
 
 // Types
 interface TimeRange {
