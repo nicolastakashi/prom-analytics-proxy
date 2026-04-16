@@ -24,7 +24,7 @@ server:
 database:
   provider: "sqlite"
   sqlite:
-    database_paths: "test.db"
+    database_path: "test.db"
 insert:
   batch_size: 20
   buffer_size: 100
@@ -95,6 +95,40 @@ cors:
 	assert.Equal(t, []string{"Content-Type"}, DefaultConfig.CORS.AllowedHeaders)
 	assert.True(t, DefaultConfig.CORS.AllowCredentials)
 	assert.Equal(t, 300, DefaultConfig.CORS.MaxAge)
+}
+
+func TestLoadConfig_SQLiteLegacyDatabasePathKey(t *testing.T) {
+	originalConfig := DefaultConfig
+
+	configContent := `
+database:
+  provider: "sqlite"
+  sqlite:
+    database_paths: "legacy.db"
+`
+
+	tmpfile, err := os.CreateTemp("", "config-*.yaml")
+	require.NoError(t, err)
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("failed to remove temp file: %v", err)
+		}
+	}()
+
+	_, err = tmpfile.Write([]byte(configContent))
+	require.NoError(t, err)
+	if err := tmpfile.Close(); err != nil {
+		t.Logf("failed to close temp file: %v", err)
+	}
+
+	DefaultConfig = &Config{}
+	defer func() {
+		DefaultConfig = originalConfig
+	}()
+
+	err = LoadConfig(tmpfile.Name())
+	require.NoError(t, err)
+	assert.Equal(t, "legacy.db", DefaultConfig.Database.SQLite.DatabasePath)
 }
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {

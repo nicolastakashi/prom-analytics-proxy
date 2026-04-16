@@ -67,6 +67,26 @@ type SQLiteConfig struct {
 	DatabasePath string `yaml:"database_paths,omitempty"`
 }
 
+func (c *SQLiteConfig) UnmarshalYAML(value *yaml.Node) error {
+	type sqliteConfig struct {
+		DatabasePath       string `yaml:"database_path,omitempty"`
+		LegacyDatabasePath string `yaml:"database_paths,omitempty"`
+	}
+
+	var raw sqliteConfig
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	if raw.DatabasePath != "" {
+		c.DatabasePath = raw.DatabasePath
+		return nil
+	}
+
+	c.DatabasePath = raw.LegacyDatabasePath
+	return nil
+}
+
 type InsertConfig struct {
 	BatchSize     int           `yaml:"batch_size,omitempty"`
 	BufferSize    int           `yaml:"buffer_size,omitempty"`
