@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sheet";
 import { QueryDetails } from "@/components/query-details";
 import { useSearchNumberState, useSearchState } from "@/hooks/use-search-state";
+import { formatUnit } from "@/lib/utils";
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
@@ -69,7 +70,7 @@ const columns: ExtendedColumnDef<QueryExpression>[] = [
     ),
     cell: ({ row }) => {
       const value = Number(row.getValue("peakSamples"));
-      return <div className="text-right">{value.toLocaleString()}</div>;
+      return <div className="text-right">{formatUnit(value)}</div>;
     },
   },
 ];
