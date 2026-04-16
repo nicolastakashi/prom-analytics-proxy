@@ -6,7 +6,9 @@ interface TableContextType {
   setTableState: (state: TableState) => void;
 }
 
-export const TableContext = createContext<TableContextType | undefined>(undefined);
+export const TableContext = createContext<TableContextType | undefined>(
+  undefined,
+);
 
 export function useTable() {
   const context = useContext(TableContext);
