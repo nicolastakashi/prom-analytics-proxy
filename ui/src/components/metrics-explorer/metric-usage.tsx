@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DateRange } from "@/lib/types";
+import { formatUnit } from "@/lib/utils";
 
 // Define our extended column type with maxWidth
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
@@ -127,7 +128,7 @@ const getQueriesColumns = (): ExtendedColumnDef<
     ),
     cell: ({ row }) => {
       const value = row.getValue("maxPeakSamples") as number;
-      return <span>{value?.toLocaleString() ?? "N/A"}</span>;
+      return <span>{value != null ? formatUnit(value) : "N/A"}</span>;
     },
   },
   {
@@ -137,7 +138,7 @@ const getQueriesColumns = (): ExtendedColumnDef<
     ),
     cell: ({ row }) => {
       const value = row.getValue("avgPeakySamples") as number;
-      return <span>{value?.toFixed(2) ?? "N/A"}</span>;
+      return <span>{value != null ? formatUnit(value) : "N/A"}</span>;
     },
   },
 ];
