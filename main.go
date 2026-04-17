@@ -113,6 +113,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	config.LogConfig(cmd)
 	configureGoMemLimit(logger, config.DefaultConfig.MemoryLimit)
 	var shutdown func()
 	if config.DefaultConfig.IsTracingEnabled() {

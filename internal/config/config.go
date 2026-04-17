@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -151,6 +152,7 @@ var DefaultConfig = &Config{
 		IncludeQueryStats: true,
 	},
 	Server: ServerConfig{
+		InsecureListenAddress:   ":9091",
 		PushMetricsUsageTimeout: 30 * time.Second,
 	},
 	Inventory: InventoryConfig{
@@ -375,14 +377,14 @@ func (c *Config) GetTracingServiceName() string {
 // that excludes sensitive information
 func (c *Config) GetSanitizedConfig() *Config {
 
-	// Copy Database config
-	if c.Database.Provider == "postgresql" {
-		c.Database.PostgreSQL.User = ""
-		c.Database.PostgreSQL.Password = ""
-		c.Database.SQLite.DatabasePath = ""
+	// Copy the config before sanitize it
+	sanitizedCfg := *c
+	if sanitizedCfg.Database.Provider == "postgresql" {
+		sanitizedCfg.Database.PostgreSQL.User = ""
+		sanitizedCfg.Database.PostgreSQL.Password = ""
 	}
 
-	return c
+	return &sanitizedCfg
 }
 
 // RegisterInventoryFlags registers all inventory-related command-line flags
@@ -410,4 +412,181 @@ func RegisterRetentionFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&DefaultConfig.Retention.Interval, "retention-interval", DefaultConfig.Retention.Interval, "Interval between retention runs")
 	flagSet.DurationVar(&DefaultConfig.Retention.RunTimeout, "retention-run-timeout", DefaultConfig.Retention.RunTimeout, "Timeout for each retention run")
 	flagSet.DurationVar(&DefaultConfig.Retention.QueriesMaxAge, "retention-queries-max-age", DefaultConfig.Retention.QueriesMaxAge, "Maximum age for queries before deletion")
+}
+
+func LogConfig(cmd string) {
+	cfg := DefaultConfig.GetSanitizedConfig()
+	logUpstreamConfig(cfg)
+	logServerConfig(cfg)
+	logDatabaseConfig(cfg)
+	logInsertConfig(cfg)
+	logMemoryLimitConfig(cfg)
+	logLimitsConfig(cfg)
+	logCORSConfig(cfg)
+	logInventoryConfig(cfg)
+	logQueryProcessingConfig(cfg)
+	logRetentionConfig(cfg)
+	if cmd == "ingester" {
+		logIngesterConfig(cfg)
+		logIngesterOTLPConfig(cfg)
+		logIngesterRedisConfig(cfg)
+		logIngesterCatalogSyncConfig(cfg)
+	}
+}
+
+func logUpstreamConfig(cfg *Config) {
+	slog.Debug("Upstream configuration",
+		"Upstream.URL", cfg.Upstream.URL,
+		"Upstream.IncludeQueryStats", cfg.Upstream.IncludeQueryStats,
+	)
+}
+
+func logServerConfig(cfg *Config) {
+	slog.Debug("Server configuration",
+		"Server.InsecureListenAddress", cfg.Server.InsecureListenAddress,
+		"Server.PushMetricsUsageTimeout", cfg.Server.PushMetricsUsageTimeout,
+	)
+}
+
+func logDatabaseConfig(cfg *Config) {
+	slog.Debug("Database configuration",
+		"Database.Provider", cfg.Database.Provider,
+		"Database.PostgreSQL.Addr", cfg.Database.PostgreSQL.Addr,
+		"Database.PostgreSQL.Port", cfg.Database.PostgreSQL.Port,
+		"Database.PostgreSQL.Database", cfg.Database.PostgreSQL.Database,
+		"Database.PostgreSQL.User", cfg.Database.PostgreSQL.User,
+		"Database.PostgreSQL.SSLMode", cfg.Database.PostgreSQL.SSLMode,
+		"Database.PostgreSQL.MaxOpenConns", cfg.Database.PostgreSQL.MaxOpenConns,
+		"Database.PostgreSQL.MaxIdleConns", cfg.Database.PostgreSQL.MaxIdleConns,
+		"Database.PostgreSQL.DialTimeout", cfg.Database.PostgreSQL.DialTimeout,
+		"Database.PostgreSQL.ConnMaxLifetime", cfg.Database.PostgreSQL.ConnMaxLifetime,
+		"Database.PostgreSQL.ConnMaxIdleTime", cfg.Database.PostgreSQL.ConnMaxIdleTime,
+		"Database.SQLite.DatabasePath", cfg.Database.SQLite.DatabasePath,
+	)
+}
+
+func logInsertConfig(cfg *Config) {
+	slog.Debug("Insert configuration",
+		"Insert.BatchSize", cfg.Insert.BatchSize,
+		"Insert.BufferSize", cfg.Insert.BufferSize,
+		"Insert.FlushInterval", cfg.Insert.FlushInterval,
+		"Insert.GracePeriod", cfg.Insert.GracePeriod,
+		"Insert.Timeout", cfg.Insert.Timeout,
+	)
+}
+
+func logMemoryLimitConfig(cfg *Config) {
+	slog.Debug("Memory limit configuration",
+		"MemoryLimit.Enabled", cfg.MemoryLimit.Enabled,
+		"MemoryLimit.Ratio", cfg.MemoryLimit.Ratio,
+		"MemoryLimit.RefreshInterval", cfg.MemoryLimit.RefreshInterval,
+	)
+}
+
+func logLimitsConfig(cfg *Config) {
+	slog.Debug("Limits configuration",
+		"MetadataLimit", cfg.MetadataLimit,
+		"SeriesLimit", cfg.SeriesLimit,
+	)
+}
+
+func logCORSConfig(cfg *Config) {
+	slog.Debug("CORS configuration",
+		"CORS.AllowedOrigins", cfg.CORS.AllowedOrigins,
+		"CORS.AllowedMethods", cfg.CORS.AllowedMethods,
+		"CORS.AllowedHeaders", cfg.CORS.AllowedHeaders,
+		"CORS.AllowCredentials", cfg.CORS.AllowCredentials,
+		"CORS.MaxAge", cfg.CORS.MaxAge,
+	)
+}
+
+func logInventoryConfig(cfg *Config) {
+	slog.Debug("Inventory configuration",
+		"Inventory.Enabled", cfg.Inventory.Enabled,
+		"Inventory.MetadataSyncEnabled", cfg.Inventory.MetadataSyncEnabled,
+		"Inventory.MetadataMetricsNameOnly", cfg.Inventory.MetadataMetricsNameOnly,
+		"Inventory.SyncInterval", cfg.Inventory.SyncInterval,
+		"Inventory.TimeWindow", cfg.Inventory.TimeWindow,
+		"Inventory.RunTimeout", cfg.Inventory.RunTimeout,
+		"Inventory.MetadataStepTimeout", cfg.Inventory.MetadataStepTimeout,
+		"Inventory.SummaryStepTimeout", cfg.Inventory.SummaryStepTimeout,
+		"Inventory.JobSyncEnabled", cfg.Inventory.JobSyncEnabled,
+		"Inventory.JobIndexLabelTimeout", cfg.Inventory.JobIndexLabelTimeout,
+		"Inventory.JobIndexPerJobTimeout", cfg.Inventory.JobIndexPerJobTimeout,
+		"Inventory.JobIndexWorkers", cfg.Inventory.JobIndexWorkers,
+	)
+}
+
+func logQueryProcessingConfig(cfg *Config) {
+	slog.Debug("Query processing configuration",
+		"QueryProcessing.ExtractHTTPHeaders", cfg.QueryProcessing.ExtractHTTPHeaders,
+	)
+}
+
+func logRetentionConfig(cfg *Config) {
+	slog.Debug("Retention configuration",
+		"Retention.Enabled", cfg.Retention.Enabled,
+		"Retention.Interval", cfg.Retention.Interval,
+		"Retention.RunTimeout", cfg.Retention.RunTimeout,
+		"Retention.QueriesMaxAge", cfg.Retention.QueriesMaxAge,
+	)
+}
+
+func logIngesterConfig(cfg *Config) {
+	slog.Debug("Ingester configuration",
+		"Ingester.Protocol", cfg.Ingester.Protocol,
+		"Ingester.MetricsListenAddress", cfg.Ingester.MetricsListenAddress,
+		"Ingester.DryRun", cfg.Ingester.DryRun,
+		"Ingester.GracefulShutdownTimeout", cfg.Ingester.GracefulShutdownTimeout,
+		"Ingester.DrainDelay", cfg.Ingester.DrainDelay,
+		"Ingester.AllowedJobs", cfg.Ingester.AllowedJobs,
+		"Ingester.DeniedJobs", cfg.Ingester.DeniedJobs,
+	)
+}
+
+func logIngesterOTLPConfig(cfg *Config) {
+	slog.Debug("Ingester OTLP configuration",
+		"Ingester.OTLP.ListenAddress", cfg.Ingester.OTLP.ListenAddress,
+		"Ingester.OTLP.DownstreamAddress", cfg.Ingester.OTLP.DownstreamAddress,
+		"Ingester.OTLP.GRPCMaxRecvMsgSizeBytes", cfg.Ingester.OTLP.GRPCMaxRecvMsgSizeBytes,
+		"Ingester.OTLP.GRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.GRPCMaxSendMsgSizeBytes,
+		"Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+		"Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+		"Ingester.OTLP.DownstreamRetryMaxAttempts", cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
+		"Ingester.OTLP.DownstreamRetryInitialBackoff", cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
+		"Ingester.OTLP.DownstreamRetryMaxBackoff", cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,
+		"Ingester.OTLP.DownstreamRetryBackoffMultiplier", cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
+		"Ingester.OTLP.DownstreamRetryCodes", cfg.Ingester.OTLP.DownstreamRetryCodes,
+		"Ingester.OTLP.BalancerName", cfg.Ingester.OTLP.BalancerName,
+		"Ingester.OTLP.DownstreamConnectMinTimeout", cfg.Ingester.OTLP.DownstreamConnectMinTimeout,
+		"Ingester.OTLP.DownstreamConnectBaseDelay", cfg.Ingester.OTLP.DownstreamConnectBaseDelay,
+		"Ingester.OTLP.DownstreamConnectMaxDelay", cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
+		"Ingester.OTLP.DownstreamConnectBackoffMultiplier", cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
+		"Ingester.OTLP.LookupChunkSize", cfg.Ingester.OTLP.LookupChunkSize,
+	)
+}
+
+func logIngesterRedisConfig(cfg *Config) {
+	slog.Debug("Ingester Redis configuration",
+		"Ingester.Redis.Enabled", cfg.Ingester.Redis.Enabled,
+		"Ingester.Redis.Addr", cfg.Ingester.Redis.Addr,
+		"Ingester.Redis.Username", cfg.Ingester.Redis.Username,
+		"Ingester.Redis.DB", cfg.Ingester.Redis.DB,
+		"Ingester.Redis.UsedTTL", cfg.Ingester.Redis.UsedTTL,
+		"Ingester.Redis.UnusedTTL", cfg.Ingester.Redis.UnusedTTL,
+		"Ingester.Redis.UsedOnly", cfg.Ingester.Redis.UsedOnly,
+		"Ingester.Redis.OperationTimeout", cfg.Ingester.Redis.OperationTimeout,
+		"Ingester.Redis.DialTimeout", cfg.Ingester.Redis.DialTimeout,
+		"Ingester.Redis.ConnWriteTimeout", cfg.Ingester.Redis.ConnWriteTimeout,
+		"Ingester.Redis.BatchSize", cfg.Ingester.Redis.BatchSize,
+	)
+}
+
+func logIngesterCatalogSyncConfig(cfg *Config) {
+	slog.Debug("Ingester catalog sync configuration",
+		"Ingester.CatalogSync.Enabled", cfg.Ingester.CatalogSync.Enabled,
+		"Ingester.CatalogSync.FlushInterval", cfg.Ingester.CatalogSync.FlushInterval,
+		"Ingester.CatalogSync.BufferSize", cfg.Ingester.CatalogSync.BufferSize,
+		"Ingester.CatalogSync.SeenTTL", cfg.Ingester.CatalogSync.SeenTTL,
+	)
 }

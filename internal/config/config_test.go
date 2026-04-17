@@ -10,6 +10,46 @@ import (
 	"github.com/thanos-io/thanos/pkg/tracing/otlp"
 )
 
+func TestDefaultConfig_Initialization(t *testing.T) {
+	// Test that DefaultConfig is properly initialized
+	assert.NotNil(t, DefaultConfig)
+	assert.Equal(t, []string{"*"}, DefaultConfig.CORS.AllowedOrigins)
+	assert.Equal(t, []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, DefaultConfig.CORS.AllowedMethods)
+	assert.Equal(t, []string{"Content-Type", "Authorization", "X-Requested-With"}, DefaultConfig.CORS.AllowedHeaders)
+	assert.True(t, DefaultConfig.CORS.AllowCredentials)
+	assert.Equal(t, 300, DefaultConfig.CORS.MaxAge)
+	assert.True(t, DefaultConfig.Upstream.IncludeQueryStats)
+}
+
+func TestConfig_StructTags(t *testing.T) {
+	// Test that struct tags are properly defined
+	config := &Config{}
+
+	// This test ensures the struct can be marshaled/unmarshaled
+	// The actual validation would be done by the YAML package
+	assert.NotNil(t, config)
+}
+
+func TestPostgreSQLConfig_StructTags(t *testing.T) {
+	config := &PostgreSQLConfig{}
+	assert.NotNil(t, config)
+}
+
+func TestSQLiteConfig_StructTags(t *testing.T) {
+	config := &SQLiteConfig{}
+	assert.NotNil(t, config)
+}
+
+func TestInsertConfig_StructTags(t *testing.T) {
+	config := &InsertConfig{}
+	assert.NotNil(t, config)
+}
+
+func TestCORSConfig_StructTags(t *testing.T) {
+	config := &CORSConfig{}
+	assert.NotNil(t, config)
+}
+
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	// Save original default config
 	originalConfig := DefaultConfig
@@ -257,123 +297,58 @@ func TestConfig_GetTracingServiceName(t *testing.T) {
 }
 
 func TestConfig_GetSanitizedConfig(t *testing.T) {
+	postgresqlCfg := DefaultConfig
+	postgresqlCfg.Database = DatabaseConfig{
+		Provider: "postgresql",
+		PostgreSQL: PostgreSQLConfig{
+			Addr:     "localhost",
+			Port:     5432,
+			Database: "testdb",
+			User:     "testuser",
+			Password: "testpass",
+		},
+	}
+	postgresqlSanitizedCfg := postgresqlCfg
+	postgresqlSanitizedCfg.Database = DatabaseConfig{
+		PostgreSQL: PostgreSQLConfig{
+			User:     "", // Should be sanitized
+			Password: "", // Should be sanitized
+		},
+	}
+
+	sqliteCfg := DefaultConfig
+	sqliteCfg.Database = DatabaseConfig{
+		Provider: "sqlite",
+		SQLite: SQLiteConfig{
+			DatabasePath: "test.db",
+		},
+	}
+
 	tests := []struct {
-		name     string
-		config   *Config
-		expected *Config
+		name              string
+		config            *Config
+		expectedSanitized *Config
+		expectedFull      *Config
 	}{
 		{
-			name: "postgresql config",
-			config: &Config{
-				Database: DatabaseConfig{
-					Provider: "postgresql",
-					PostgreSQL: PostgreSQLConfig{
-						Addr:     "localhost",
-						Port:     5432,
-						Database: "testdb",
-						User:     "testuser",
-						Password: "testpass",
-					},
-					SQLite: SQLiteConfig{
-						DatabasePath: "test.db",
-					},
-				},
-			},
-			expected: &Config{
-				Database: DatabaseConfig{
-					Provider: "postgresql",
-					PostgreSQL: PostgreSQLConfig{
-						Addr:     "localhost",
-						Port:     5432,
-						Database: "testdb",
-						User:     "", // Should be sanitized
-						Password: "", // Should be sanitized
-					},
-					SQLite: SQLiteConfig{
-						DatabasePath: "", // Should be sanitized
-					},
-				},
-			},
+			name:              "postgresql config",
+			config:            postgresqlCfg,
+			expectedSanitized: postgresqlSanitizedCfg,
+			expectedFull:      postgresqlCfg,
 		},
 		{
-			name: "sqlite config",
-			config: &Config{
-				Database: DatabaseConfig{
-					Provider: "sqlite",
-					PostgreSQL: PostgreSQLConfig{
-						Addr:     "localhost",
-						Port:     5432,
-						Database: "testdb",
-						User:     "testuser",
-						Password: "testpass",
-					},
-					SQLite: SQLiteConfig{
-						DatabasePath: "test.db",
-					},
-				},
-			},
-			expected: &Config{
-				Database: DatabaseConfig{
-					Provider: "sqlite",
-					PostgreSQL: PostgreSQLConfig{
-						Addr:     "localhost",
-						Port:     5432,
-						Database: "testdb",
-						User:     "testuser", // Should not be sanitized for sqlite
-						Password: "testpass",
-					},
-					SQLite: SQLiteConfig{
-						DatabasePath: "test.db", // Should not be sanitized for sqlite
-					},
-				},
-			},
+			name:              "sqlite config",
+			config:            sqliteCfg,
+			expectedSanitized: sqliteCfg,
+			expectedFull:      sqliteCfg,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetSanitizedConfig()
-			assert.Equal(t, tt.expected, result)
+			sanitized := tt.config.GetSanitizedConfig()
+			assert.Equal(t, tt.expectedSanitized, sanitized)
+			assert.Equal(t, tt.expectedFull, tt.config)
 		})
 	}
-}
-
-func TestDefaultConfig_Initialization(t *testing.T) {
-	// Test that DefaultConfig is properly initialized
-	assert.NotNil(t, DefaultConfig)
-	assert.Equal(t, []string{"*"}, DefaultConfig.CORS.AllowedOrigins)
-	assert.Equal(t, []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, DefaultConfig.CORS.AllowedMethods)
-	assert.Equal(t, []string{"Content-Type", "Authorization", "X-Requested-With"}, DefaultConfig.CORS.AllowedHeaders)
-	assert.True(t, DefaultConfig.CORS.AllowCredentials)
-	assert.Equal(t, 300, DefaultConfig.CORS.MaxAge)
-	assert.True(t, DefaultConfig.Upstream.IncludeQueryStats)
-}
-
-func TestConfig_StructTags(t *testing.T) {
-	// Test that struct tags are properly defined
-	config := &Config{}
-
-	// This test ensures the struct can be marshaled/unmarshaled
-	// The actual validation would be done by the YAML package
-	assert.NotNil(t, config)
-}
-
-func TestPostgreSQLConfig_StructTags(t *testing.T) {
-	config := &PostgreSQLConfig{}
-	assert.NotNil(t, config)
-}
-
-func TestSQLiteConfig_StructTags(t *testing.T) {
-	config := &SQLiteConfig{}
-	assert.NotNil(t, config)
-}
-
-func TestInsertConfig_StructTags(t *testing.T) {
-	config := &InsertConfig{}
-	assert.NotNil(t, config)
-}
-
-func TestCORSConfig_StructTags(t *testing.T) {
-	config := &CORSConfig{}
-	assert.NotNil(t, config)
 }
