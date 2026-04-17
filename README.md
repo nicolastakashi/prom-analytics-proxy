@@ -95,6 +95,7 @@ Get up and running in 3 simple steps:
 git clone https://github.com/nicolastakashi/prom-analytics-proxy.git
 cd prom-analytics-proxy
 
+# OPTIONAL, in case of issues upgrading Golang version to one of the latest
 export GOSUMDB="sum.golang.org"
 
 make uidependencies
@@ -495,7 +496,7 @@ The `prom-analytics-proxy` application integrates with Perses Metrics Usage to g
 
 Because Metrics Usage is a separate project, you must deploy it alongside `prom-analytics-proxy` to enable this feature. Once configured, `prom-analytics-proxy` sends the collected data to the Metrics Usage backend, which is then displayed in the Metrics Usage UI. For more information, see the [Metrics Usage repository](https://github.com/perses/metrics-usage).
 
-**Try it out:** The [examples/proxy](examples/demo/proxy-only) and [examples/full](examples/demo/full/) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/demo/full/config/metrics-usage/).
+**Try it out:** The [proxy-only](examples/demo/proxy-only) and [full](examples/demo/full) demos include complete setups with Metrics Usage integration. Configuration files are available in [examples/proxy/config/metrics-usage/](examples/demo/proxy-only/config/metrics-usage/).
 
 ### Inventory Configuration
 

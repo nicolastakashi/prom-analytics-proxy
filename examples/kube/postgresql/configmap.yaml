@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+data:
+  POSTGRES_DB: postgres
+  PGDATA: "/var/lib/postgresql/data/pgdata"
