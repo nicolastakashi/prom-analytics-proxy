@@ -8,14 +8,24 @@ This folder contains an opinionated set of Kubernetes YAML manifests to help you
 - These manifests are not intended for production
 - PostgreSQL manifests are not intended for production, they are intended as a more production-oriented example
 - Prometheus manifests are not provided to avoid any bias, we advise to deploy it using the [well known K8s operator](https://github.com/prometheus-operator/prometheus-operator)
-- For the sake of exploration, we keep both prom-analytics-proxy and PostgreSQL in the same K8s Namespace
+- For the sake of exploration, we keep all components in the same K8s Namespace
+- Perses Metrics Usage manifests are provided as integration example, they could be not suitable for production
 
 ## Deploy
+
+### Required
 
 ```shell
 NAMESPACE=#...
 kubectl apply -n ${NAMESPACE} -f postgresql/
 kubectl apply -n ${NAMESPACE} -f prom-analytics-proxy/
+```
+
+### Optional
+
+```shell
+NAMESPACE=#...
+kubectl apply -n ${NAMESPACE} -f perses-metrics-usage/
 ```
 
 ## Remove
@@ -24,4 +34,5 @@ kubectl apply -n ${NAMESPACE} -f prom-analytics-proxy/
 NAMESPACE=#...
 kubectl delete -n ${NAMESPACE} -f postgresql/
 kubectl delete -n ${NAMESPACE} -f prom-analytics-proxy/
+kubectl delete -n ${NAMESPACE} -f perses-metrics-usage/
 ```
