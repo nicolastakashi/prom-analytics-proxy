@@ -90,7 +90,7 @@ export function FilterPanel() {
   );
 
   // Memoize quick ranges
-  const quickRanges = useMemo(generateQuickRanges, []);
+  const quickRanges = useMemo(() => generateQuickRanges(), []);
 
   const handleDayClick: DayEventHandler<React.MouseEvent> = (
     day,
