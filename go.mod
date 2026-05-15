@@ -1,31 +1,31 @@
 module github.com/nicolastakashi/prom-analytics-proxy
 
-go 1.26.1
+go 1.26.3
 
 // Keep go-openapi/testify on v2.0.2 until the newer split go-openapi modules
 // stop pulling a broken test-only YAML assertion path during `go mod tidy`.
-replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.0.2
+replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.5.0
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
 	github.com/lib/pq v1.12.3
 	github.com/oklog/run v1.2.0
 	github.com/perses/metrics-usage v0.7.0
-	github.com/pressly/goose/v3 v3.27.0
+	github.com/pressly/goose/v3 v3.27.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/prometheus v0.311.3
-	github.com/redis/rueidis v1.0.73
+	github.com/redis/rueidis v1.0.75
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.6
-	github.com/testcontainers/testcontainers-go v0.41.0
-	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
+	github.com/testcontainers/testcontainers-go v0.42.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
 	go.opentelemetry.io/proto/otlp v1.10.0
-	google.golang.org/grpc v1.80.0
+	google.golang.org/grpc v1.81.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -146,5 +146,5 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	modernc.org/sqlite v1.48.1
+	modernc.org/sqlite v1.50.1
 )
