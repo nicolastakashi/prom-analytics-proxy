@@ -185,7 +185,7 @@ func fingerprintFromQuery(query string) string {
 }
 
 func labelMatchersFromQuery(query string) []map[string]string {
-	expr, err := parser.ParseExpr(query)
+	expr, err := parser.NewParser(parser.Options{}).ParseExpr(query)
 	if err != nil {
 		return nil
 	}
