@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -38,11 +39,13 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 	assert.NoError(t, err, "container host")
 	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
 	assert.NoError(t, err, "container port")
+	portNum, err := strconv.Atoi(port.Port())
+	assert.NoError(t, err, "container port number")
 
 	// Configure config.DefaultConfig for provider.
 	config.DefaultConfig.Database.Provider = "postgresql"
 	config.DefaultConfig.Database.PostgreSQL.Addr = host
-	config.DefaultConfig.Database.PostgreSQL.Port = port.Int()
+	config.DefaultConfig.Database.PostgreSQL.Port = portNum
 	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
 	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
 	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
