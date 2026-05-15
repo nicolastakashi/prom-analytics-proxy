@@ -891,11 +891,13 @@ func runPostgres(t *testing.T) (db.Provider, func()) {
 	assert.NoError(t, err)
 	port, err := pgc.MappedPort(ctx, "5432/tcp")
 	assert.NoError(t, err)
+	portNum, err := strconv.Atoi(port.Port())
+	assert.NoError(t, err)
 
 	// Wire config for provider
 	config.DefaultConfig.Database.Provider = "postgresql"
 	config.DefaultConfig.Database.PostgreSQL.Addr = host
-	config.DefaultConfig.Database.PostgreSQL.Port = port.Int()
+	config.DefaultConfig.Database.PostgreSQL.Port = portNum
 	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
 	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
 	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
