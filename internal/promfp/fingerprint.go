@@ -11,7 +11,7 @@ import (
 // Fingerprint returns (hash, canonical).
 // If ignoreRanges is true, matrix selector ranges/offsets are zeroed for identity.
 func Fingerprint(query string, ignoreRanges bool) (string, string) {
-	expr, err := parser.ParseExpr(query)
+	expr, err := parser.NewParser(parser.Options{}).ParseExpr(query)
 	if err != nil {
 		return "", ""
 	}
