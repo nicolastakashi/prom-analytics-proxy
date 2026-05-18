@@ -4,7 +4,7 @@ go 1.26.3
 
 // Keep go-openapi/testify on v2.0.2 until the newer split go-openapi modules
 // stop pulling a broken test-only YAML assertion path during `go mod tidy`.
-replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.0.2
+replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.5.0
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
