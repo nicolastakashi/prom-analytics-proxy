@@ -867,8 +867,8 @@ func (r *routes) seriesMetadata(w http.ResponseWriter, req *http.Request) {
 	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
 		if pageSize < 1 {
 			params.PageSize = 1
-		} else if pageSize > db.MaxPageSize {
-			params.PageSize = db.MaxPageSize
+		} else if pageSize > db.MaxSeriesMetadataPageSize {
+			params.PageSize = db.MaxSeriesMetadataPageSize
 		} else {
 			params.PageSize = pageSize
 		}

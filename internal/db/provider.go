@@ -63,6 +63,10 @@ type Provider interface {
 // MaxPageSize limits page sizes to avoid unbounded memory allocations
 const MaxPageSize = 100
 
+// MaxSeriesMetadataPageSize is the upper bound for the seriesMetadata endpoint,
+// which is used for programmatic sweeps and can handle larger pages efficiently.
+const MaxSeriesMetadataPageSize = 10000
+
 // ValidSeriesMetadataSortFields centralizes sortable fields for series metadata
 // Note: These should match the actual column names used in the SQL query
 var ValidSeriesMetadataSortFields = map[string]bool{
