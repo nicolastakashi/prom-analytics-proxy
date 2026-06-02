@@ -455,14 +455,7 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 }
 
 func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	} else if params.PageSize > MaxPageSize {
-		params.PageSize = MaxPageSize
-	}
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 	if params.SortBy == "" {
 		params.SortBy = "created_at"
 	}
@@ -1693,12 +1686,7 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
 
 // GetQueryExpressions aggregates queries by fingerprint for SQLite
 func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	}
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
 	}
