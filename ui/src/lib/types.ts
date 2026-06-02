@@ -56,6 +56,14 @@ export interface PagedResult<T> {
   data: T[];
 }
 
+export interface MetricUsageItem {
+  id?: string;
+  name: string;
+  url?: string;
+  groupName?: string;
+  expression?: string;
+}
+
 export type TimeGranularity = "15m" | "30m" | "1h" | "1d";
 
 export interface TimeRange {

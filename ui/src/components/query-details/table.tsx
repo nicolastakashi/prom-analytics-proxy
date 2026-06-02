@@ -1,10 +1,10 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { usePagedQuery } from "@/hooks/use-paged-query";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { useDateRange } from "@/contexts/date-range";
 import { getQueryExecutions } from "@/api/queries";
-import type { PagedResult, QueryExecution } from "@/lib/types";
+import type { QueryExecution } from "@/lib/types";
 import { formatUTCtoLocal } from "@/lib/utils/date-utils";
 import { Badge } from "@/components/ui/badge";
 import { formatUnit } from "@/lib/utils";
@@ -395,8 +395,8 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
     [sorting],
   );
 
-  const { data, isLoading } = useQuery<PagedResult<QueryExecution>>({
-    queryKey: [
+  const { data, isLoading } = usePagedQuery<QueryExecution>(
+    [
       "queryExecutions",
       fingerprint,
       fromISO,
@@ -406,7 +406,7 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
       serverSortBy,
       sortOrder,
     ],
-    queryFn: () =>
+    () =>
       getQueryExecutions(
         fingerprint || "",
         fromISO,
@@ -417,8 +417,8 @@ export const QueryExecutions: React.FC<Props> = ({ fingerprint }) => {
         sortOrder,
         "all",
       ),
-    enabled: Boolean(fingerprint),
-  });
+    { enabled: Boolean(fingerprint) },
+  );
 
   if (isLoading) {
     return <div className="p-2 text-sm text-muted-foreground">Loading...</div>;

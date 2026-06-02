@@ -10,6 +10,7 @@ import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
 import { DateRange } from "@/lib/types";
 import { formatUnit } from "@/lib/utils";
+import { useTableState } from "@/hooks/use-table-state";
 
 // Define our extended column type with maxWidth
 type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
@@ -36,66 +37,6 @@ interface MetricUsageItem {
   url?: string;
   groupName?: string;
   expression?: string;
-}
-
-// Define a generic type for tab state
-interface TabState {
-  page: number;
-  filter: string;
-  sorting: SortingState;
-  sortBy?: string;
-  sortOrder?: "asc" | "desc";
-}
-
-// Custom hook for managing tab state
-function useTabState(
-  initialPage = 1,
-  initialSortBy = "avgDuration",
-  initialSortOrder: "asc" | "desc" = "desc",
-) {
-  const [state, setState] = React.useState<TabState>({
-    page: initialPage,
-    filter: "",
-    sorting: initialSortBy
-      ? [{ id: initialSortBy, desc: initialSortOrder === "desc" }]
-      : [],
-    sortBy: initialSortBy,
-    sortOrder: initialSortOrder,
-  });
-
-  const setPage = (page: number) => {
-    setState((prev) => ({ ...prev, page }));
-  };
-
-  const setFilter = (filter: string) => {
-    setState((prev) => ({ ...prev, filter, page: 1 })); // Reset to first page on filter change
-  };
-
-  const setSorting = (newSorting: SortingState) => {
-    if (newSorting.length > 0) {
-      const column = newSorting[0].id;
-      const direction = newSorting[0].desc ? "desc" : "asc";
-
-      setState((prev) => ({
-        ...prev,
-        sorting: newSorting,
-        sortBy: column,
-        sortOrder: direction,
-      }));
-    } else {
-      setState((prev) => ({
-        ...prev,
-        sorting: newSorting,
-      }));
-    }
-  };
-
-  return {
-    ...state,
-    setPage,
-    setFilter,
-    setSorting,
-  };
 }
 
 // Define column configurations
@@ -219,7 +160,7 @@ interface TabContentProps<T> {
   error: unknown;
   data: { data: T[]; totalPages: number } | undefined;
   columns: ColumnDef<T, unknown>[];
-  state: TabState;
+  state: { page: number; filter: string; sorting: SortingState };
   searchColumn: string;
   pageSize: number;
   onSortingChange: (sorting: SortingState) => void;
@@ -289,11 +230,10 @@ export default function MetricUsage({
 }: MetricUsageProps) {
   const pageSize = 10;
 
-  // Initialize tab states using the custom hook
-  const queriesState = useTabState(1, "avgDuration", "desc");
-  const alertsState = useTabState(1);
-  const recordingsState = useTabState(1);
-  const dashboardsState = useTabState(1);
+  const queriesState = useTableState({ defaultSortBy: "avgDuration", defaultSortOrder: "desc" });
+  const alertsState = useTableState();
+  const recordingsState = useTableState();
+  const dashboardsState = useTableState();
 
   // Fetch data for queries tab
   const {

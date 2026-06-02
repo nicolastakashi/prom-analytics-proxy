@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { usePagedQuery } from "@/hooks/use-paged-query";
 import { Input } from "@/components/ui/input";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
@@ -7,7 +7,7 @@ import { useDateRange } from "@/contexts/date-range";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getQueryExpressions } from "@/api/queries";
 import { LoadingState } from "./loading";
-import type { PagedResult, QueryExpression } from "@/lib/types";
+import type { QueryExpression } from "@/lib/types";
 import {
   Sheet,
   SheetContent,
@@ -109,8 +109,8 @@ export default function QueriesPage() {
     setPage(page);
   };
 
-  const { data, isLoading } = useQuery<PagedResult<QueryExpression>>({
-    queryKey: [
+  const { data, isLoading } = usePagedQuery<QueryExpression>(
+    [
       "queryExpressions",
       fromISO,
       toISO,
@@ -120,7 +120,7 @@ export default function QueriesPage() {
       sorting[0]?.desc ? "desc" : "asc",
       debouncedSearch,
     ],
-    queryFn: () =>
+    () =>
       getQueryExpressions(
         fromISO,
         toISO,
@@ -130,8 +130,8 @@ export default function QueriesPage() {
         sorting[0]?.desc ? "desc" : "asc",
         debouncedSearch,
       ),
-    enabled: Boolean(fromISO && toISO),
-  });
+    { enabled: Boolean(fromISO && toISO) },
+  );
 
   const parsedSelectedQuery = useMemo(() => {
     if (!selectedQuery) return null;
