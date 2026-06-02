@@ -42,8 +42,8 @@ func (p *benchDBProvider) InsertRulesUsage(_ context.Context, _ []db.RulesUsage)
 func (p *benchDBProvider) InsertDashboardUsage(_ context.Context, _ []db.DashboardUsage) error {
 	return nil
 }
-func (p *benchDBProvider) GetSeriesMetadata(_ context.Context, _ db.SeriesMetadataParams) (*db.PagedResult, error) {
-	return nil, nil
+func (p *benchDBProvider) GetSeriesMetadata(_ context.Context, _ db.SeriesMetadataParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (p *benchDBProvider) UpsertMetricsCatalog(_ context.Context, _ []db.MetricCatalogItem) error {
 	return nil
@@ -64,8 +64,8 @@ func (p *benchDBProvider) GetAverageDuration(_ context.Context, _ db.TimeRange, 
 func (p *benchDBProvider) GetQueryRate(_ context.Context, _ db.TimeRange, _ string, _ string) (*db.QueryRateResult, error) {
 	return nil, nil
 }
-func (p *benchDBProvider) GetQueriesBySerieName(_ context.Context, _ db.QueriesBySerieNameParams) (*db.PagedResult, error) {
-	return nil, nil
+func (p *benchDBProvider) GetQueriesBySerieName(_ context.Context, _ db.QueriesBySerieNameParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (p *benchDBProvider) GetQueryStatusDistribution(_ context.Context, _ db.TimeRange, _ string) ([]db.QueryStatusDistributionResult, error) {
 	return nil, nil
@@ -94,11 +94,11 @@ func (p *benchDBProvider) GetMetricStatistics(_ context.Context, _ string, _ db.
 func (p *benchDBProvider) GetMetricQueryPerformanceStatistics(_ context.Context, _ string, _ db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
 	return db.MetricQueryPerformanceStatistics{}, nil
 }
-func (p *benchDBProvider) GetRulesUsage(_ context.Context, _ db.RulesUsageParams) (*db.PagedResult, error) {
-	return nil, nil
+func (p *benchDBProvider) GetRulesUsage(_ context.Context, _ db.RulesUsageParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
-func (p *benchDBProvider) GetDashboardUsage(_ context.Context, _ db.DashboardUsageParams) (*db.PagedResult, error) {
-	return nil, nil
+func (p *benchDBProvider) GetDashboardUsage(_ context.Context, _ db.DashboardUsageParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (p *benchDBProvider) DeleteQueriesBefore(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
@@ -109,21 +109,21 @@ func (p *benchDBProvider) DeleteQueriesBefore(_ context.Context, _ time.Time) (i
 // HTTP and JSON overhead from any database work.
 type seriesMetaBenchProvider struct {
 	benchDBProvider
-	result *db.PagedResult
+	result db.PagedResult
 }
 
-func (p *seriesMetaBenchProvider) GetSeriesMetadata(_ context.Context, _ db.SeriesMetadataParams) (*db.PagedResult, error) {
+func (p *seriesMetaBenchProvider) GetSeriesMetadata(_ context.Context, _ db.SeriesMetadataParams) (db.PagedResult, error) {
 	return p.result, nil
 }
 
 // makePagedResult builds a PagedResult representing one page of n unused metrics
 // out of a total of n*totalPages metrics across all pages.
-func makePagedResult(n, totalPages int) *db.PagedResult {
+func makePagedResult(n, totalPages int) db.PagedResult {
 	data := make([]models.MetricMetadata, n)
 	for i := range n {
 		data[i] = models.MetricMetadata{Name: fmt.Sprintf("metric_%d", i), Type: "gauge"}
 	}
-	return &db.PagedResult{
+	return db.PagedResult{
 		TotalPages: totalPages,
 		Total:      n * totalPages,
 		Data:       data,

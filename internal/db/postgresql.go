@@ -337,7 +337,7 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 
 func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ctx context.Context,
-	params QueriesBySerieNameParams) (*PagedResult, error) {
+	params QueriesBySerieNameParams) (PagedResult, error) {
 
 	// Set default values using common helpers
 	ValidatePagination(&params.Page, &params.PageSize, 10)
@@ -398,7 +398,7 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	defer CloseResource(rows)
 
@@ -414,18 +414,18 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 			&result.MaxPeakSamples,
 			&totalCount,
 		); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
+			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
+		return PagedResult{}, ErrorWithOperation(err, "row iteration")
 	}
 
 	totalPages := CalculateTotalPages(totalCount, params.PageSize)
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
@@ -515,7 +515,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 	return nil
 }
 
-func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
+func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -563,7 +563,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, startTime, endTime,
 		params.Filter).Scan(&totalCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query total count: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
@@ -617,7 +617,7 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	defer CloseResource(rows)
 
@@ -634,13 +634,13 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		)
 
 		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		var labels []string
 		if len(labelsJSON) > 0 {
 			if err := json.Unmarshal(labelsJSON, &labels); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+				return PagedResult{}, fmt.Errorf("failed to unmarshal labels: %w", err)
 			}
 		}
 
@@ -655,10 +655,10 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
@@ -712,7 +712,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	return nil
 }
 
-func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
+func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -759,7 +759,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	err := p.db.QueryRowContext(ctx, countQuery,
 		params.Serie, from, to, params.Filter).Scan(&totalCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query total count: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
@@ -804,7 +804,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		params.Serie, from, to, params.Filter,
 		params.PageSize, offset)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	defer CloseResource(rows)
 
@@ -819,7 +819,7 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		)
 
 		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		results = append(results, DashboardUsage{
@@ -832,17 +832,17 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
 }
 
-func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -870,25 +870,25 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	// Used / all: catalog-driven LEFT JOIN shape.
 	var total int
 	if err := p.db.QueryRowContext(ctx, pgSeriesMetadataCountSQL, params.Filter, params.Type, params.Usage, params.Job).Scan(&total); err != nil {
-		return nil, fmt.Errorf("count: %w", err)
+		return PagedResult{}, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	query := BuildSafeQueryWithOrderBy(pgSeriesMetadataBaseSQL, "c", " LIMIT $5 OFFSET $6", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
-		return nil, fmt.Errorf("select: %w", err)
+		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // getSeriesMetadataUnused drives the ?usage=unused query from
@@ -904,17 +904,17 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 // catastrophically misses for jobs that match a small slice of unused
 // metrics. The job case is therefore handled by getSeriesMetadataUnusedJobScoped,
 // which drives from metrics_job_index instead.
-func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	if params.Job != "" {
 		return p.getSeriesMetadataUnusedJobScoped(ctx, params)
 	}
 
 	var total int
 	if err := p.db.QueryRowContext(ctx, pgSeriesMetadataUnusedCountSQL, params.Filter, params.Type).Scan(&total); err != nil {
-		return nil, fmt.Errorf("count: %w", err)
+		return PagedResult{}, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	// Force ORDER BY c.name for the unused branch regardless of the
@@ -930,16 +930,16 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params
 	query := BuildSafeQueryWithOrderBy(pgSeriesMetadataUnusedBaseSQL, "c", " LIMIT $3 OFFSET $4", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
-		return nil, fmt.Errorf("select: %w", err)
+		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // getSeriesMetadataUnusedJobScoped drives ?usage=unused&job=<X> from
@@ -950,13 +950,13 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params
 // unused universe - the latter is what cratered cx10 when the operator's
 // ?usage=unused&job=kube-state-metrics request hit 139k unused metrics
 // looking for a sparse 57-row match.
-func (p *PostGreSQLProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *PostGreSQLProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	var total int
 	if err := p.db.QueryRowContext(ctx, pgSeriesMetadataUnusedJobCountSQL, params.Filter, params.Type, params.Job).Scan(&total); err != nil {
-		return nil, fmt.Errorf("count: %w", err)
+		return PagedResult{}, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	// Force ORDER BY c.name; see getSeriesMetadataUnused for rationale.
@@ -966,16 +966,16 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnusedJobScoped(ctx context.Contex
 	query := BuildSafeQueryWithOrderBy(pgSeriesMetadataUnusedJobBaseSQL, "c", " LIMIT $4 OFFSET $5", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
-		return nil, fmt.Errorf("select: %w", err)
+		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // scanSeriesMetadataRows scans rows returned by either GetSeriesMetadata

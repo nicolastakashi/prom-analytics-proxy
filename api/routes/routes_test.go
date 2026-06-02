@@ -166,9 +166,9 @@ type captureSeriesMetadataProvider struct {
 	captured db.SeriesMetadataParams
 }
 
-func (p *captureSeriesMetadataProvider) GetSeriesMetadata(_ context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
+func (p *captureSeriesMetadataProvider) GetSeriesMetadata(_ context.Context, params db.SeriesMetadataParams) (db.PagedResult, error) {
 	p.captured = params
-	return &db.PagedResult{}, nil
+	return db.PagedResult{}, nil
 }
 
 func TestSeriesMetadataPageSizeClamp(t *testing.T) {

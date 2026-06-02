@@ -251,7 +251,7 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 	return nil
 }
 
-func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error) {
+func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (PagedResult, error) {
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
@@ -327,13 +327,13 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 
 	stmt, err := p.db.PrepareContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer CloseResource(stmt)
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	defer CloseResource(rows)
 
@@ -349,18 +349,18 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 			&result.MaxPeakSamples,
 			&totalCount,
 		); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
+			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
 		results = append(results, result)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
+		return PagedResult{}, ErrorWithOperation(err, "row iteration")
 	}
 
 	totalPages := CalculateTotalPages(totalCount, params.PageSize)
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
@@ -454,7 +454,7 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 	return nil
 }
 
-func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error) {
+func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -505,7 +505,7 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, endTime, startTime,
 		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query total count: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
@@ -576,7 +576,7 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rules usage: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query rules usage: %w", err)
 	}
 	defer CloseResource(rows)
 
@@ -593,13 +593,13 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 		)
 
 		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		var labels []string
 		if labelsJSON != "" {
 			if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+				return PagedResult{}, fmt.Errorf("failed to unmarshal labels: %w", err)
 			}
 		}
 
@@ -616,10 +616,10 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 
 	// Check for errors after iteration
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
@@ -674,7 +674,7 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	return nil
 }
 
-func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error) {
+func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -723,7 +723,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		params.Serie, endTime, startTime,
 		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query total count: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
 
 	totalPages := (totalCount + params.PageSize - 1) / params.PageSize
@@ -788,7 +788,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query dashboard usage: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query dashboard usage: %w", err)
 	}
 	defer CloseResource(rows)
 
@@ -803,7 +803,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		)
 
 		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		results = append(results, DashboardUsage{
@@ -816,17 +816,17 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
+		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return &PagedResult{
+	return PagedResult{
 		Total:      totalCount,
 		TotalPages: totalPages,
 		Data:       results,
 	}, nil
 }
 
-func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -859,10 +859,10 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.Usage, params.Usage,
 		params.Job, params.Job,
 	).Scan(&total); err != nil {
-		return nil, fmt.Errorf("failed to count catalog: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to count catalog: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	query := BuildSafeQueryWithOrderBy(sqliteSeriesMetadataBaseSQL, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
@@ -874,16 +874,16 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		params.PageSize, (params.Page-1)*params.PageSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query series metadata: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query series metadata: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // getSeriesMetadataUnused drives the ?usage=unused query from
@@ -899,7 +899,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 // catastrophically misses for jobs that match a small slice of unused
 // metrics. The job case is therefore handled by getSeriesMetadataUnusedJobScoped,
 // which drives from metrics_job_index instead.
-func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	if params.Job != "" {
 		return p.getSeriesMetadataUnusedJobScoped(ctx, params)
 	}
@@ -909,10 +909,10 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
 	).Scan(&total); err != nil {
-		return nil, fmt.Errorf("failed to count catalog: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to count catalog: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	// Force ORDER BY c.name for the unused branch regardless of the
@@ -932,16 +932,16 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 		params.PageSize, (params.Page-1)*params.PageSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query series metadata: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query series metadata: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // getSeriesMetadataUnusedJobScoped drives ?usage=unused&job=<X> from
@@ -952,17 +952,17 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 // unused universe - the latter is what cratered cx10 when the operator's
 // ?usage=unused&job=kube-state-metrics request hit 139k unused metrics
 // looking for a sparse 57-row match.
-func (p *SQLiteProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+func (p *SQLiteProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, params SeriesMetadataParams) (PagedResult, error) {
 	var total int
 	if err := p.db.QueryRowContext(ctx, sqliteSeriesMetadataUnusedJobCountSQL,
 		params.Job,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
 	).Scan(&total); err != nil {
-		return nil, fmt.Errorf("failed to count catalog: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to count catalog: %w", err)
 	}
 	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+		return PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
 	// Force ORDER BY c.name; see getSeriesMetadataUnused for rationale.
@@ -977,16 +977,16 @@ func (p *SQLiteProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, p
 		params.PageSize, (params.Page-1)*params.PageSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query series metadata: %w", err)
+		return PagedResult{}, fmt.Errorf("failed to query series metadata: %w", err)
 	}
 	defer CloseResource(rows)
 
 	out, err := scanSeriesMetadataRows(rows, params.PageSize)
 	if err != nil {
-		return nil, err
+		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
 }
 
 // GetSeriesMetadataByNames returns metadata and usage summary for a fixed list of names, optionally filtered by job.
