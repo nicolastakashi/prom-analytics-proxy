@@ -2002,3 +2002,146 @@ func (p *SQLiteProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Ti
 	}
 	return rowsAffected, nil
 }
+
+func (p *SQLiteProvider) GetSeriesMetadataCount(ctx context.Context, params SeriesMetadataParams) (int, error) {
+	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
+	q := `
+        SELECT COUNT(*)
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+               END)
+          AND (
+                ? = 'all'
+                OR (? = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+                OR (? = 'unused' AND
+                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
+                )
+          )
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q,
+		params.Filter, params.Filter, params.Filter,
+		params.Type, params.Type, params.Type, params.Type,
+		params.Usage, params.Usage, params.Usage,
+		params.Job, params.Job,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("series metadata count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *SQLiteProvider) GetQueryExpressionsCount(ctx context.Context, params QueryExpressionsParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
+	q := `
+        SELECT COUNT(DISTINCT fingerprint) FROM queries
+        WHERE ts BETWEEN ? AND ?
+          AND CASE WHEN ? != '' THEN queryParam LIKE '%' || ? || '%' ELSE 1=1 END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, from, to, params.Filter, params.Filter).Scan(&total); err != nil {
+		return 0, fmt.Errorf("query expressions count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *SQLiteProvider) GetQueryExecutionsCount(ctx context.Context, params QueryExecutionsParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
+	q := `
+        SELECT COUNT(*) FROM queries
+        WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
+              BETWEEN julianday(?) AND julianday(?)
+          AND fingerprint = ?
+          AND CASE WHEN ? != '' THEN type = ? ELSE 1=1 END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, from, to, params.Fingerprint, params.Type, params.Type).Scan(&total); err != nil {
+		return 0, fmt.Errorf("query executions count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *SQLiteProvider) GetQueriesBySerieNameCount(ctx context.Context, params QueriesBySerieNameParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	startTime, endTime := PrepareTimeRange(params.TimeRange, "sqlite")
+	q := `
+        SELECT COUNT(DISTINCT queryParam) FROM queries
+        WHERE json_extract(labelMatchers, '$[0].__name__') = ?
+          AND ts BETWEEN ? AND ?
+          AND CASE WHEN ? != '' THEN queryParam LIKE '%' || ? || '%' ELSE 1=1 END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q,
+		params.SerieName, startTime, endTime,
+		params.Filter, params.Filter,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("queries by serie name count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *SQLiteProvider) GetRulesUsageCount(ctx context.Context, params RulesUsageParams) (int, error) {
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now().UTC()
+	}
+	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
+	q := `
+        SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
+        FROM RulesUsage
+        WHERE serie = ? AND kind = ?
+          AND first_seen_at <= ? AND last_seen_at >= ?
+          AND CASE WHEN ? != '' THEN (name LIKE '%' || ? || '%' OR expression LIKE '%' || ? || '%') ELSE 1=1 END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q,
+		params.Serie, params.Kind, endTime, startTime,
+		params.Filter, params.Filter, params.Filter,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("rules usage count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *SQLiteProvider) GetDashboardUsageCount(ctx context.Context, params DashboardUsageParams) (int, error) {
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now().UTC()
+	}
+	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
+	q := `
+        SELECT COUNT(DISTINCT id)
+        FROM DashboardUsage
+        WHERE serie = ?
+          AND first_seen_at <= datetime(?) AND last_seen_at >= datetime(?)
+          AND CASE WHEN ? != '' THEN (name LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%') ELSE 1=1 END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q,
+		params.Serie, endTime, startTime,
+		params.Filter, params.Filter, params.Filter,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("dashboard usage count: %w", err)
+	}
+	return total, nil
+}
