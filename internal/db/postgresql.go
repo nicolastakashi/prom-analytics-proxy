@@ -516,14 +516,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 }
 
 func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	} else if params.PageSize > MaxPageSize {
-		params.PageSize = MaxPageSize
-	}
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
 	}
@@ -1655,12 +1648,7 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
 
 // GetQueryExpressions aggregates queries by fingerprint returning executions, avgDuration, errorRatePercent, peakSamples and latest query text
 func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	}
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
 		"query":            true,
