@@ -882,7 +882,7 @@ func runPostgres(t *testing.T) (db.Provider, func()) {
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(1).WithStartupTimeout(60*time.Second)),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second)),
 	)
 	if err != nil {
 		t.Skipf("Skipping OTLP integration (Docker not available): %v", err)
@@ -894,18 +894,15 @@ func runPostgres(t *testing.T) (db.Provider, func()) {
 	portNum, err := strconv.Atoi(port.Port())
 	assert.NoError(t, err)
 
-	// Wire config for provider
-	config.DefaultConfig.Database.Provider = "postgresql"
-	config.DefaultConfig.Database.PostgreSQL.Addr = host
-	config.DefaultConfig.Database.PostgreSQL.Port = portNum
-	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
-	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
-	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
-	config.DefaultConfig.Database.PostgreSQL.SSLMode = "disable"
-	config.DefaultConfig.Database.PostgreSQL.DialTimeout = 5 * time.Second
-
-	time.Sleep(2 * time.Second)
-	prov, err := db.GetDbProvider(ctx, db.DatabaseProvider(config.DefaultConfig.Database.Provider))
+	prov, err := db.NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:        host,
+		Port:        portNum,
+		User:        "testuser",
+		Password:    "testpass",
+		Database:    "testdb",
+		SSLMode:     "disable",
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
 		_ = pgc.Terminate(ctx)
 		t.Fatalf("db provider: %v", err)

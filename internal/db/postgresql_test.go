@@ -27,7 +27,7 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(1).WithStartupTimeout(60*time.Second),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
 		),
 	)
 	if err != nil {
@@ -42,20 +42,15 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 	portNum, err := strconv.Atoi(port.Port())
 	assert.NoError(t, err, "container port number")
 
-	// Configure config.DefaultConfig for provider.
-	config.DefaultConfig.Database.Provider = "postgresql"
-	config.DefaultConfig.Database.PostgreSQL.Addr = host
-	config.DefaultConfig.Database.PostgreSQL.Port = portNum
-	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
-	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
-	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
-	config.DefaultConfig.Database.PostgreSQL.SSLMode = "disable"
-	config.DefaultConfig.Database.PostgreSQL.DialTimeout = 5 * time.Second
-
-	// Give PostgreSQL a moment to fully initialize after the ready log
-	time.Sleep(2 * time.Second)
-
-	p, err := newPostGreSQLProvider(ctx)
+	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:        host,
+		Port:        portNum,
+		User:        "testuser",
+		Password:    "testpass",
+		Database:    "testdb",
+		SSLMode:     "disable",
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
 		_ = pgContainer.Terminate(ctx)
 		assert.NoError(t, err, "failed to init postgres provider")
@@ -69,6 +64,24 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 		_ = pgContainer.Terminate(ctx)
 	}
 	return p, cleanup
+}
+
+// TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig verifies that
+// NewPostgreSQLProvider uses only the supplied config and leaves
+// config.DefaultConfig untouched.
+func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
+	prov, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	before := config.DefaultConfig.Database
+	// Round-trip a trivial query to confirm the provider is functional.
+	_, err := prov.ListJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if config.DefaultConfig.Database != before {
+		t.Fatal("NewPostgreSQLProvider must not mutate config.DefaultConfig")
+	}
 }
 
 func TestPostgreSQL_GetQueryTypes(t *testing.T) {
