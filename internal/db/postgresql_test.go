@@ -917,3 +917,33 @@ func TestPostgreSQLProvider_DeleteQueriesBefore(t *testing.T) {
 	assert.NoError(t, err, "count queries after cutoff")
 	assert.Equal(t, 2, remainingCount, "all remaining queries should be after cutoff")
 }
+
+func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
+	// Configure a short server-side statement timeout BEFORE spinning the
+	// provider, so the helper's call to newPostGreSQLProvider picks it up
+	// and bakes it into the connection-string options.
+	config.DefaultConfig.Database.PostgreSQL.StatementTimeout = 500 * time.Millisecond
+	t.Cleanup(func() {
+		// Reset to zero so other tests sharing the global config aren't
+		// affected by this one's setting.
+		config.DefaultConfig.Database.PostgreSQL.StatementTimeout = 0
+	})
+
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	// Sanity: a fast query still succeeds.
+	var fast int
+	err := p.(*PostGreSQLProvider).db.QueryRowContext(context.Background(), "SELECT 1").Scan(&fast)
+	assert.NoError(t, err, "fast query under the budget should succeed")
+	assert.Equal(t, 1, fast)
+
+	// Now a query that deliberately sleeps past the configured timeout.
+	// PostgreSQL should abort it server-side with SQLSTATE 57014
+	// (query_canceled), surfaced by lib/pq with the canonical message
+	// "pq: canceling statement due to statement timeout".
+	_, err = p.(*PostGreSQLProvider).db.ExecContext(context.Background(), "SELECT pg_sleep(2)")
+	assert.Error(t, err, "query exceeding statement_timeout should fail")
+	assert.Contains(t, err.Error(), "statement timeout",
+		"error should identify the server-side timeout source")
+}
