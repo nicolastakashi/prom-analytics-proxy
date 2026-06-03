@@ -159,6 +159,54 @@ func TestQueryTimeRangeDistribution_Route(t *testing.T) {
 		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
 	}
 }
+
+// captureSeriesMetadataProvider records the last SeriesMetadataParams it receives.
+type captureSeriesMetadataProvider struct {
+	benchDBProvider
+	captured db.SeriesMetadataParams
+}
+
+func (p *captureSeriesMetadataProvider) GetSeriesMetadata(_ context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
+	p.captured = params
+	return &db.PagedResult{}, nil
+}
+
+func TestSeriesMetadataPageSizeClamp(t *testing.T) {
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	tests := []struct {
+		pageSize     string
+		wantPageSize int
+	}{
+		{"10000", 10000},
+		{"10001", 10000},
+	}
+
+	for _, tt := range tests {
+		t.Run("pageSize="+tt.pageSize, func(t *testing.T) {
+			spy := &captureSeriesMetadataProvider{}
+			r, err := NewRoutes(
+				WithDBProvider(spy),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				t.Fatalf("NewRoutes: %v", err)
+			}
+
+			req := httptest.NewRequest("GET", "/api/v1/seriesMetadata?type=all&page=1&pageSize="+tt.pageSize, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != 200 {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			assert.Equal(t, tt.wantPageSize, spy.captured.PageSize)
+		})
+	}
+}
+
 func TestValidateQuery(t *testing.T) {
 	now := time.Now().UTC()
 

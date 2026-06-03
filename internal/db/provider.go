@@ -63,6 +63,10 @@ type Provider interface {
 // MaxPageSize limits page sizes to avoid unbounded memory allocations
 const MaxPageSize = 100
 
+// MaxSeriesMetadataPageSize is the upper bound for the programmatic seriesMetadata
+// sweep endpoint; sweet spot is 1k–5k per the bench in routes_test.go.
+const MaxSeriesMetadataPageSize = 10000
+
 // ValidSeriesMetadataSortFields centralizes sortable fields for series metadata
 // Note: These should match the actual column names used in the SQL query
 var ValidSeriesMetadataSortFields = map[string]bool{
