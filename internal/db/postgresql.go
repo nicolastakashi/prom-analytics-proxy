@@ -702,6 +702,14 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
 	// Count
+	//
+	// The unused branch is rewritten so the literal-zero predicate on the
+	// joined summary columns (s.alert_count = 0 AND ...) syntactically
+	// matches the WHERE clause of the idx_metrics_usage_summary_unused
+	// partial index introduced in migration
+	// 0011_metrics_usage_summary_unused_index.sql. The OR (s.name IS NULL)
+	// branch preserves the LEFT JOIN semantics: catalog rows without a
+	// summary row remain reported as unused (the LEFT JOIN gives NULL).
 	countSQL := `
         SELECT COUNT(*)
         FROM metrics_catalog c
@@ -721,9 +729,15 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR ($3 = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
+                OR ($3 = 'unused' AND (
+                     s.name IS NULL
+                     OR (
+                       s.alert_count = 0
+                       AND s.record_count = 0
+                       AND s.dashboard_count = 0
+                       AND s.query_count = 0
+                     )
+                ))
           )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
@@ -758,9 +772,15 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR ($3 = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
+                OR ($3 = 'unused' AND (
+                     s.name IS NULL
+                     OR (
+                       s.alert_count = 0
+                       AND s.record_count = 0
+                       AND s.dashboard_count = 0
+                       AND s.query_count = 0
+                     )
+                ))
           )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j

@@ -715,6 +715,12 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
 	// Count
+	// The unused branch uses an EXISTS subquery whose WHERE clause is the
+	// verbatim predicate of the idx_metrics_usage_summary_unused partial
+	// index added in migration 0007_metrics_usage_summary_unused_index.sql,
+	// so the planner can satisfy ?usage=unused with an index scan on the
+	// unused subset of metrics_usage_summary instead of joining the full
+	// catalog and filtering.
 	countQuery := `
         SELECT COUNT(*)
         FROM metrics_catalog c
@@ -734,9 +740,15 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR (? = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
+                OR (? = 'unused' AND (
+                     s.name IS NULL
+                     OR (
+                       s.alert_count = 0
+                       AND s.record_count = 0
+                       AND s.dashboard_count = 0
+                       AND s.query_count = 0
+                     )
+                ))
           )
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
@@ -752,7 +764,9 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	// Query page with left join to usage summary
+	// Query page with left join to usage summary; same unused-EXISTS
+	// rewrite as the count query above so both queries hit the
+	// idx_metrics_usage_summary_unused partial index for ?usage=unused.
 	baseQuery := `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
@@ -773,9 +787,15 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR (? = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
+                OR (? = 'unused' AND (
+                     s.name IS NULL
+                     OR (
+                       s.alert_count = 0
+                       AND s.record_count = 0
+                       AND s.dashboard_count = 0
+                       AND s.query_count = 0
+                     )
+                ))
           )
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
