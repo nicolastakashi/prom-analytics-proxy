@@ -51,17 +51,18 @@ type ServerConfig struct {
 }
 
 type PostgreSQLConfig struct {
-	Addr            string        `yaml:"addr,omitempty"`
-	Database        string        `yaml:"database,omitempty"`
-	DialTimeout     time.Duration `yaml:"dial_timeout,omitempty"`
-	Password        string        `yaml:"password,omitempty"`
-	Port            int           `yaml:"port,omitempty"`
-	SSLMode         string        `yaml:"sslmode,omitempty"`
-	User            string        `yaml:"user,omitempty"`
-	MaxOpenConns    int           `yaml:"max_open_conns,omitempty"`
-	MaxIdleConns    int           `yaml:"max_idle_conns,omitempty"`
-	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime,omitempty"`
-	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time,omitempty"`
+	Addr             string        `yaml:"addr,omitempty"`
+	Database         string        `yaml:"database,omitempty"`
+	DialTimeout      time.Duration `yaml:"dial_timeout,omitempty"`
+	Password         string        `yaml:"password,omitempty"`
+	Port             int           `yaml:"port,omitempty"`
+	SSLMode          string        `yaml:"sslmode,omitempty"`
+	User             string        `yaml:"user,omitempty"`
+	MaxOpenConns     int           `yaml:"max_open_conns,omitempty"`
+	MaxIdleConns     int           `yaml:"max_idle_conns,omitempty"`
+	ConnMaxLifetime  time.Duration `yaml:"conn_max_lifetime,omitempty"`
+	ConnMaxIdleTime  time.Duration `yaml:"conn_max_idle_time,omitempty"`
+	StatementTimeout time.Duration `yaml:"statement_timeout,omitempty"`
 }
 
 type SQLiteConfig struct {

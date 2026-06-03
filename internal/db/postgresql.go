@@ -49,13 +49,35 @@ func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.MaxIdleConns, "postgresql-max-idle-conns", 0, "Maximum number of idle connections in the pool (0 = use default 10).")
 	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.ConnMaxLifetime, "postgresql-conn-max-lifetime", 0, "Maximum amount of time a connection may be reused (0 = use default 30m).")
 	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.ConnMaxIdleTime, "postgresql-conn-max-idle-time", 0, "Maximum amount of time a connection may be idle before being closed (0 = use default 5m).")
+	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.StatementTimeout, "postgresql-statement-timeout", 0,
+		"Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. "+
+			"When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot "+
+			"before the HTTP client can cancel it - useful as a load-shedder under saturation. "+
+			"Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.")
 }
 
 func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 	postgresConfig := config.DefaultConfig.Database.PostgreSQL
 
+	// statement_timeout is set via the connection-string 'options' parameter
+	// so it takes effect on every connection the pool opens, with no
+	// per-checkout overhead. lib/pq preserves the space inside the single-
+	// quoted value, and postgres then parses '-c' and 'statement_timeout=...'
+	// as two separate command-line arguments at connection start.
+	// Round up to the nearest millisecond so a sub-ms configured duration
+	// doesn't silently truncate to 0, which PostgreSQL interprets as
+	// "disabled" - the opposite of the operator's intent.
+	statementTimeoutOpt := ""
+	if postgresConfig.StatementTimeout > 0 {
+		ms := (postgresConfig.StatementTimeout + time.Millisecond - 1) / time.Millisecond
+		statementTimeoutOpt = fmt.Sprintf(
+			" options='-c statement_timeout=%d'",
+			ms,
+		)
+	}
+
 	psqlInfo := fmt.Sprintf(
-		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy",
+		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy%s",
 		postgresConfig.Addr,
 		postgresConfig.Port,
 		postgresConfig.User,
@@ -63,6 +85,7 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 		postgresConfig.Database,
 		postgresConfig.SSLMode,
 		int(postgresConfig.DialTimeout.Seconds()),
+		statementTimeoutOpt,
 	)
 
 	db, err := otelsql.Open("postgres", psqlInfo, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
