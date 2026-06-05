@@ -27,7 +27,7 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(1).WithStartupTimeout(60*time.Second),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
 		),
 	)
 	if err != nil {
@@ -42,20 +42,15 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 	portNum, err := strconv.Atoi(port.Port())
 	assert.NoError(t, err, "container port number")
 
-	// Configure config.DefaultConfig for provider.
-	config.DefaultConfig.Database.Provider = "postgresql"
-	config.DefaultConfig.Database.PostgreSQL.Addr = host
-	config.DefaultConfig.Database.PostgreSQL.Port = portNum
-	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
-	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
-	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
-	config.DefaultConfig.Database.PostgreSQL.SSLMode = "disable"
-	config.DefaultConfig.Database.PostgreSQL.DialTimeout = 5 * time.Second
-
-	// Give PostgreSQL a moment to fully initialize after the ready log
-	time.Sleep(2 * time.Second)
-
-	p, err := newPostGreSQLProvider(ctx)
+	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:        host,
+		Port:        portNum,
+		User:        "testuser",
+		Password:    "testpass",
+		Database:    "testdb",
+		SSLMode:     "disable",
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
 		_ = pgContainer.Terminate(ctx)
 		assert.NoError(t, err, "failed to init postgres provider")
@@ -69,6 +64,24 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 		_ = pgContainer.Terminate(ctx)
 	}
 	return p, cleanup
+}
+
+// TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig verifies that
+// NewPostgreSQLProvider uses only the supplied config and leaves
+// config.DefaultConfig untouched.
+func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
+	prov, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	before := config.DefaultConfig.Database
+	// Round-trip a trivial query to confirm the provider is functional.
+	_, err := prov.ListJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if config.DefaultConfig.Database != before {
+		t.Fatal("NewPostgreSQLProvider must not mutate config.DefaultConfig")
+	}
 }
 
 func TestPostgreSQL_GetQueryTypes(t *testing.T) {
@@ -919,22 +932,46 @@ func TestPostgreSQLProvider_DeleteQueriesBefore(t *testing.T) {
 }
 
 func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
-	// Configure a short server-side statement timeout BEFORE spinning the
-	// provider, so the helper's call to newPostGreSQLProvider picks it up
-	// and bakes it into the connection-string options.
-	config.DefaultConfig.Database.PostgreSQL.StatementTimeout = 500 * time.Millisecond
-	t.Cleanup(func() {
-		// Reset to zero so other tests sharing the global config aren't
-		// affected by this one's setting.
-		config.DefaultConfig.Database.PostgreSQL.StatementTimeout = 0
-	})
+	ctx := context.Background()
+	pgContainer, err := postgres.Run(ctx, "postgres:16",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
+	}
+	defer func() { _ = pgContainer.Terminate(ctx) }()
 
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	host, err := pgContainer.Host(ctx)
+	assert.NoError(t, err)
+	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
+	assert.NoError(t, err)
+	portNum, err := strconv.Atoi(port.Port())
+	assert.NoError(t, err)
+
+	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:             host,
+		Port:             portNum,
+		User:             "testuser",
+		Password:         "testpass",
+		Database:         "testdb",
+		SSLMode:          "disable",
+		DialTimeout:      5 * time.Second,
+		StatementTimeout: 500 * time.Millisecond,
+	})
+	if !assert.NoError(t, err, "failed to init postgres provider") {
+		return
+	}
+	defer func() { _ = p.Close() }()
 
 	// Sanity: a fast query still succeeds.
 	var fast int
-	err := p.(*PostGreSQLProvider).db.QueryRowContext(context.Background(), "SELECT 1").Scan(&fast)
+	err = p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT 1").Scan(&fast)
 	assert.NoError(t, err, "fast query under the budget should succeed")
 	assert.Equal(t, 1, fast)
 
@@ -942,7 +979,7 @@ func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
 	// PostgreSQL should abort it server-side with SQLSTATE 57014
 	// (query_canceled), surfaced by lib/pq with the canonical message
 	// "pq: canceling statement due to statement timeout".
-	_, err = p.(*PostGreSQLProvider).db.ExecContext(context.Background(), "SELECT pg_sleep(2)")
+	_, err = p.(*PostGreSQLProvider).db.ExecContext(ctx, "SELECT pg_sleep(2)")
 	assert.Error(t, err, "query exceeding statement_timeout should fail")
 	assert.Contains(t, err.Error(), "statement timeout",
 		"error should identify the server-side timeout source")

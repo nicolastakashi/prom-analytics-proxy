@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 )
 
 // Common time formats
@@ -114,7 +115,7 @@ var ValidSortDirections = map[string]bool{
 func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, error) {
 	switch dbProvider {
 	case PostGreSQL:
-		return newPostGreSQLProvider(ctx)
+		return NewPostgreSQLProvider(ctx, config.DefaultConfig.Database.PostgreSQL)
 	case SQLite:
 		return newSqliteProvider(ctx)
 	default:

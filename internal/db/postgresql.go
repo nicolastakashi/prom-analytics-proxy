@@ -56,9 +56,7 @@ func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 			"Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.")
 }
 
-func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
-	postgresConfig := config.DefaultConfig.Database.PostgreSQL
-
+func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQLConfig) (Provider, error) {
 	// statement_timeout is set via the connection-string 'options' parameter
 	// so it takes effect on every connection the pool opens, with no
 	// per-checkout overhead. lib/pq preserves the space inside the single-
@@ -75,7 +73,6 @@ func newPostGreSQLProvider(ctx context.Context) (Provider, error) {
 			ms,
 		)
 	}
-
 	psqlInfo := fmt.Sprintf(
 		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy%s",
 		postgresConfig.Addr,

@@ -198,34 +198,29 @@ func startBenchPostgres(b *testing.B) (db.Provider, func()) {
 		_ = pgc.Terminate(ctx)
 		b.Fatalf("container port: %v", err)
 	}
-
-	prevDB := config.DefaultConfig.Database
-
-	config.DefaultConfig.Database.Provider = "postgresql"
-	config.DefaultConfig.Database.PostgreSQL.Addr = host
 	portNum, err := strconv.Atoi(port.Port())
 	if err != nil {
-		config.DefaultConfig.Database = prevDB
 		_ = pgc.Terminate(ctx)
 		b.Fatalf("parse port: %v", err)
 	}
-	config.DefaultConfig.Database.PostgreSQL.Port = portNum
-	config.DefaultConfig.Database.PostgreSQL.User = "testuser"
-	config.DefaultConfig.Database.PostgreSQL.Password = "testpass"
-	config.DefaultConfig.Database.PostgreSQL.Database = "testdb"
-	config.DefaultConfig.Database.PostgreSQL.SSLMode = "disable"
-	config.DefaultConfig.Database.PostgreSQL.DialTimeout = 5 * time.Second
 
-	prov, err := db.GetDbProvider(ctx, db.PostGreSQL)
+	pgCfg := config.PostgreSQLConfig{
+		Addr:        host,
+		Port:        portNum,
+		User:        "testuser",
+		Password:    "testpass",
+		Database:    "testdb",
+		SSLMode:     "disable",
+		DialTimeout: 5 * time.Second,
+	}
+	prov, err := db.NewPostgreSQLProvider(ctx, pgCfg)
 	if err != nil {
-		config.DefaultConfig.Database = prevDB
 		_ = pgc.Terminate(ctx)
 		b.Fatalf("db provider: %v", err)
 	}
 	return prov, func() {
 		_ = prov.Close()
 		_ = pgc.Terminate(ctx)
-		config.DefaultConfig.Database = prevDB
 	}
 }
 
