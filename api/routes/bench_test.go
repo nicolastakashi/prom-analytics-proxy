@@ -158,9 +158,61 @@ func seedCatalogAndJobIndex(b *testing.B, provider db.Provider, n int, job strin
 // variants. 100 is the old cap (baseline); the rest exercise the new limit.
 var pageSizeCases = []int{100, 500, 1000, 5000, 10000}
 
+// seedSummaryUsedRows marks the catalog rows metric_<fromIdx> through
+// metric_<toIdx-1> as used by inserting one RulesUsage entry per metric and
+// then refreshing metrics_usage_summary. After this call those metrics have
+// alert_count >= 1 and are excluded from ?usage=unused results; everything
+// outside [fromIdx, toIdx) remains unused. Uses the production code paths
+// so the same helper works on both SQLite and PostgreSQL.
+func seedSummaryUsedRows(b *testing.B, provider db.Provider, fromIdx, toIdx int) {
+	b.Helper()
+	if fromIdx >= toIdx {
+		return
+	}
+	ctx := context.Background()
+
+	rules := make([]db.RulesUsage, 0, toIdx-fromIdx)
+	for i := fromIdx; i < toIdx; i++ {
+		rules = append(rules, db.RulesUsage{
+			Serie:      fmt.Sprintf("metric_%d", i),
+			GroupName:  "g",
+			Name:       "r",
+			Expression: "e",
+			Kind:       "alert",
+		})
+	}
+	if err := provider.InsertRulesUsage(ctx, rules); err != nil {
+		b.Fatalf("InsertRulesUsage: %v", err)
+	}
+
+	tr := db.TimeRange{
+		From: time.Now().Add(-time.Hour),
+		To:   time.Now().Add(time.Hour),
+	}
+	if err := provider.RefreshMetricsUsageSummary(ctx, tr); err != nil {
+		b.Fatalf("RefreshMetricsUsageSummary: %v", err)
+	}
+}
+
 // totalMetrics is the production scenario used by the pagination benchmarks:
 // the number of unused metrics the operator must sweep through.
 const totalMetrics = 2400
+
+// scaleUpTotals are the catalog sizes swept by the ScaleUp benchmarks. The
+// number of unused metrics is held constant across all sizes so any change
+// in latency reflects how the unused query scales with the catalog size
+// rather than with the unused subset size.
+var scaleUpTotals = []int{2400, 24000, 240000}
+
+// scaleUpUnusedN is the constant number of unused metrics across all
+// ScaleUp benchmark sizes. The remaining metric_<i> rows are marked as
+// used by seeding RulesUsage and refreshing metrics_usage_summary.
+const scaleUpUnusedN = 100
+
+// scaleUpPageSize is large enough that scaleUpUnusedN unused metrics fit on
+// a single page, so the benchmark measures one indexed lookup rather than
+// pagination overhead.
+const scaleUpPageSize = 1000
 
 // pagesFor returns the number of pages needed to cover total metrics at pageSize.
 func pagesFor(pageSize int) int {
@@ -479,6 +531,97 @@ func BenchmarkSeriesMetadataUnused_PostgreSQL_Pagination(b *testing.B) {
 					if w.Code != http.StatusOK {
 						b.Fatalf("page %d: unexpected status %d: %s", pg+1, w.Code, w.Body.String())
 					}
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSeriesMetadataUnused_SQLite_ScaleUp varies the *total* catalog
+// size while holding the number of unused metrics constant. The driving
+// question for any ?usage=unused optimization is whether per-request
+// latency scales with the unused subset (good) or with the total catalog
+// (bad — the planner is still walking metrics_catalog). The baseline on
+// main scales linearly with the total: this benchmark is the gate any
+// proposed fix must clear.
+func BenchmarkSeriesMetadataUnused_SQLite_ScaleUp(b *testing.B) {
+	const job = "test-job"
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, err := db.GetDbProvider(context.Background(), db.SQLite)
+			if err != nil {
+				b.Skipf("sqlite unavailable: %v", err)
+			}
+			defer func() { _ = provider.Close() }()
+
+			seedCatalogAndJobIndex(b, provider, totalN, job)
+			seedSummaryUsedRows(b, provider, scaleUpUnusedN, totalN)
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodGet,
+					fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&job=%s&page=1&pageSize=%d", job, scaleUpPageSize), nil)
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					b.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSeriesMetadataUnused_PostgreSQL_ScaleUp is the PostgreSQL
+// counterpart to the SQLite ScaleUp benchmark. See that benchmark's
+// comment for the rationale.
+func BenchmarkSeriesMetadataUnused_PostgreSQL_ScaleUp(b *testing.B) {
+	const job = "test-job"
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, cleanup := startBenchPostgres(b)
+			defer cleanup()
+
+			seedCatalogAndJobIndex(b, provider, totalN, job)
+			seedSummaryUsedRows(b, provider, scaleUpUnusedN, totalN)
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodGet,
+					fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&job=%s&page=1&pageSize=%d", job, scaleUpPageSize), nil)
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					b.Fatalf("status %d: %s", w.Code, w.Body.String())
 				}
 			}
 		})
