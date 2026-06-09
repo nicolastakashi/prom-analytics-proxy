@@ -721,54 +721,18 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	}
 	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
-	// When usage == "unused" we drive the query from metrics_usage_summary
-	// filtered by the is_unused partial index, then INNER JOIN metrics_catalog.
-	// This lets the planner satisfy the unused subset with an index scan
-	// instead of walking metrics_catalog and filtering. For used/all we keep
-	// the catalog-driven LEFT JOIN shape that the existing branches expect.
-	var countSQL, baseQuery, limitClause string
-	var countArgs, selectArgs []any
+	// usage=unused is handled by a dedicated method with a distinct query
+	// shape (driven from metrics_usage_summary via the is_unused partial
+	// index, INNER JOIN metrics_catalog). Splitting it out keeps each path's
+	// SQL as a single static literal - this matters for code scanning,
+	// which otherwise flags QueryContext as having a query string that
+	// control-depends on the user-controlled Usage value.
 	if params.Usage == SeriesMetadataUsageUnused {
-		countSQL = `
-        SELECT COUNT(*)
-        FROM metrics_usage_summary s
-        JOIN metrics_catalog c ON c.name = s.name
-        WHERE s.is_unused = TRUE
-          AND ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
-          AND ($2 = 'all' OR
-               CASE
-                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                  ELSE c.type = $2
-                END)
-          AND ($3 = '' OR EXISTS (
-                SELECT 1 FROM metrics_job_index j
-                WHERE j.name = c.name AND j.job = $3
-          ))
-    `
-		baseQuery = `
-        SELECT c.name, c.type, c.help, c.unit,
-               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
-        FROM metrics_usage_summary s
-        JOIN metrics_catalog c ON c.name = s.name
-        WHERE s.is_unused = TRUE
-          AND ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
-          AND ($2 = 'all' OR
-               CASE
-                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                  ELSE c.type = $2
-                END)
-          AND ($3 = '' OR EXISTS (
-                SELECT 1 FROM metrics_job_index j
-                WHERE j.name = c.name AND j.job = $3
-          ))
-    `
-		limitClause = " LIMIT $4 OFFSET $5"
-		countArgs = []any{params.Filter, params.Type, params.Job}
-		selectArgs = []any{params.Filter, params.Type, params.Job, params.PageSize, (params.Page - 1) * params.PageSize}
-	} else {
-		countSQL = `
+		return p.getSeriesMetadataUnused(ctx, params)
+	}
+
+	// Used / all: catalog-driven LEFT JOIN shape.
+	const countSQL = `
         SELECT COUNT(*)
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
@@ -793,7 +757,15 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 WHERE j.name = c.name AND j.job = $4
           ))
     `
-		baseQuery = `
+	var total int
+	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Usage, params.Job).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count: %w", err)
+	}
+	if total == 0 {
+		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+	}
+
+	const baseQuery = `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
         FROM metrics_catalog c
@@ -819,34 +791,98 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                 WHERE j.name = c.name AND j.job = $4
           ))
     `
-		limitClause = " LIMIT $5 OFFSET $6"
-		countArgs = []any{params.Filter, params.Type, params.Usage, params.Job}
-		selectArgs = []any{params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page - 1) * params.PageSize}
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $5 OFFSET $6", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
+	if err != nil {
+		return nil, fmt.Errorf("select: %w", err)
 	}
+	defer CloseResource(rows)
 
+	out, err := scanSeriesMetadataRows(rows, params.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	pages := (total + params.PageSize - 1) / params.PageSize
+	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+}
+
+// getSeriesMetadataUnused drives the ?usage=unused query from
+// metrics_usage_summary via the is_unused partial index, INNER JOIN
+// metrics_catalog. This lets the planner satisfy the unused subset with an
+// index scan instead of walking the full catalog and filtering. The two
+// SQL strings here are static literals; the conditional that picks this
+// method lives in GetSeriesMetadata.
+func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
+	const countSQL = `
+        SELECT COUNT(*)
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
+          AND ($2 = 'all' OR
+               CASE
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND ($3 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $3
+          ))
+    `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Job).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count: %w", err)
 	}
 	if total == 0 {
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	// Build complete query with safe ORDER BY clause to prevent SQL injection
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", limitClause, params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
-
-	rows, err := p.db.QueryContext(ctx, query, selectArgs...)
+	const baseQuery = `
+        SELECT c.name, c.type, c.help, c.unit,
+               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
+          AND ($2 = 'all' OR
+               CASE
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND ($3 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $3
+          ))
+    `
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $4 OFFSET $5", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
 	}
 	defer CloseResource(rows)
 
+	out, err := scanSeriesMetadataRows(rows, params.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	pages := (total + params.PageSize - 1) / params.PageSize
+	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+}
+
+// scanSeriesMetadataRows scans rows returned by either GetSeriesMetadata
+// branch into a slice of models.MetricMetadata. Both branches return the
+// same column layout (the unused branch drops the COALESCE wrappers since
+// the INNER JOIN guarantees non-NULL summary counts, but the scanned
+// Go types are identical).
+func scanSeriesMetadataRows(rows *sql.Rows, pageSize int) ([]models.MetricMetadata, error) {
 	type row struct {
 		name, mtype, help, unit     string
 		alert, record, dash, qcount int
 		last                        sql.NullTime
 	}
-	out := make([]models.MetricMetadata, 0, params.PageSize)
+	out := make([]models.MetricMetadata, 0, pageSize)
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
@@ -856,15 +892,12 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 		if r.last.Valid {
 			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
 		}
-
 		out = append(out, mm)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iter: %w", err)
 	}
-
-	pages := (total + params.PageSize - 1) / params.PageSize
-	return &PagedResult{Total: total, TotalPages: pages, Data: out}, nil
+	return out, nil
 }
 
 func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
