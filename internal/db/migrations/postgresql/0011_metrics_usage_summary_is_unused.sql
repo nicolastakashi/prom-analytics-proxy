@@ -10,11 +10,16 @@
 ALTER TABLE metrics_usage_summary
     ADD COLUMN IF NOT EXISTS is_unused BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- ADD COLUMN ... DEFAULT TRUE already initializes every row to the unused
+-- value, which is correct for any row with all-zero counts. Only the
+-- used rows need flipping, so scope the UPDATE to that subset; otherwise
+-- we rewrite the whole table for no semantic change.
 UPDATE metrics_usage_summary
-SET is_unused = (alert_count = 0
-                 AND record_count = 0
-                 AND dashboard_count = 0
-                 AND query_count = 0);
+SET is_unused = FALSE
+WHERE alert_count > 0
+   OR record_count > 0
+   OR dashboard_count > 0
+   OR query_count > 0;
 
 -- Backfill: ensure every catalog row has a summary row so the new unused
 -- query can INNER JOIN safely. ON CONFLICT DO NOTHING is defensive in case

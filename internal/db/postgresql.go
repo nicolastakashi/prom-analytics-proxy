@@ -950,32 +950,34 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	}
 	defer CloseResource(stmt)
 
+	names := make([]string, len(items))
+	for i, it := range items {
+		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec: %w", err)
+		}
+		names[i] = it.Name
+	}
+
 	// Co-write a default-unused summary row per catalog item so the
 	// metrics_catalog <-> metrics_usage_summary invariant holds before
 	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
 	// existing rows with real counts are not clobbered. The new
 	// ?usage=unused query depends on this invariant to use an INNER JOIN.
-	summaryStmt, err := tx.PrepareContext(ctx, `
+	//
+	// One bulk INSERT via unnest() instead of one statement per item -
+	// the syncer calls this with the full catalog inventory (~tens of
+	// thousands of rows on a real Prometheus), and per-item round-trips
+	// add up fast.
+	if _, err := tx.ExecContext(ctx, `
         INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
-        VALUES ($1, 0, 0, 0, 0, NOW(), TRUE)
+        SELECT n, 0, 0, 0, 0, NOW(), TRUE FROM unnest($1::text[]) AS n
         ON CONFLICT (name) DO NOTHING
-    `)
-	if err != nil {
+    `, pq.Array(names)); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("prepare summary: %w", err)
+		return fmt.Errorf("exec summary: %w", err)
 	}
-	defer CloseResource(summaryStmt)
 
-	for _, it := range items {
-		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("exec: %w", err)
-		}
-		if _, err := summaryStmt.ExecContext(ctx, it.Name); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("exec summary: %w", err)
-		}
-	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}

@@ -989,6 +989,10 @@ func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []Metri
 	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
 	// existing rows with real counts are not clobbered. The new
 	// ?usage=unused query depends on this invariant to use an INNER JOIN.
+	//
+	// Kept as a per-item prepared statement (vs. PG's bulk unnest) because
+	// SQLite is in-process: per-exec overhead is microseconds and there's
+	// no network round-trip to amortise.
 	summaryStmt, err := tx.PrepareContext(ctx, `
         INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
         VALUES(?, 0, 0, 0, 0, datetime('now'), TRUE)
