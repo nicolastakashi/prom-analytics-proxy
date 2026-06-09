@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"testing"
 	"time"
@@ -664,6 +665,48 @@ func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
 			assert.ElementsMatch(t, tt.wantNames, names)
 		})
 	}
+}
+
+// TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow pins the
+// invariant the new ?usage=unused query depends on: after UpsertMetricsCatalog,
+// every catalog row has a corresponding metrics_usage_summary row with
+// is_unused=TRUE and zero counts, even before any RefreshMetricsUsageSummary.
+// This invariant lets the unused query INNER JOIN safely instead of having to
+// fall back to a LEFT JOIN + IS NULL branch.
+func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "metric_a", Type: "gauge", Help: "a"},
+		{Name: "metric_b", Type: "counter", Help: "b"},
+	})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	rows, err := rawDB.QueryContext(context.Background(),
+		`SELECT name, alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary ORDER BY name`)
+	assert.NoError(t, err, "query summary")
+	defer func() { _ = rows.Close() }()
+
+	type summaryRow struct {
+		name                              string
+		alert, record, dashboard, queries int
+		isUnused                          bool
+	}
+	var got []summaryRow
+	for rows.Next() {
+		var r summaryRow
+		assert.NoError(t, rows.Scan(&r.name, &r.alert, &r.record, &r.dashboard, &r.queries, &r.isUnused))
+		got = append(got, r)
+	}
+	assert.NoError(t, rows.Err())
+
+	assert.Equal(t, []summaryRow{
+		{name: "metric_a", isUnused: true},
+		{name: "metric_b", isUnused: true},
+	}, got)
 }
 
 func TestPostgreSQL_DashboardUsage(t *testing.T) {

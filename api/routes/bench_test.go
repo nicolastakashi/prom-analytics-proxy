@@ -164,6 +164,16 @@ var pageSizeCases = []int{100, 500, 1000, 5000, 10000}
 // alert_count >= 1 and are excluded from ?usage=unused results; everything
 // outside [fromIdx, toIdx) remains unused. Uses the production code paths
 // so the same helper works on both SQLite and PostgreSQL.
+//
+// After the refresh we run ANALYZE on the affected tables so the query
+// planner has accurate row-count statistics. Without this, PostgreSQL's
+// planner uses default 50%-selectivity estimates and picks a Hash Join
+// over Seq Scans instead of a Nested Loop driven from the unused subset,
+// which is ~100x slower at 240k rows. In production, autovacuum's
+// autoanalyze covers the same ground between Refresh cycles; the bench
+// calls ANALYZE explicitly to model that production-realistic state
+// rather than the worst-case "just refreshed, autoanalyze hasn't run
+// yet" snapshot.
 func seedSummaryUsedRows(b *testing.B, provider db.Provider, fromIdx, toIdx int) {
 	b.Helper()
 	if fromIdx >= toIdx {
@@ -191,6 +201,17 @@ func seedSummaryUsedRows(b *testing.B, provider db.Provider, fromIdx, toIdx int)
 	}
 	if err := provider.RefreshMetricsUsageSummary(ctx, tr); err != nil {
 		b.Fatalf("RefreshMetricsUsageSummary: %v", err)
+	}
+
+	var rawDB *sql.DB
+	provider.WithDB(func(d *sql.DB) { rawDB = d })
+	if rawDB == nil {
+		return
+	}
+	for _, table := range []string{"metrics_usage_summary", "metrics_catalog", "metrics_job_index"} {
+		if _, err := rawDB.ExecContext(ctx, "ANALYZE "+table); err != nil {
+			b.Fatalf("ANALYZE %s: %v", table, err)
+		}
 	}
 }
 

@@ -721,8 +721,54 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	}
 	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
-	// Count
-	countSQL := `
+	// When usage == "unused" we drive the query from metrics_usage_summary
+	// filtered by the is_unused partial index, then INNER JOIN metrics_catalog.
+	// This lets the planner satisfy the unused subset with an index scan
+	// instead of walking metrics_catalog and filtering. For used/all we keep
+	// the catalog-driven LEFT JOIN shape that the existing branches expect.
+	var countSQL, baseQuery, limitClause string
+	var countArgs, selectArgs []any
+	if params.Usage == SeriesMetadataUsageUnused {
+		countSQL = `
+        SELECT COUNT(*)
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
+          AND ($2 = 'all' OR
+               CASE
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND ($3 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $3
+          ))
+    `
+		baseQuery = `
+        SELECT c.name, c.type, c.help, c.unit,
+               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND ($1 = '' OR c.name ILIKE '%%' || $1 || '%%' OR c.help ILIKE '%%' || $1 || '%%')
+          AND ($2 = 'all' OR
+               CASE
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+                END)
+          AND ($3 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $3
+          ))
+    `
+		limitClause = " LIMIT $4 OFFSET $5"
+		countArgs = []any{params.Filter, params.Type, params.Job}
+		selectArgs = []any{params.Filter, params.Type, params.Job, params.PageSize, (params.Page - 1) * params.PageSize}
+	} else {
+		countSQL = `
         SELECT COUNT(*)
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
@@ -741,24 +787,13 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR ($3 = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
           )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
           ))
     `
-	var total int
-	if err := p.db.QueryRowContext(ctx, countSQL, params.Filter, params.Type, params.Usage, params.Job).Scan(&total); err != nil {
-		return nil, fmt.Errorf("count: %w", err)
-	}
-	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
-	}
-
-	baseQuery := `
+		baseQuery = `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
         FROM metrics_catalog c
@@ -778,19 +813,29 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR ($3 = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
           )
           AND ($4 = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = $4
           ))
     `
-	// Build complete query with safe ORDER BY clause to prevent SQL injection
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $5 OFFSET $6", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+		limitClause = " LIMIT $5 OFFSET $6"
+		countArgs = []any{params.Filter, params.Type, params.Usage, params.Job}
+		selectArgs = []any{params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page - 1) * params.PageSize}
+	}
 
-	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Usage, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
+	var total int
+	if err := p.db.QueryRowContext(ctx, countSQL, countArgs...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count: %w", err)
+	}
+	if total == 0 {
+		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+	}
+
+	// Build complete query with safe ORDER BY clause to prevent SQL injection
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", limitClause, params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+
+	rows, err := p.db.QueryContext(ctx, query, selectArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
 	}
@@ -904,10 +949,31 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer CloseResource(stmt)
+
+	// Co-write a default-unused summary row per catalog item so the
+	// metrics_catalog <-> metrics_usage_summary invariant holds before
+	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
+	// existing rows with real counts are not clobbered. The new
+	// ?usage=unused query depends on this invariant to use an INNER JOIN.
+	summaryStmt, err := tx.PrepareContext(ctx, `
+        INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
+        VALUES ($1, 0, 0, 0, 0, NOW(), TRUE)
+        ON CONFLICT (name) DO NOTHING
+    `)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare summary: %w", err)
+	}
+	defer CloseResource(summaryStmt)
+
 	for _, it := range items {
 		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("exec: %w", err)
+		}
+		if _, err := summaryStmt.ExecContext(ctx, it.Name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec summary: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -919,14 +985,18 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
 	from, to := PrepareTimeRange(tr, "postgresql")
 	query := `
-    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at)
+    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at, is_unused)
     SELECT c.name,
            COALESCE(ra.alert_count, 0),
            COALESCE(ra.record_count, 0),
            COALESCE(da.dashboard_count, 0),
            COALESCE(qa.query_count, 0),
            qa.last_queried_at,
-           NOW()
+           NOW(),
+           (COALESCE(ra.alert_count, 0) = 0
+            AND COALESCE(ra.record_count, 0) = 0
+            AND COALESCE(da.dashboard_count, 0) = 0
+            AND COALESCE(qa.query_count, 0) = 0)
     FROM metrics_catalog c
     LEFT JOIN (
         SELECT serie AS name,
@@ -957,7 +1027,8 @@ func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr 
         dashboard_count=EXCLUDED.dashboard_count,
         query_count=EXCLUDED.query_count,
         last_queried_at=EXCLUDED.last_queried_at,
-        updated_at=EXCLUDED.updated_at;
+        updated_at=EXCLUDED.updated_at,
+        is_unused=EXCLUDED.is_unused;
     `
 	_, err := p.db.ExecContext(ctx, query, from, to)
 	if err != nil {

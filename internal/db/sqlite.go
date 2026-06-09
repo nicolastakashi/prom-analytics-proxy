@@ -714,8 +714,62 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 	}
 	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
 
-	// Count
-	countQuery := `
+	// When usage == "unused" we drive the query from metrics_usage_summary
+	// filtered by the is_unused partial index, then INNER JOIN metrics_catalog.
+	// This lets the planner satisfy the unused subset with an index scan
+	// instead of walking metrics_catalog and filtering. For used/all we keep
+	// the catalog-driven LEFT JOIN shape that the existing branches expect.
+	var countQuery, baseQuery string
+	var countArgs, selectArgs []any
+	if params.Usage == SeriesMetadataUsageUnused {
+		countQuery = `
+        SELECT COUNT(*)
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
+    `
+		baseQuery = `
+        SELECT c.name, c.type, c.help, c.unit,
+               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
+        FROM metrics_usage_summary AS s
+        JOIN metrics_catalog AS c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
+    `
+		countArgs = []any{
+			params.Filter, params.Filter, params.Filter,
+			params.Type, params.Type, params.Type, params.Type,
+			params.Job, params.Job,
+		}
+		selectArgs = []any{
+			params.Filter, params.Filter, params.Filter,
+			params.Type, params.Type, params.Type, params.Type,
+			params.Job, params.Job,
+			params.PageSize, (params.Page - 1) * params.PageSize,
+		}
+	} else {
+		countQuery = `
         SELECT COUNT(*)
         FROM metrics_catalog c
         LEFT JOIN metrics_usage_summary s ON s.name = c.name
@@ -734,26 +788,13 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR (? = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
           )
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = ?
           ))
     `
-	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter, params.Type, params.Type, params.Type, params.Type, params.Usage, params.Usage, params.Usage, params.Job, params.Job).Scan(&total); err != nil {
-		return nil, fmt.Errorf("failed to count catalog: %w", err)
-	}
-
-	if total == 0 {
-		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
-	}
-
-	// Query page with left join to usage summary
-	baseQuery := `
+		baseQuery = `
         SELECT c.name, c.type, c.help, c.unit,
                COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
         FROM metrics_catalog AS c
@@ -773,25 +814,40 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
                      OR COALESCE(s.dashboard_count,0) > 0
                      OR COALESCE(s.query_count,0) > 0
                 ))
-                OR (? = 'unused' AND
-                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
-                )
           )
           AND (? = '' OR EXISTS (
                 SELECT 1 FROM metrics_job_index j
                 WHERE j.name = c.name AND j.job = ?
           ))
     `
+		countArgs = []any{
+			params.Filter, params.Filter, params.Filter,
+			params.Type, params.Type, params.Type, params.Type,
+			params.Usage, params.Usage,
+			params.Job, params.Job,
+		}
+		selectArgs = []any{
+			params.Filter, params.Filter, params.Filter,
+			params.Type, params.Type, params.Type, params.Type,
+			params.Usage, params.Usage,
+			params.Job, params.Job,
+			params.PageSize, (params.Page - 1) * params.PageSize,
+		}
+	}
+
+	var total int
+	if err := p.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("failed to count catalog: %w", err)
+	}
+
+	if total == 0 {
+		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
+	}
+
 	// Build complete query with safe ORDER BY clause to prevent SQL injection
 	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
 
-	rows, err := p.db.QueryContext(ctx, query,
-		params.Filter, params.Filter, params.Filter,
-		params.Type, params.Type, params.Type, params.Type,
-		params.Usage, params.Usage, params.Usage,
-		params.Job, params.Job,
-		params.PageSize, (params.Page-1)*params.PageSize,
-	)
+	rows, err := p.db.QueryContext(ctx, query, selectArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query series metadata: %w", err)
 	}
@@ -927,10 +983,31 @@ func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []Metri
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer CloseResource(stmt)
+
+	// Co-write a default-unused summary row per catalog item so the
+	// metrics_catalog <-> metrics_usage_summary invariant holds before
+	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
+	// existing rows with real counts are not clobbered. The new
+	// ?usage=unused query depends on this invariant to use an INNER JOIN.
+	summaryStmt, err := tx.PrepareContext(ctx, `
+        INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
+        VALUES(?, 0, 0, 0, 0, datetime('now'), TRUE)
+        ON CONFLICT(name) DO NOTHING
+    `)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prepare summary: %w", err)
+	}
+	defer CloseResource(summaryStmt)
+
 	for _, it := range items {
 		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("exec: %w", err)
+		}
+		if _, err := summaryStmt.ExecContext(ctx, it.Name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec summary: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -997,14 +1074,18 @@ func (p *SQLiteProvider) ListJobs(ctx context.Context) ([]string, error) {
 func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
 	from, to := PrepareTimeRange(tr, "sqlite")
 	query := `
-    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at)
+    INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at, is_unused)
     SELECT c.name,
            COALESCE(ra.alert_count, 0),
            COALESCE(ra.record_count, 0),
            COALESCE(da.dashboard_count, 0),
            COALESCE(qa.query_count, 0),
            qa.last_queried_at,
-           datetime('now')
+           datetime('now'),
+           (COALESCE(ra.alert_count, 0) = 0
+            AND COALESCE(ra.record_count, 0) = 0
+            AND COALESCE(da.dashboard_count, 0) = 0
+            AND COALESCE(qa.query_count, 0) = 0)
     FROM metrics_catalog c
     LEFT JOIN (
         SELECT serie AS name,
@@ -1035,7 +1116,8 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
         dashboard_count=excluded.dashboard_count,
         query_count=excluded.query_count,
         last_queried_at=excluded.last_queried_at,
-        updated_at=excluded.updated_at;
+        updated_at=excluded.updated_at,
+        is_unused=excluded.is_unused;
     `
 	_, err := p.db.ExecContext(ctx, query, to, from, to, from, from, to)
 	if err != nil {
