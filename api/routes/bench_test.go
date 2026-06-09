@@ -158,6 +158,38 @@ func seedCatalogAndJobIndex(b *testing.B, provider db.Provider, n int, job strin
 // variants. 100 is the old cap (baseline); the rest exercise the new limit.
 var pageSizeCases = []int{100, 500, 1000, 5000, 10000}
 
+// seedCatalogAndSparseJobIndex seeds n catalog rows where only the first
+// targetN are tagged with the target job; the rest are tagged with a noise
+// job. The catalog stays fully unused (no RulesUsage / Refresh). This is
+// the shape ?unused=true&job=<target> hits in production: a large unused
+// universe across many jobs, with only a sparse subset under the operator's
+// requested job. seedCatalogAndJobIndex puts every metric under one job and
+// therefore cannot exercise this access pattern.
+func seedCatalogAndSparseJobIndex(b *testing.B, provider db.Provider, n, targetN int, targetJob, noiseJob string) {
+	b.Helper()
+	ctx := context.Background()
+
+	catalog := make([]db.MetricCatalogItem, n)
+	for i := range n {
+		catalog[i] = db.MetricCatalogItem{Name: fmt.Sprintf("metric_%d", i), Type: "gauge"}
+	}
+	if err := provider.UpsertMetricsCatalog(ctx, catalog); err != nil {
+		b.Fatalf("UpsertMetricsCatalog: %v", err)
+	}
+
+	jobIdx := make([]db.MetricJobIndexItem, n)
+	for i := range n {
+		job := noiseJob
+		if i < targetN {
+			job = targetJob
+		}
+		jobIdx[i] = db.MetricJobIndexItem{Name: fmt.Sprintf("metric_%d", i), Job: job}
+	}
+	if err := provider.UpsertMetricsJobIndex(ctx, jobIdx); err != nil {
+		b.Fatalf("UpsertMetricsJobIndex: %v", err)
+	}
+}
+
 // seedSummaryUsedRows marks the catalog rows metric_<fromIdx> through
 // metric_<toIdx-1> as used by inserting one RulesUsage entry per metric and
 // then refreshing metrics_usage_summary. After this call those metrics have
@@ -639,6 +671,122 @@ func BenchmarkSeriesMetadataUnused_PostgreSQL_ScaleUp(b *testing.B) {
 			for b.Loop() {
 				req := httptest.NewRequest(http.MethodGet,
 					fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&job=%s&page=1&pageSize=%d", job, scaleUpPageSize), nil)
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					b.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSeriesMetadataUnused_SQLite_JobScopedScaleUp models the production
+// hot path that broke on cx10 (PR #550 deploy): ?usage=unused&job=<name>
+// where the unused universe is large but only a sparse subset is tagged with
+// the requested job. ScaleUp varies the total catalog while holding the
+// target-job match count constant; if the planner drives from the job
+// index, latency stays roughly flat. If it drives from is_unused=TRUE and
+// EXISTS-probes the job index per row, latency scales with total.
+func BenchmarkSeriesMetadataUnused_SQLite_JobScopedScaleUp(b *testing.B) {
+	const targetJob = "target-job"
+	const noiseJob = "noise-job"
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, err := db.GetDbProvider(context.Background(), db.SQLite)
+			if err != nil {
+				b.Skipf("sqlite unavailable: %v", err)
+			}
+			defer func() { _ = provider.Close() }()
+
+			seedCatalogAndSparseJobIndex(b, provider, totalN, scaleUpUnusedN, targetJob, noiseJob)
+			// No seedSummaryUsedRows call: every catalog row stays unused.
+			// UpsertMetricsCatalog already creates default-unused summary
+			// rows, so the unused predicate matches every metric.
+
+			var rawDB *sql.DB
+			provider.WithDB(func(d *sql.DB) { rawDB = d })
+			if rawDB != nil {
+				ctx := context.Background()
+				for _, t := range []string{"metrics_usage_summary", "metrics_catalog", "metrics_job_index"} {
+					if _, err := rawDB.ExecContext(ctx, "ANALYZE "+t); err != nil {
+						b.Fatalf("ANALYZE %s: %v", t, err)
+					}
+				}
+			}
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodGet,
+					fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&job=%s&page=1&pageSize=%d", targetJob, scaleUpPageSize), nil)
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					b.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSeriesMetadataUnused_PostgreSQL_JobScopedScaleUp is the PostgreSQL
+// counterpart to the SQLite JobScopedScaleUp benchmark. See that benchmark's
+// comment for the rationale.
+func BenchmarkSeriesMetadataUnused_PostgreSQL_JobScopedScaleUp(b *testing.B) {
+	const targetJob = "target-job"
+	const noiseJob = "noise-job"
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, cleanup := startBenchPostgres(b)
+			defer cleanup()
+
+			seedCatalogAndSparseJobIndex(b, provider, totalN, scaleUpUnusedN, targetJob, noiseJob)
+
+			var rawDB *sql.DB
+			provider.WithDB(func(d *sql.DB) { rawDB = d })
+			if rawDB != nil {
+				ctx := context.Background()
+				for _, t := range []string{"metrics_usage_summary", "metrics_catalog", "metrics_job_index"} {
+					if _, err := rawDB.ExecContext(ctx, "ANALYZE "+t); err != nil {
+						b.Fatalf("ANALYZE %s: %v", t, err)
+					}
+				}
+			}
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodGet,
+					fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&job=%s&page=1&pageSize=%d", targetJob, scaleUpPageSize), nil)
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)
 				if w.Code != http.StatusOK {
