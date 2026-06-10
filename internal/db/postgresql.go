@@ -859,7 +859,17 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params
                   ELSE c.type = $2
                 END)
     `
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $3 OFFSET $4", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+	// Force ORDER BY c.name for the unused branch regardless of the
+	// client-supplied sortBy. Every unused row has alert_count =
+	// record_count = dashboard_count = query_count = 0, so sorting by any
+	// of those count columns is meaningless (all values tie at zero) and
+	// forces the planner to materialise the full unused subset before
+	// LIMIT can apply - which on cx10 (139k unused) cost seconds even for
+	// a 10-row page. Sorting by c.name lines up with the
+	// idx_metrics_usage_summary_is_unused partial index's name ordering,
+	// so the planner can index-scan + LIMIT in O(LIMIT) work. sortOrder is
+	// still honoured so ?sortOrder=desc inverts the alphabetical listing.
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $3 OFFSET $4", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
@@ -922,7 +932,11 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnusedJobScoped(ctx context.Contex
                   ELSE c.type = $2
                 END)
     `
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $4 OFFSET $5", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+	// Force ORDER BY c.name; see getSeriesMetadataUnused for rationale.
+	// The same all-zero-counts pattern applies here, and consistency
+	// matters because clients page through both shapes against the same
+	// API contract.
+	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT $4 OFFSET $5", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query, params.Filter, params.Type, params.Job, params.PageSize, (params.Page-1)*params.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)

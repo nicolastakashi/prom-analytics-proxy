@@ -796,3 +796,121 @@ func BenchmarkSeriesMetadataUnused_PostgreSQL_JobScopedScaleUp(b *testing.B) {
 		})
 	}
 }
+
+// denseUnusedPageSizes are the page sizes swept by the DenseUnusedScaleUp
+// benchmarks. These mirror what the dashboard/CLI actually requests when
+// listing "all unused" without a job filter: small probes (10), typical
+// list responses (1000), and the operator's "give me everything I can
+// drop" sweep (10000, matching MaxSeriesMetadataPageSize).
+var denseUnusedPageSizes = []int{10, 1000, 10000}
+
+// BenchmarkSeriesMetadataUnused_SQLite_DenseUnusedScaleUp benches
+// ?usage=unused without a job filter when most of the catalog is unused -
+// the dashboard / CLI shape, and the inverse of both ScaleUp (sparse
+// unused) and JobScopedScaleUp (sparse job-match). cx10 reported 18.8s
+// for ?usage=unused&pageSize=10000 on ~139k unused metrics after PR #550
+// deployed; this bench reproduces that shape locally so any fix can be
+// verified without round-tripping to the cluster.
+//
+// Seeds totalN catalog rows, then marks only the first 100 as used. The
+// remaining totalN-100 stay unused, mirroring "everything is unused"
+// in production. The bench varies pageSize because the regression
+// suspicion is sort-cost: every unused row has query_count=0, so the
+// default ORDER BY queryCount DESC has to sort the full unused set
+// before the LIMIT applies. Larger pageSize materialises more of that
+// sort.
+func BenchmarkSeriesMetadataUnused_SQLite_DenseUnusedScaleUp(b *testing.B) {
+	const job = "test-job"
+	const usedN = 100
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, err := db.GetDbProvider(context.Background(), db.SQLite)
+			if err != nil {
+				b.Skipf("sqlite unavailable: %v", err)
+			}
+			defer func() { _ = provider.Close() }()
+
+			seedCatalogAndJobIndex(b, provider, totalN, job)
+			// Mark the first usedN metrics as used; the remaining
+			// (totalN - usedN) are left unused.
+			seedSummaryUsedRows(b, provider, 0, usedN)
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			for _, ps := range denseUnusedPageSizes {
+				b.Run(fmt.Sprintf("pageSize%d", ps), func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for b.Loop() {
+						req := httptest.NewRequest(http.MethodGet,
+							fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&page=1&pageSize=%d", ps), nil)
+						w := httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
+						if w.Code != http.StatusOK {
+							b.Fatalf("status %d: %s", w.Code, w.Body.String())
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+// BenchmarkSeriesMetadataUnused_PostgreSQL_DenseUnusedScaleUp is the
+// PostgreSQL counterpart to the SQLite DenseUnusedScaleUp benchmark.
+// See that benchmark's comment for the rationale.
+func BenchmarkSeriesMetadataUnused_PostgreSQL_DenseUnusedScaleUp(b *testing.B) {
+	const job = "test-job"
+	const usedN = 100
+
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+
+	for _, totalN := range scaleUpTotals {
+		b.Run(fmt.Sprintf("total%d", totalN), func(b *testing.B) {
+			provider, cleanup := startBenchPostgres(b)
+			defer cleanup()
+
+			seedCatalogAndJobIndex(b, provider, totalN, job)
+			seedSummaryUsedRows(b, provider, 0, usedN)
+
+			handler, err := NewRoutes(
+				WithDBProvider(provider),
+				WithProxy(upstream),
+				WithPromAPI(upstream),
+				WithHandlers(uiFS, prometheus.NewRegistry(), false),
+			)
+			if err != nil {
+				b.Fatalf("NewRoutes: %v", err)
+			}
+
+			for _, ps := range denseUnusedPageSizes {
+				b.Run(fmt.Sprintf("pageSize%d", ps), func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for b.Loop() {
+						req := httptest.NewRequest(http.MethodGet,
+							fmt.Sprintf("/api/v1/seriesMetadata?type=all&unused=true&page=1&pageSize=%d", ps), nil)
+						w := httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
+						if w.Code != http.StatusOK {
+							b.Fatalf("status %d: %s", w.Code, w.Body.String())
+						}
+					}
+				})
+			}
+		})
+	}
+}
