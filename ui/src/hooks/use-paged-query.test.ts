@@ -22,10 +22,9 @@ const sampleResult: PagedResult<{ id: number }> = {
 describe("usePagedQuery", () => {
   it("returns data from queryFn", async () => {
     const queryFn = vi.fn().mockResolvedValue(sampleResult);
-    const { result } = renderHook(
-      () => usePagedQuery(["test-key"], queryFn),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => usePagedQuery(["test-key"], queryFn), {
+      wrapper: makeWrapper(),
+    });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(sampleResult);
@@ -35,10 +34,9 @@ describe("usePagedQuery", () => {
   it("passes queryKey through to TanStack Query", async () => {
     const queryFn = vi.fn().mockResolvedValue(sampleResult);
     const key = ["series-metadata", { page: 1, filter: "cpu" }];
-    const { result } = renderHook(
-      () => usePagedQuery(key, queryFn),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => usePagedQuery(key, queryFn), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(queryFn).toHaveBeenCalledTimes(1);
   });
@@ -55,10 +53,9 @@ describe("usePagedQuery", () => {
 
   it("reflects isError when queryFn rejects", async () => {
     const queryFn = vi.fn().mockRejectedValue(new Error("network error"));
-    const { result } = renderHook(
-      () => usePagedQuery(["error-key"], queryFn),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => usePagedQuery(["error-key"], queryFn), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
 

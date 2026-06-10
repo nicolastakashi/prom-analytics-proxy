@@ -40,8 +40,9 @@ export function useTableState(
   const [page, setPageRaw] = useState(defaultPage);
   const [pageSize] = useState(defaultPageSize);
   const [sortBy, setSortByRaw] = useState(defaultSortBy);
-  const [sortOrder, setSortOrderRaw] =
-    useState<"asc" | "desc">(defaultSortOrder);
+  const [sortOrder, setSortOrderRaw] = useState<"asc" | "desc">(
+    defaultSortOrder,
+  );
   const [filter, setFilterRaw] = useState(defaultFilter);
   const [sorting, setSortingRaw] = useState<SortingState>(
     defaultSortBy

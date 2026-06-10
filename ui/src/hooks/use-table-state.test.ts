@@ -33,13 +33,20 @@ describe("useTableState", () => {
 
     it("derives initial SortingState from defaultSortBy + defaultSortOrder", () => {
       const { result } = renderHook(() =>
-        useTableState({ defaultSortBy: "executions", defaultSortOrder: "desc" }),
+        useTableState({
+          defaultSortBy: "executions",
+          defaultSortOrder: "desc",
+        }),
       );
-      expect(result.current.sorting).toEqual([{ id: "executions", desc: true }]);
+      expect(result.current.sorting).toEqual([
+        { id: "executions", desc: true },
+      ]);
     });
 
     it("produces empty SortingState when no defaultSortBy", () => {
-      const { result } = renderHook(() => useTableState({ defaultSortOrder: "asc" }));
+      const { result } = renderHook(() =>
+        useTableState({ defaultSortOrder: "asc" }),
+      );
       expect(result.current.sorting).toEqual([]);
     });
   });
@@ -47,7 +54,11 @@ describe("useTableState", () => {
   describe("setPage", () => {
     it("updates page without touching other state", () => {
       const { result } = renderHook(() =>
-        useTableState({ defaultPage: 1, defaultFilter: "foo", defaultSortBy: "name" }),
+        useTableState({
+          defaultPage: 1,
+          defaultFilter: "foo",
+          defaultSortBy: "name",
+        }),
       );
       act(() => result.current.setPage(4));
       expect(result.current.page).toBe(4);
@@ -80,7 +91,9 @@ describe("useTableState", () => {
       act(() => result.current.setSort("avgDuration", "asc"));
       expect(result.current.sortBy).toBe("avgDuration");
       expect(result.current.sortOrder).toBe("asc");
-      expect(result.current.sorting).toEqual([{ id: "avgDuration", desc: false }]);
+      expect(result.current.sorting).toEqual([
+        { id: "avgDuration", desc: false },
+      ]);
     });
 
     it("resets page to 1", () => {
@@ -93,10 +106,14 @@ describe("useTableState", () => {
   describe("setSorting", () => {
     it("syncs sortBy and sortOrder from SortingState array", () => {
       const { result } = renderHook(() => useTableState());
-      act(() => result.current.setSorting([{ id: "peakSamples", desc: false }]));
+      act(() =>
+        result.current.setSorting([{ id: "peakSamples", desc: false }]),
+      );
       expect(result.current.sortBy).toBe("peakSamples");
       expect(result.current.sortOrder).toBe("asc");
-      expect(result.current.sorting).toEqual([{ id: "peakSamples", desc: false }]);
+      expect(result.current.sorting).toEqual([
+        { id: "peakSamples", desc: false },
+      ]);
     });
 
     it("resets page to 1", () => {
@@ -107,7 +124,11 @@ describe("useTableState", () => {
 
     it("keeps sortBy/sortOrder unchanged when given empty array, but still resets page", () => {
       const { result } = renderHook(() =>
-        useTableState({ defaultPage: 2, defaultSortBy: "name", defaultSortOrder: "asc" }),
+        useTableState({
+          defaultPage: 2,
+          defaultSortBy: "name",
+          defaultSortOrder: "asc",
+        }),
       );
       act(() => result.current.setSorting([]));
       expect(result.current.sortBy).toBe("name");
