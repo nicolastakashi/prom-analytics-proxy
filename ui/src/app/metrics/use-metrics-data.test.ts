@@ -53,13 +53,19 @@ describe("useSeriesMetadataTable", () => {
       filter: "",
       type: "all",
     };
-    const { result } = renderHook(
-      () => useSeriesMetadataTable(tableState),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => useSeriesMetadataTable(tableState), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(metricsApi.getSeriesMetadata).toHaveBeenCalledWith(
-      2, 20, "queryCount", "desc", "", "all", "all", undefined,
+      2,
+      20,
+      "queryCount",
+      "desc",
+      "",
+      "all",
+      "all",
+      undefined,
     );
   });
 
@@ -72,46 +78,87 @@ describe("useSeriesMetadataTable", () => {
       filter: "",
       type: "gauge",
     };
-    renderHook(() => useSeriesMetadataTable(tableState), { wrapper: makeWrapper() });
+    renderHook(() => useSeriesMetadataTable(tableState), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() =>
       expect(metricsApi.getSeriesMetadata).toHaveBeenCalledWith(
-        1, 10, "alertCount", "asc", "", "gauge", "all", undefined,
+        1,
+        10,
+        "alertCount",
+        "asc",
+        "",
+        "gauge",
+        "all",
+        undefined,
       ),
     );
   });
 
   it("passes searchQuery as the filter argument", async () => {
-    const tableState = { page: 1, pageSize: 10, sortBy: "name", sortOrder: "asc" as const, filter: "", type: "all" };
-    renderHook(
-      () => useSeriesMetadataTable(tableState, "prom"),
-      { wrapper: makeWrapper() },
-    );
+    const tableState = {
+      page: 1,
+      pageSize: 10,
+      sortBy: "name",
+      sortOrder: "asc" as const,
+      filter: "",
+      type: "all",
+    };
+    renderHook(() => useSeriesMetadataTable(tableState, "prom"), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() =>
       expect(metricsApi.getSeriesMetadata).toHaveBeenCalledWith(
-        1, 10, "name", "asc", "prom", "all", "all", undefined,
+        1,
+        10,
+        "name",
+        "asc",
+        "prom",
+        "all",
+        "all",
+        undefined,
       ),
     );
   });
 
   it("passes usage filter to getSeriesMetadata", async () => {
-    const tableState = { page: 1, pageSize: 10, sortBy: "name", sortOrder: "asc" as const, filter: "", type: "all" };
-    renderHook(
-      () => useSeriesMetadataTable(tableState, "", "unused"),
-      { wrapper: makeWrapper() },
-    );
+    const tableState = {
+      page: 1,
+      pageSize: 10,
+      sortBy: "name",
+      sortOrder: "asc" as const,
+      filter: "",
+      type: "all",
+    };
+    renderHook(() => useSeriesMetadataTable(tableState, "", "unused"), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() =>
       expect(metricsApi.getSeriesMetadata).toHaveBeenCalledWith(
-        1, 10, "name", "asc", "", "all", "unused", undefined,
+        1,
+        10,
+        "name",
+        "asc",
+        "",
+        "all",
+        "unused",
+        undefined,
       ),
     );
   });
 
   it("returns PagedResult data", async () => {
-    const tableState = { page: 1, pageSize: 10, sortBy: "name", sortOrder: "asc" as const, filter: "", type: "all" };
-    const { result } = renderHook(
-      () => useSeriesMetadataTable(tableState),
-      { wrapper: makeWrapper() },
-    );
+    const tableState = {
+      page: 1,
+      pageSize: 10,
+      sortBy: "name",
+      sortOrder: "asc" as const,
+      filter: "",
+      type: "all",
+    };
+    const { result } = renderHook(() => useSeriesMetadataTable(tableState), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.data.metrics?.total).toBe(2);
     expect(result.current.data.metrics?.data).toHaveLength(2);
@@ -131,33 +178,35 @@ describe("useMetricUsage", () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(metricsApi.getMetricUsage).toHaveBeenCalledWith(
-      "my_metric", "alert", 1, 10, "", "",
+      "my_metric",
+      "alert",
+      1,
+      10,
+      "",
+      "",
     );
   });
 
   it("is disabled when metricName is empty", () => {
-    const { result } = renderHook(
-      () => useMetricUsage("", "alert"),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => useMetricUsage("", "alert"), {
+      wrapper: makeWrapper(),
+    });
     expect(result.current.isPending).toBe(true);
     expect(metricsApi.getMetricUsage).not.toHaveBeenCalled();
   });
 
   it("is disabled when kind is empty", () => {
-    const { result } = renderHook(
-      () => useMetricUsage("my_metric", ""),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => useMetricUsage("my_metric", ""), {
+      wrapper: makeWrapper(),
+    });
     expect(result.current.isPending).toBe(true);
     expect(metricsApi.getMetricUsage).not.toHaveBeenCalled();
   });
 
   it("returns PagedResult data", async () => {
-    const { result } = renderHook(
-      () => useMetricUsage("my_metric", "record"),
-      { wrapper: makeWrapper() },
-    );
+    const { result } = renderHook(() => useMetricUsage("my_metric", "record"), {
+      wrapper: makeWrapper(),
+    });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.total).toBe(3);
     expect(result.current.data?.data).toHaveLength(3);
@@ -165,15 +214,30 @@ describe("useMetricUsage", () => {
 
   it("re-fetches when page changes", async () => {
     const { result, rerender } = renderHook(
-      ({ page }: { page: number }) => useMetricUsage("my_metric", "alert", page, 10),
+      ({ page }: { page: number }) =>
+        useMetricUsage("my_metric", "alert", page, 10),
       { wrapper: makeWrapper(), initialProps: { page: 1 } },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(metricsApi.getMetricUsage).toHaveBeenCalledWith("my_metric", "alert", 1, 10, "", "");
+    expect(metricsApi.getMetricUsage).toHaveBeenCalledWith(
+      "my_metric",
+      "alert",
+      1,
+      10,
+      "",
+      "",
+    );
 
     rerender({ page: 2 });
     await waitFor(() =>
-      expect(metricsApi.getMetricUsage).toHaveBeenCalledWith("my_metric", "alert", 2, 10, "", ""),
+      expect(metricsApi.getMetricUsage).toHaveBeenCalledWith(
+        "my_metric",
+        "alert",
+        2,
+        10,
+        "",
+        "",
+      ),
     );
   });
 });

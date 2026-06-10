@@ -230,7 +230,10 @@ export default function MetricUsage({
 }: MetricUsageProps) {
   const pageSize = 10;
 
-  const queriesState = useTableState({ defaultSortBy: "avgDuration", defaultSortOrder: "desc" });
+  const queriesState = useTableState({
+    defaultSortBy: "avgDuration",
+    defaultSortOrder: "desc",
+  });
   const alertsState = useTableState();
   const recordingsState = useTableState();
   const dashboardsState = useTableState();
