@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- Composite index over (job, name) on metrics_job_index. The existing
 -- idx_metrics_job_index_job covers j.job lookups but only stores rowids;
@@ -14,10 +15,17 @@
 -- still works but pays a heap fetch per j.name; with it, the planner can
 -- pick an index-only scan on metrics_job_index for the j.job=... probe
 -- and join straight to summary/catalog by PK.
-CREATE INDEX IF NOT EXISTS idx_metrics_job_index_job_name
+--
+-- CREATE INDEX CONCURRENTLY (which is why this migration disables the
+-- goose-wrapping transaction) so the index build does not block writes
+-- from the inventory syncer while the migration runs. An earlier form
+-- of this migration ran transactional CREATE INDEX followed by ANALYZE
+-- and deadlocked on cx10: a concurrent INSERT into metrics_job_index
+-- held a RowExclusiveLock that the in-tx ANALYZE's
+-- ShareUpdateExclusiveLock could not acquire. Planner stats refresh
+-- via autovacuum on its normal cadence; no in-line ANALYZE here.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_metrics_job_index_job_name
     ON metrics_job_index(job, name);
 
-ANALYZE metrics_job_index;
-
 -- +goose Down
-DROP INDEX IF EXISTS idx_metrics_job_index_job_name;
+DROP INDEX CONCURRENTLY IF EXISTS idx_metrics_job_index_job_name;
