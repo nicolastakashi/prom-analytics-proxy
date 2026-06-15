@@ -1,0 +1,40 @@
+-- +goose Up
+-- Add is_unused as a directly indexable property of metrics_usage_summary so
+-- that GET /api/v1/seriesMetadata?usage=unused can be driven from the summary
+-- table via a partial index instead of scanning metrics_catalog and filtering
+-- with a four-way COALESCE-on-zero predicate.
+--
+-- Default TRUE: a brand-new row with all counts zero is unused by definition.
+-- RefreshMetricsUsageSummary maintains the column going forward; the UPDATE
+-- below brings any rows that existed before this migration into alignment.
+ALTER TABLE metrics_usage_summary
+    ADD COLUMN IF NOT EXISTS is_unused BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- ADD COLUMN ... DEFAULT TRUE already initializes every row to the unused
+-- value, which is correct for any row with all-zero counts. Only the
+-- used rows need flipping, so scope the UPDATE to that subset; otherwise
+-- we rewrite the whole table for no semantic change.
+UPDATE metrics_usage_summary
+SET is_unused = FALSE
+WHERE alert_count > 0
+   OR record_count > 0
+   OR dashboard_count > 0
+   OR query_count > 0;
+
+-- Backfill: ensure every catalog row has a summary row so the new unused
+-- query can INNER JOIN safely. ON CONFLICT DO NOTHING is defensive in case
+-- a refresh races the migration.
+INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
+SELECT c.name, 0, 0, 0, 0, NOW(), TRUE
+FROM   metrics_catalog c
+WHERE  NOT EXISTS (SELECT 1 FROM metrics_usage_summary s WHERE s.name = c.name)
+ON CONFLICT (name) DO NOTHING;
+
+-- The partial index over the unused subset is built in a separate migration
+-- (0013) with CREATE INDEX CONCURRENTLY so the build does not block writes
+-- from the inventory syncer. CONCURRENTLY cannot run inside a transaction
+-- block, which is why it lives in its own non-transactional migration
+-- rather than at the end of this one.
+
+-- +goose Down
+ALTER TABLE metrics_usage_summary DROP COLUMN IF EXISTS is_unused;
