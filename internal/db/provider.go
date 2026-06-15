@@ -29,6 +29,14 @@ const (
 	ThirtyDays     = 30 * 24 * time.Hour
 )
 
+// SQL ORDER BY direction literals. resolveSafeSortOrder narrows the
+// user-supplied sortOrder to one of these two constants so the ORDER BY
+// direction in generated SQL is never user-controlled.
+const (
+	sortOrderASC  = "ASC"
+	sortOrderDESC = "DESC"
+)
+
 type Provider interface {
 	WithDB(func(db *sql.DB))
 	Insert(ctx context.Context, queries []Query) error
@@ -241,9 +249,9 @@ func resolveSafeSortExpr(sortBy, tableAlias, defaultSort string, sortAliases ...
 // even though the input came from an HTTP query parameter.
 func resolveSafeSortOrder(sortOrder string) string {
 	if strings.EqualFold(strings.TrimSpace(sortOrder), "asc") {
-		return "ASC"
+		return sortOrderASC
 	}
-	return "DESC"
+	return sortOrderDESC
 }
 
 // BuildSafeOrderByClause constructs a safe ORDER BY clause using validated parameters

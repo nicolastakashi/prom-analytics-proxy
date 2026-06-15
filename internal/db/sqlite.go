@@ -25,6 +25,133 @@ type SQLiteProvider struct {
 
 // DDL creation moved to embedded Goose migrations.
 
+// SeriesMetadata SQL literals for the SQLite backend.
+//
+// Each pair is the static SQL backing one branch of GetSeriesMetadata,
+// mirroring the PostgreSQL constants above. SQLite uses '?' positional
+// placeholders instead of '$N' so the parameter shape and parameter
+// repetition differ from the PostgreSQL variants; see the QueryRowContext
+// / QueryContext call sites for the exact argument layout.
+//
+// These are exposed as named consts (rather than inlined) so the Go SQL
+// scanner sees QueryContext receiving a string that does not depend on
+// user input, and so the queries are addressable from unit tests that
+// assert their shape and that they prepare cleanly against SQLite.
+const sqliteSeriesMetadataCountSQL = `
+        SELECT COUNT(*)
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+          AND (
+                ? = 'all'
+                OR (? = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+          )
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
+    `
+
+const sqliteSeriesMetadataBaseSQL = `
+        SELECT c.name, c.type, c.help, c.unit,
+               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
+        FROM metrics_catalog AS c
+        LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
+        WHERE (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+          AND (
+                ? = 'all'
+                OR (? = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+          )
+          AND (? = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = ?
+          ))
+    `
+
+const sqliteSeriesMetadataUnusedCountSQL = `
+        SELECT COUNT(*)
+        FROM metrics_usage_summary s
+        JOIN metrics_catalog c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+    `
+
+const sqliteSeriesMetadataUnusedBaseSQL = `
+        SELECT c.name, c.type, c.help, c.unit,
+               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
+        FROM metrics_usage_summary AS s
+        JOIN metrics_catalog AS c ON c.name = s.name
+        WHERE s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+    `
+
+const sqliteSeriesMetadataUnusedJobCountSQL = `
+        SELECT COUNT(*)
+        FROM metrics_job_index j
+        JOIN metrics_usage_summary s ON s.name = j.name
+        JOIN metrics_catalog c ON c.name = j.name
+        WHERE j.job = ?
+          AND s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+    `
+
+const sqliteSeriesMetadataUnusedJobBaseSQL = `
+        SELECT c.name, c.type, c.help, c.unit,
+               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
+        FROM metrics_job_index AS j
+        JOIN metrics_usage_summary AS s ON s.name = j.name
+        JOIN metrics_catalog AS c ON c.name = j.name
+        WHERE j.job = ?
+          AND s.is_unused = TRUE
+          AND (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
+          AND (? = 'all' OR
+               CASE
+                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                 ELSE c.type = ?
+                END)
+    `
+
 func RegisterSqliteFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&config.DefaultConfig.Database.SQLite.DatabasePath, "sqlite-database-path", "prom-analytics-proxy.db", "Path to the sqlite database.")
 }
@@ -725,33 +852,8 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 	}
 
 	// Used / all: catalog-driven LEFT JOIN shape.
-	const countQuery = `
-        SELECT COUNT(*)
-        FROM metrics_catalog c
-        LEFT JOIN metrics_usage_summary s ON s.name = c.name
-        WHERE (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-          AND (
-                ? = 'all'
-                OR (? = 'used' AND (
-                     COALESCE(s.alert_count,0) > 0
-                     OR COALESCE(s.record_count,0) > 0
-                     OR COALESCE(s.dashboard_count,0) > 0
-                     OR COALESCE(s.query_count,0) > 0
-                ))
-          )
-          AND (? = '' OR EXISTS (
-                SELECT 1 FROM metrics_job_index j
-                WHERE j.name = c.name AND j.job = ?
-          ))
-    `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery,
+	if err := p.db.QueryRowContext(ctx, sqliteSeriesMetadataCountSQL,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
 		params.Usage, params.Usage,
@@ -763,33 +865,7 @@ func (p *SQLiteProvider) GetSeriesMetadata(ctx context.Context, params SeriesMet
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	const baseQuery = `
-        SELECT c.name, c.type, c.help, c.unit,
-               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
-        FROM metrics_catalog AS c
-        LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
-        WHERE (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-          AND (
-                ? = 'all'
-                OR (? = 'used' AND (
-                     COALESCE(s.alert_count,0) > 0
-                     OR COALESCE(s.record_count,0) > 0
-                     OR COALESCE(s.dashboard_count,0) > 0
-                     OR COALESCE(s.query_count,0) > 0
-                ))
-          )
-          AND (? = '' OR EXISTS (
-                SELECT 1 FROM metrics_job_index j
-                WHERE j.name = c.name AND j.job = ?
-          ))
-    `
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
+	query := BuildSafeQueryWithOrderBy(sqliteSeriesMetadataBaseSQL, "c", " LIMIT ? OFFSET ?", params.SortBy, params.SortOrder, ValidSeriesMetadataSortFields, "queryCount", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
@@ -828,21 +904,8 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 		return p.getSeriesMetadataUnusedJobScoped(ctx, params)
 	}
 
-	const countQuery = `
-        SELECT COUNT(*)
-        FROM metrics_usage_summary s
-        JOIN metrics_catalog c ON c.name = s.name
-        WHERE s.is_unused = TRUE
-          AND (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-    `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery,
+	if err := p.db.QueryRowContext(ctx, sqliteSeriesMetadataUnusedCountSQL,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
 	).Scan(&total); err != nil {
@@ -852,20 +915,6 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	const baseQuery = `
-        SELECT c.name, c.type, c.help, c.unit,
-               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
-        FROM metrics_usage_summary AS s
-        JOIN metrics_catalog AS c ON c.name = s.name
-        WHERE s.is_unused = TRUE
-          AND (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-    `
 	// Force ORDER BY c.name for the unused branch regardless of the
 	// client-supplied sortBy. Every unused row has alert_count =
 	// record_count = dashboard_count = query_count = 0, so sorting by any
@@ -876,7 +925,7 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 	// idx_metrics_usage_summary_is_unused partial index's name ordering,
 	// so the planner can index-scan + LIMIT in O(LIMIT) work. sortOrder is
 	// still honoured so ?sortOrder=desc inverts the alphabetical listing.
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
+	query := BuildSafeQueryWithOrderBy(sqliteSeriesMetadataUnusedBaseSQL, "c", " LIMIT ? OFFSET ?", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
@@ -904,23 +953,8 @@ func (p *SQLiteProvider) getSeriesMetadataUnused(ctx context.Context, params Ser
 // ?usage=unused&job=kube-state-metrics request hit 139k unused metrics
 // looking for a sparse 57-row match.
 func (p *SQLiteProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error) {
-	const countQuery = `
-        SELECT COUNT(*)
-        FROM metrics_job_index j
-        JOIN metrics_usage_summary s ON s.name = j.name
-        JOIN metrics_catalog c ON c.name = j.name
-        WHERE j.job = ?
-          AND s.is_unused = TRUE
-          AND (? = '' OR c.name LIKE '%' || ? || '%' OR c.help LIKE '%' || ? || '%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-    `
 	var total int
-	if err := p.db.QueryRowContext(ctx, countQuery,
+	if err := p.db.QueryRowContext(ctx, sqliteSeriesMetadataUnusedJobCountSQL,
 		params.Job,
 		params.Filter, params.Filter, params.Filter,
 		params.Type, params.Type, params.Type, params.Type,
@@ -931,27 +965,11 @@ func (p *SQLiteProvider) getSeriesMetadataUnusedJobScoped(ctx context.Context, p
 		return &PagedResult{Total: 0, TotalPages: 0, Data: []models.MetricMetadata{}}, nil
 	}
 
-	const baseQuery = `
-        SELECT c.name, c.type, c.help, c.unit,
-               s.alert_count, s.record_count, s.dashboard_count, s.query_count, s.last_queried_at
-        FROM metrics_job_index AS j
-        JOIN metrics_usage_summary AS s ON s.name = j.name
-        JOIN metrics_catalog AS c ON c.name = j.name
-        WHERE j.job = ?
-          AND s.is_unused = TRUE
-          AND (? = '' OR c.name LIKE '%%' || ? || '%%' OR c.help LIKE '%%' || ? || '%%')
-          AND (? = 'all' OR
-               CASE
-                 WHEN ? = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
-                 WHEN ? = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
-                 ELSE c.type = ?
-                END)
-    `
 	// Force ORDER BY c.name; see getSeriesMetadataUnused for rationale.
 	// The same all-zero-counts pattern applies here, and consistency
 	// matters because clients page through both shapes against the same
 	// API contract.
-	query := BuildSafeQueryWithOrderBy(baseQuery, "c", " LIMIT ? OFFSET ?", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
+	query := BuildSafeQueryWithOrderBy(sqliteSeriesMetadataUnusedJobBaseSQL, "c", " LIMIT ? OFFSET ?", "name", params.SortOrder, ValidSeriesMetadataSortFields, "name", SeriesMetadataSortAliases)
 	rows, err := p.db.QueryContext(ctx, query,
 		params.Job,
 		params.Filter, params.Filter, params.Filter,

@@ -11,5 +11,14 @@
 CREATE INDEX IF NOT EXISTS idx_metrics_job_index_job_name
     ON metrics_job_index(job, name);
 
+-- Drop the redundant single-column index from migration 0005. SQLite uses
+-- the leftmost prefix of a composite index for single-column lookups, so
+-- idx_metrics_job_index_job_name(job, name) covers every plan that
+-- idx_metrics_job_index_job(job) covered. Keeping both costs disk and
+-- write amplification with no read-side benefit.
+DROP INDEX IF EXISTS idx_metrics_job_index_job;
+
 -- +goose Down
 DROP INDEX IF EXISTS idx_metrics_job_index_job_name;
+CREATE INDEX IF NOT EXISTS idx_metrics_job_index_job
+    ON metrics_job_index(job);

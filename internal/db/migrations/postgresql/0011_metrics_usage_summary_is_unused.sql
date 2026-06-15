@@ -30,23 +30,11 @@ FROM   metrics_catalog c
 WHERE  NOT EXISTS (SELECT 1 FROM metrics_usage_summary s WHERE s.name = c.name)
 ON CONFLICT (name) DO NOTHING;
 
--- Partial index over the unused subset. The predicate is matched verbatim by
--- the unused branch of GetSeriesMetadata so the planner can satisfy the scan
--- from this index.
---
--- No in-line ANALYZE here. Earlier versions of this migration ran ANALYZE
--- on metrics_usage_summary and metrics_catalog at the end of the goose
--- transaction; combined with the same pattern in migration 0012 that
--- deadlocked on cx10, in-tx ANALYZE against a concurrent INSERT from the
--- inventory syncer fails when the syncer's RowExclusiveLock cannot release
--- past ANALYZE's ShareUpdateExclusiveLock. Production autovacuum refreshes
--- stats on its normal cadence; the ?usage=unused query degrades to a Hash
--- Join for at most a few minutes after deploy, which is preferable to a
--- deadlocked migration that fails the rollout.
-CREATE INDEX IF NOT EXISTS idx_metrics_usage_summary_is_unused
-    ON metrics_usage_summary(name)
-    WHERE is_unused = TRUE;
+-- The partial index over the unused subset is built in a separate migration
+-- (0013) with CREATE INDEX CONCURRENTLY so the build does not block writes
+-- from the inventory syncer. CONCURRENTLY cannot run inside a transaction
+-- block, which is why it lives in its own non-transactional migration
+-- rather than at the end of this one.
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_metrics_usage_summary_is_unused;
 ALTER TABLE metrics_usage_summary DROP COLUMN IF EXISTS is_unused;
