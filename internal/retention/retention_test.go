@@ -44,8 +44,8 @@ func (f *fakeProvider) WithDB(func(*sql.DB))                                    
 func (f *fakeProvider) Insert(context.Context, []db.Query) error                        { return nil }
 func (f *fakeProvider) InsertRulesUsage(context.Context, []db.RulesUsage) error         { return nil }
 func (f *fakeProvider) InsertDashboardUsage(context.Context, []db.DashboardUsage) error { return nil }
-func (f *fakeProvider) GetSeriesMetadata(context.Context, db.SeriesMetadataParams) (*db.PagedResult, error) {
-	return nil, nil
+func (f *fakeProvider) GetSeriesMetadata(context.Context, db.SeriesMetadataParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (f *fakeProvider) UpsertMetricsCatalog(context.Context, []db.MetricCatalogItem) error {
 	return nil
@@ -64,8 +64,8 @@ func (f *fakeProvider) GetAverageDuration(context.Context, db.TimeRange, string)
 func (f *fakeProvider) GetQueryRate(context.Context, db.TimeRange, string, string) (*db.QueryRateResult, error) {
 	return nil, nil
 }
-func (f *fakeProvider) GetQueriesBySerieName(context.Context, db.QueriesBySerieNameParams) (*db.PagedResult, error) {
-	return nil, nil
+func (f *fakeProvider) GetQueriesBySerieName(context.Context, db.QueriesBySerieNameParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (f *fakeProvider) GetQueryStatusDistribution(context.Context, db.TimeRange, string) ([]db.QueryStatusDistributionResult, error) {
 	return nil, nil
@@ -94,11 +94,11 @@ func (f *fakeProvider) GetMetricStatistics(context.Context, string, db.TimeRange
 func (f *fakeProvider) GetMetricQueryPerformanceStatistics(context.Context, string, db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
 	return db.MetricQueryPerformanceStatistics{}, nil
 }
-func (f *fakeProvider) GetRulesUsage(context.Context, db.RulesUsageParams) (*db.PagedResult, error) {
-	return nil, nil
+func (f *fakeProvider) GetRulesUsage(context.Context, db.RulesUsageParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
-func (f *fakeProvider) GetDashboardUsage(context.Context, db.DashboardUsageParams) (*db.PagedResult, error) {
-	return nil, nil
+func (f *fakeProvider) GetDashboardUsage(context.Context, db.DashboardUsageParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
 }
 func (f *fakeProvider) GetSeriesMetadataByNames(context.Context, []string, string) ([]models.MetricMetadata, error) {
 	return nil, nil

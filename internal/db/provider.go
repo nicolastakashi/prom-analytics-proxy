@@ -42,7 +42,7 @@ type Provider interface {
 	Insert(ctx context.Context, queries []Query) error
 	InsertRulesUsage(ctx context.Context, rulesUsage []RulesUsage) error
 	InsertDashboardUsage(ctx context.Context, dashboardUsage []DashboardUsage) error
-	GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (*PagedResult, error)
+	GetSeriesMetadata(ctx context.Context, params SeriesMetadataParams) (PagedResult, error)
 	UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error
 	RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error
 	UpsertMetricsJobIndex(ctx context.Context, items []MetricJobIndexItem) error
@@ -51,7 +51,7 @@ type Provider interface {
 	GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error)
 	GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error)
 	GetQueryRate(ctx context.Context, tr TimeRange, metricName string, fingerprint string) (*QueryRateResult, error)
-	GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (*PagedResult, error)
+	GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (PagedResult, error)
 	GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error)
 	GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error)
 	GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error)
@@ -61,8 +61,8 @@ type Provider interface {
 	GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error)
 	GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error)
 	GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error)
-	GetRulesUsage(ctx context.Context, params RulesUsageParams) (*PagedResult, error)
-	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (*PagedResult, error)
+	GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error)
+	GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error)
 	GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error)
 	DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 

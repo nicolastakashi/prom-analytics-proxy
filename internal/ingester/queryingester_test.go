@@ -35,12 +35,9 @@ func (m *MockDBProvider) GetQueryExecutions(ctx context.Context, params db.Query
 	return db.PagedResult{}, nil
 }
 
-func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (*db.PagedResult, error) {
+func (m *MockDBProvider) GetSeriesMetadata(ctx context.Context, params db.SeriesMetadataParams) (db.PagedResult, error) {
 	args := m.Called(ctx, params)
-	if v := args.Get(0); v != nil {
-		return v.(*db.PagedResult), args.Error(1)
-	}
-	return nil, args.Error(1)
+	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) UpsertMetricsCatalog(ctx context.Context, items []db.MetricCatalogItem) error {
@@ -74,9 +71,9 @@ func (m *MockDBProvider) WithDB(f func(db *sql.DB)) {
 
 func (m *MockDBProvider) GetQueriesBySerieName(
 	ctx context.Context,
-	params db.QueriesBySerieNameParams) (*db.PagedResult, error) {
+	params db.QueriesBySerieNameParams) (db.PagedResult, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(*db.PagedResult), args.Error(1)
+	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.RulesUsage) error {
@@ -84,9 +81,9 @@ func (m *MockDBProvider) InsertRulesUsage(ctx context.Context, rulesUsage []db.R
 	return args.Error(0)
 }
 
-func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsageParams) (*db.PagedResult, error) {
+func (m *MockDBProvider) GetRulesUsage(ctx context.Context, params db.RulesUsageParams) (db.PagedResult, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(*db.PagedResult), args.Error(1)
+	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsage []db.DashboardUsage) error {
@@ -94,9 +91,9 @@ func (m *MockDBProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 	return args.Error(0)
 }
 
-func (m *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.DashboardUsageParams) (*db.PagedResult, error) {
+func (m *MockDBProvider) GetDashboardUsage(ctx context.Context, params db.DashboardUsageParams) (db.PagedResult, error) {
 	args := m.Called(ctx, params)
-	return args.Get(0).(*db.PagedResult), args.Error(1)
+	return args.Get(0).(db.PagedResult), args.Error(1)
 }
 
 func (m *MockDBProvider) GetQueryTypes(ctx context.Context, tr db.TimeRange, fingerprint string) (*db.QueryTypesResult, error) {
