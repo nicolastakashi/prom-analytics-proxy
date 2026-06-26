@@ -159,6 +159,25 @@ func (m *MockDBProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Ti
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockDBProvider) GetSeriesMetadataCount(ctx context.Context, params db.SeriesMetadataParams) (int, error) {
+	return 0, nil
+}
+func (m *MockDBProvider) GetQueryExpressionsCount(ctx context.Context, params db.QueryExpressionsParams) (int, error) {
+	return 0, nil
+}
+func (m *MockDBProvider) GetQueryExecutionsCount(ctx context.Context, params db.QueryExecutionsParams) (int, error) {
+	return 0, nil
+}
+func (m *MockDBProvider) GetQueriesBySerieNameCount(ctx context.Context, params db.QueriesBySerieNameParams) (int, error) {
+	return 0, nil
+}
+func (m *MockDBProvider) GetRulesUsageCount(ctx context.Context, params db.RulesUsageParams) (int, error) {
+	return 0, nil
+}
+func (m *MockDBProvider) GetDashboardUsageCount(ctx context.Context, params db.DashboardUsageParams) (int, error) {
+	return 0, nil
+}
+
 func TestQueryIngester_Run(t *testing.T) {
 	mockDB := new(MockDBProvider)
 	queriesC := make(chan db.Query, 10)
