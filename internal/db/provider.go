@@ -66,6 +66,13 @@ type Provider interface {
 	GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error)
 	DeleteQueriesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 
+	GetSeriesMetadataCount(ctx context.Context, params SeriesMetadataParams) (int, error)
+	GetQueryExpressionsCount(ctx context.Context, params QueryExpressionsParams) (int, error)
+	GetQueryExecutionsCount(ctx context.Context, params QueryExecutionsParams) (int, error)
+	GetQueriesBySerieNameCount(ctx context.Context, params QueriesBySerieNameParams) (int, error)
+	GetRulesUsageCount(ctx context.Context, params RulesUsageParams) (int, error)
+	GetDashboardUsageCount(ctx context.Context, params DashboardUsageParams) (int, error)
+
 	Close() error
 }
 

@@ -1898,3 +1898,131 @@ func (p *PostGreSQLProvider) DeleteQueriesBefore(ctx context.Context, cutoff tim
 	}
 	return rowsAffected, nil
 }
+
+func (p *PostGreSQLProvider) GetSeriesMetadataCount(ctx context.Context, params SeriesMetadataParams) (int, error) {
+	params.Usage = NormalizeSeriesMetadataUsage(params.Usage)
+	q := `
+        SELECT COUNT(*)
+        FROM metrics_catalog c
+        LEFT JOIN metrics_usage_summary s ON s.name = c.name
+        WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.help ILIKE '%' || $1 || '%')
+          AND ($2 = 'all' OR
+               CASE
+                  WHEN $2 = 'histogram' THEN c.type IN ('histogram_bucket', 'histogram_count', 'histogram_sum')
+                  WHEN $2 = 'summary' THEN c.type IN ('summary', 'summary_count', 'summary_sum')
+                  ELSE c.type = $2
+               END)
+          AND (
+                $3 = 'all'
+                OR ($3 = 'used' AND (
+                     COALESCE(s.alert_count,0) > 0
+                     OR COALESCE(s.record_count,0) > 0
+                     OR COALESCE(s.dashboard_count,0) > 0
+                     OR COALESCE(s.query_count,0) > 0
+                ))
+                OR ($3 = 'unused' AND
+                     COALESCE(s.alert_count,0)=0 AND COALESCE(s.record_count,0)=0 AND COALESCE(s.dashboard_count,0)=0 AND COALESCE(s.query_count,0)=0
+                )
+          )
+          AND ($4 = '' OR EXISTS (
+                SELECT 1 FROM metrics_job_index j
+                WHERE j.name = c.name AND j.job = $4
+          ))
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, params.Filter, params.Type, params.Usage, params.Job).Scan(&total); err != nil {
+		return 0, fmt.Errorf("series metadata count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *PostGreSQLProvider) GetQueryExpressionsCount(ctx context.Context, params QueryExpressionsParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+	q := `
+        WITH filtered AS (
+            SELECT fingerprint FROM queries
+            WHERE ts BETWEEN $1 AND $2
+              AND CASE WHEN $3 <> '' THEN queryParam ILIKE '%%' || $3 || '%%' ELSE TRUE END
+        )
+        SELECT COUNT(DISTINCT fingerprint) FROM filtered
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, from, to, params.Filter).Scan(&total); err != nil {
+		return 0, fmt.Errorf("query expressions count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *PostGreSQLProvider) GetQueryExecutionsCount(ctx context.Context, params QueryExecutionsParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+	q := `SELECT COUNT(*) FROM queries WHERE ts BETWEEN $1 AND $2 AND fingerprint = $3 AND ($4 = '' OR type = $4)`
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, from, to, params.Fingerprint, params.Type).Scan(&total); err != nil {
+		return 0, fmt.Errorf("query executions count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *PostGreSQLProvider) GetQueriesBySerieNameCount(ctx context.Context, params QueriesBySerieNameParams) (int, error) {
+	SetDefaultTimeRange(&params.TimeRange)
+	q := `
+        SELECT COUNT(DISTINCT queryParam) FROM queries
+        WHERE labelMatchers @> $1::jsonb
+          AND ts BETWEEN $2 AND $3
+          AND CASE WHEN $4 != '' THEN queryParam ILIKE '%%' || $4 || '%%' ELSE TRUE END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q,
+		metricMatcherJSON(params.SerieName),
+		params.TimeRange.From, params.TimeRange.To,
+		params.Filter,
+	).Scan(&total); err != nil {
+		return 0, fmt.Errorf("queries by serie name count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *PostGreSQLProvider) GetRulesUsageCount(ctx context.Context, params RulesUsageParams) (int, error) {
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now().UTC()
+	}
+	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
+	q := `
+        SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
+        FROM RulesUsage
+        WHERE serie = $1 AND kind = $2
+          AND first_seen_at <= $4 AND last_seen_at >= $3
+          AND CASE WHEN $5 != '' THEN (name ILIKE '%%' || $5 || '%%' OR expression ILIKE '%%' || $5 || '%%') ELSE TRUE END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, params.Serie, params.Kind, startTime, endTime, params.Filter).Scan(&total); err != nil {
+		return 0, fmt.Errorf("rules usage count: %w", err)
+	}
+	return total, nil
+}
+
+func (p *PostGreSQLProvider) GetDashboardUsageCount(ctx context.Context, params DashboardUsageParams) (int, error) {
+	if params.TimeRange.From.IsZero() {
+		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+	if params.TimeRange.To.IsZero() {
+		params.TimeRange.To = time.Now().UTC()
+	}
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+	q := `
+        SELECT COUNT(DISTINCT id) FROM DashboardUsage
+        WHERE serie = $1
+          AND first_seen_at <= $3 AND last_seen_at >= $2
+          AND CASE WHEN $4 != '' THEN (name ILIKE '%%' || $4 || '%%' OR url ILIKE '%%' || $4 || '%%') ELSE TRUE END
+    `
+	var total int
+	if err := p.db.QueryRowContext(ctx, q, params.Serie, from, to, params.Filter).Scan(&total); err != nil {
+		return 0, fmt.Errorf("dashboard usage count: %w", err)
+	}
+	return total, nil
+}
