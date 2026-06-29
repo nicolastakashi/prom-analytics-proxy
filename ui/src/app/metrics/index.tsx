@@ -2,7 +2,7 @@ import { useState } from "react";
 import { MetricsExplorerHeader } from "@/components/metrics-explorer/metrics-explorer-header";
 import { MetricsTable } from "@/components/metrics-explorer/metrics-table";
 import { useSeriesMetadataTable } from "./use-metrics-data";
-import { TableState } from "@/lib/types";
+import { useTableState } from "@/hooks/use-table-state";
 import { LoadingState } from "./loading";
 import { useDebounce } from "@/hooks/use-debounce";
 
@@ -13,20 +13,22 @@ export default function MetricsExplorer() {
     "all",
   );
   const [producerFilter, setProducerFilter] = useState<string>("");
-  const [tableState, setTableState] = useState<TableState>({
-    page: 1,
-    pageSize: 10,
-    sortBy: "queryCount",
-    sortOrder: "desc",
-    filter: "",
-    type: "all",
+  const tableState = useTableState({
+    defaultSortBy: "queryCount",
+    defaultSortOrder: "desc",
   });
 
-  // Increase debounce delay to 750ms for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 750);
 
   const { data, isLoading, error } = useSeriesMetadataTable(
-    tableState,
+    {
+      page: tableState.page,
+      pageSize: tableState.pageSize,
+      sortBy: tableState.sortBy,
+      sortOrder: tableState.sortOrder,
+      filter: tableState.filter,
+      type: typeFilter,
+    },
     debouncedSearchQuery,
     usageFilter,
     producerFilter,
@@ -42,11 +44,7 @@ export default function MetricsExplorer() {
 
   const handleTypeFilterChange = (value: string) => {
     setTypeFilter(value);
-    setTableState((prev) => ({
-      ...prev,
-      page: 1, // Reset to first page when changing type
-      type: value,
-    }));
+    tableState.setPage(1);
   };
 
   return (
@@ -66,7 +64,6 @@ export default function MetricsExplorer() {
         metrics={data.metrics}
         searchQuery={debouncedSearchQuery}
         tableState={tableState}
-        onTableStateChange={setTableState}
       />
     </div>
   );

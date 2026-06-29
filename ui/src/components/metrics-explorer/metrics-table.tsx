@@ -4,7 +4,8 @@ import * as React from "react";
 import { type ColumnDef, SortingState } from "@tanstack/react-table";
 import { MetricTypeTag } from "@/components/metrics-explorer/metric-type-tag";
 import { useLocation } from "wouter";
-import { MetricMetadata, PagedResult, TableState } from "@/lib/types";
+import { MetricMetadata, PagedResult } from "@/lib/types";
+import { UseTableStateResult } from "@/hooks/use-table-state";
 import { fromUTC } from "@/lib/utils/date-utils";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { ROUTES } from "@/lib/routes";
@@ -12,30 +13,24 @@ import { ROUTES } from "@/lib/routes";
 interface MetricsTableProps {
   metrics?: PagedResult<MetricMetadata>;
   searchQuery: string;
-  tableState: TableState;
-  onTableStateChange: (state: TableState) => void;
+  tableState: UseTableStateResult;
 }
 
 export function MetricsTable({
   metrics,
   searchQuery,
   tableState,
-  onTableStateChange,
 }: MetricsTableProps) {
   const [, setLocation] = useLocation();
   const prevSearchRef = React.useRef(searchQuery);
 
-  // Update filter when search query changes
+  // Sync external search query into table state (resets page via setFilter)
   React.useEffect(() => {
     if (prevSearchRef.current !== searchQuery) {
       prevSearchRef.current = searchQuery;
-      onTableStateChange({
-        ...tableState,
-        filter: searchQuery,
-        page: 1, // Reset to first page only when search changes
-      });
+      tableState.setFilter(searchQuery);
     }
-  }, [searchQuery, tableState, onTableStateChange]);
+  }, [searchQuery, tableState]);
 
   const handleMetricClick = (metricName: string) => {
     // Use the route path from ROUTES constant, replacing the parameter with the actual value
@@ -46,42 +41,18 @@ export function MetricsTable({
     setLocation(detailsPath);
   };
 
-  // Initialize sorting state from tableState
-  const sortingState: SortingState = React.useMemo(() => {
-    return tableState.sortBy
-      ? [
-          {
-            id: tableState.sortBy,
-            desc: tableState.sortOrder === "desc",
-          },
-        ]
-      : [];
-  }, [tableState.sortBy, tableState.sortOrder]);
+  const sortingState = tableState.sorting;
 
-  // Handler functions for DataTable callbacks
   const handleSortingChange = (newSorting: SortingState) => {
-    if (newSorting.length > 0) {
-      onTableStateChange({
-        ...tableState,
-        sortBy: newSorting[0].id,
-        sortOrder: newSorting[0].desc ? "desc" : "asc",
-      });
-    }
+    tableState.setSorting(newSorting);
   };
 
   const handleFilterChange = (value: string) => {
-    onTableStateChange({
-      ...tableState,
-      filter: value,
-      page: 1, // Reset to first page on filter change
-    });
+    tableState.setFilter(value);
   };
 
   const handlePaginationChange = (page: number) => {
-    onTableStateChange({
-      ...tableState,
-      page,
-    });
+    tableState.setPage(page);
   };
 
   const columns: ColumnDef<MetricMetadata>[] = [
