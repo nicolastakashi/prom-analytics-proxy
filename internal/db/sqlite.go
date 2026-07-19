@@ -1169,6 +1169,124 @@ func (p *SQLiteProvider) ListJobs(ctx context.Context) ([]string, error) {
 	return jobs, nil
 }
 
+func (p *SQLiteProvider) GetProducerStats(ctx context.Context, params ProducerStatsParams) (PagedResult, error) {
+	ValidatePagination(&params.Page, &params.PageSize, 10)
+	ValidateSortField(&params.SortBy, &params.SortOrder, ValidProducerStatsSortFields, "metricCount")
+
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM (
+			SELECT j.job
+			FROM metrics_job_index j
+			JOIN metrics_usage_summary s ON s.name = j.name
+			GROUP BY j.job
+			HAVING ? = ''
+				OR j.job LIKE '%' || ? || '%'
+				OR EXISTS (
+					SELECT 1
+					FROM metrics_job_index search_idx
+					JOIN metrics_usage_summary search_summary ON search_summary.name = search_idx.name
+					WHERE search_idx.job = j.job
+					  AND search_idx.name LIKE '%' || ? || '%'
+				)
+		) filtered_producers
+	`
+
+	var total int
+	if err := p.db.QueryRowContext(ctx, countQuery, params.Filter, params.Filter, params.Filter).Scan(&total); err != nil {
+		return PagedResult{}, fmt.Errorf("failed to count producers: %w", err)
+	}
+	if total == 0 {
+		return PagedResult{Total: 0, TotalPages: 0, Data: []ProducerStats{}}, nil
+	}
+
+	const baseQuery = `
+		WITH producer_stats AS (
+			SELECT
+				j.job,
+				COUNT(*) AS metric_count,
+				SUM(CASE WHEN s.is_unused = 0 THEN 1 ELSE 0 END) AS used_metric_count,
+				SUM(CASE WHEN s.is_unused = 1 THEN 1 ELSE 0 END) AS unused_metric_count
+			FROM metrics_job_index j
+			JOIN metrics_usage_summary s ON s.name = j.name
+			GROUP BY j.job
+		),
+		totals AS (
+			SELECT COUNT(*) AS total_metric_assignments
+			FROM metrics_job_index j
+			JOIN metrics_usage_summary s ON s.name = j.name
+		)
+		SELECT
+			ps.job,
+			ps.metric_count,
+			ps.used_metric_count,
+			ps.unused_metric_count,
+			CASE
+				WHEN totals.total_metric_assignments = 0 THEN 0
+				ELSE (100.0 * ps.metric_count) / totals.total_metric_assignments
+			END AS contribution
+		FROM producer_stats ps
+		CROSS JOIN totals
+		WHERE ? = ''
+			OR ps.job LIKE '%' || ? || '%'
+			OR EXISTS (
+				SELECT 1
+				FROM metrics_job_index search_idx
+				JOIN metrics_usage_summary search_summary ON search_summary.name = search_idx.name
+				WHERE search_idx.job = ps.job
+				  AND search_idx.name LIKE '%' || ? || '%'
+			)
+	`
+
+	query := BuildSafeQueryWithOrderBy(
+		baseQuery,
+		"",
+		" LIMIT ? OFFSET ?",
+		params.SortBy,
+		params.SortOrder,
+		ValidProducerStatsSortFields,
+		"metricCount",
+		ProducerStatsSortAliases,
+	)
+	rows, err := p.db.QueryContext(
+		ctx,
+		query,
+		params.Filter,
+		params.Filter,
+		params.Filter,
+		params.PageSize,
+		(params.Page-1)*params.PageSize,
+	)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to query producers: %w", err)
+	}
+	defer CloseResource(rows)
+
+	producers := make([]ProducerStats, 0, params.PageSize)
+	for rows.Next() {
+		var producer ProducerStats
+		if err := rows.Scan(
+			&producer.Job,
+			&producer.MetricCount,
+			&producer.UsedMetricCount,
+			&producer.UnusedMetricCount,
+			&producer.Contribution,
+		); err != nil {
+			return PagedResult{}, fmt.Errorf("scan producer: %w", err)
+		}
+		producers = append(producers, producer)
+	}
+	if err := rows.Err(); err != nil {
+		return PagedResult{}, fmt.Errorf("iter producers: %w", err)
+	}
+
+	return PagedResult{
+		Total:      total,
+		TotalPages: CalculateTotalPages(total, params.PageSize),
+		Data:       producers,
+	}, nil
+}
+
 func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
 	from, to := PrepareTimeRange(tr, "sqlite")
 	query := `

@@ -52,6 +52,19 @@ definitions:
       totalRecords:
         type: integer
     type: object
+  db.ProducerStats:
+    properties:
+      contribution:
+        type: number
+      job:
+        type: string
+      metricCount:
+        type: integer
+      unusedMetricCount:
+        type: integer
+      usedMetricCount:
+        type: integer
+    type: object
   db.QueriesBySerieNameResult:
     properties:
       avgDuration:
@@ -314,6 +327,11 @@ definitions:
       record_count:
         type: integer
     type: object
+  routes.FeaturesResponse:
+    properties:
+      producer_stats_enabled:
+        type: boolean
+    type: object
   routes.MetricUsageItem:
     properties:
       created_at:
@@ -344,6 +362,17 @@ definitions:
       data:
         items:
           $ref: '#/definitions/routes.MetricUsageItem'
+        type: array
+      total:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  routes.ProducerStatsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/db.ProducerStats'
         type: array
       total:
         type: integer
@@ -443,6 +472,19 @@ paths:
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       summary: Get configuration
+      tags:
+      - config
+  /api/v1/features:
+    get:
+      description: Return backend capabilities used to gate optional UI features.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.FeaturesResponse'
+      summary: Get UI feature availability
       tags:
       - config
   /api/v1/jobs:
@@ -592,6 +634,45 @@ paths:
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       summary: Check unused metrics
+      tags:
+      - metrics
+  /api/v1/producers:
+    get:
+      description: Get paginated producer metrics and usage contribution statistics.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 10, max 100)
+        in: query
+        name: pageSize
+        type: integer
+      - description: Sort field (job, metricCount, usedMetricCount, unusedMetricCount,
+          contribution)
+        in: query
+        name: sortBy
+        type: string
+      - description: Sort order (asc or desc)
+        in: query
+        name: sortOrder
+        type: string
+      - description: Filter by producer or metric name
+        in: query
+        name: filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.ProducerStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List producer statistics
       tags:
       - metrics
   /api/v1/query:

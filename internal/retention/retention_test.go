@@ -55,6 +55,9 @@ func (f *fakeProvider) UpsertMetricsJobIndex(context.Context, []db.MetricJobInde
 	return nil
 }
 func (f *fakeProvider) ListJobs(context.Context) ([]string, error) { return nil, nil }
+func (f *fakeProvider) GetProducerStats(context.Context, db.ProducerStatsParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
 func (f *fakeProvider) GetQueryTypes(context.Context, db.TimeRange, string) (*db.QueryTypesResult, error) {
 	return nil, nil
 }

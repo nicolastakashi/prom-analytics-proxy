@@ -90,6 +90,14 @@ export interface Producer {
   series: number;
 }
 
+export interface ProducerStats {
+  job: string;
+  metricCount: number;
+  usedMetricCount: number;
+  unusedMetricCount: number;
+  contribution: number;
+}
+
 export interface MetricStatistics {
   serieCount: number;
   labelCount: number;

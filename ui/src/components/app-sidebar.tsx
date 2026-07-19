@@ -1,8 +1,10 @@
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Settings } from "lucide-react";
 import { useLocation } from "wouter";
 import logo from "@/assets/logo.png";
 
+import { getFeatures } from "@/api/metrics";
 import { Navigation } from "@/components/navigation";
 import {
   Sidebar,
@@ -15,7 +17,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { useSidebar } from "@/components/ui/sidebar-context";
-import { routeConfigs } from "@/lib/routes";
+import { routeConfigs, ROUTES } from "@/lib/routes";
 import { PreservedLink } from "@/components/preserved-link.tsx";
 
 const Logo: React.FC<{ className?: string }> = ({ className }) => {
@@ -28,20 +30,28 @@ const Logo: React.FC<{ className?: string }> = ({ className }) => {
   );
 };
 
-// Get navigation items from routes configuration
-const navigationItems = routeConfigs
-  .filter((route) => route.navigation?.showInSidebar)
-  .map((route) => ({
-    name: route.navigation!.name,
-    url: route.path,
-    icon: route.navigation!.icon,
-  }));
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [location] = useLocation();
   const { state } = useSidebar();
+  const { data: features } = useQuery({
+    queryKey: ["features"],
+    queryFn: getFeatures,
+    staleTime: Infinity,
+  });
   const isSettingsActive = location === "/settings";
   const isCollapsed = state === "collapsed";
+  const producerStatsEnabled = features?.producer_stats_enabled ?? false;
+  const navigationItems = routeConfigs
+    .filter(
+      (route) =>
+        route.navigation?.showInSidebar &&
+        (route.path !== ROUTES.PRODUCERS || producerStatsEnabled),
+    )
+    .map((route) => ({
+      name: route.navigation!.name,
+      url: route.path,
+      icon: route.navigation!.icon,
+    }));
 
   return (
     <Sidebar collapsible="icon" {...props}>

@@ -47,6 +47,7 @@ type Provider interface {
 	RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error
 	UpsertMetricsJobIndex(ctx context.Context, items []MetricJobIndexItem) error
 	ListJobs(ctx context.Context) ([]string, error)
+	GetProducerStats(ctx context.Context, params ProducerStatsParams) (PagedResult, error)
 
 	GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error)
 	GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error)
@@ -87,6 +88,22 @@ var ValidSeriesMetadataSortFields = map[string]bool{
 	"recordCount":    true,
 	"dashboardCount": true,
 	"queryCount":     true,
+}
+
+var ValidProducerStatsSortFields = map[string]bool{
+	"job":               true,
+	"metricCount":       true,
+	"usedMetricCount":   true,
+	"unusedMetricCount": true,
+	"contribution":      true,
+}
+
+var ProducerStatsSortAliases = map[string]string{
+	"job":               "job",
+	"metricCount":       "metric_count",
+	"usedMetricCount":   "used_metric_count",
+	"unusedMetricCount": "unused_metric_count",
+	"contribution":      "contribution",
 }
 
 // SeriesMetadataSortAliases maps sort fields to their SQL expression with the correct table alias.
@@ -369,6 +386,22 @@ type MetricCatalogItem struct {
 type MetricJobIndexItem struct {
 	Name string
 	Job  string
+}
+
+type ProducerStatsParams struct {
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
+	Filter    string
+}
+
+type ProducerStats struct {
+	Job               string  `json:"job"`
+	MetricCount       int     `json:"metricCount"`
+	UsedMetricCount   int     `json:"usedMetricCount"`
+	UnusedMetricCount int     `json:"unusedMetricCount"`
+	Contribution      float64 `json:"contribution"`
 }
 
 type TimeRange struct {

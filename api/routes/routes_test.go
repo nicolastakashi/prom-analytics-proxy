@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -11,10 +12,56 @@ import (
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestGetFeaturesGatesProducerStats(t *testing.T) {
+	tests := []struct {
+		name                    string
+		config                  *config.Config
+		wantProducerStatsEnable bool
+	}{
+		{name: "missing config"},
+		{
+			name: "inventory disabled",
+			config: &config.Config{
+				Inventory: config.InventoryConfig{JobSyncEnabled: true},
+			},
+		},
+		{
+			name: "job sync disabled",
+			config: &config.Config{
+				Inventory: config.InventoryConfig{Enabled: true},
+			},
+		},
+		{
+			name: "inventory and job sync enabled",
+			config: &config.Config{
+				Inventory: config.InventoryConfig{Enabled: true, JobSyncEnabled: true},
+			},
+			wantProducerStatsEnable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &routes{config: tt.config}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/features", nil)
+			w := httptest.NewRecorder()
+
+			r.getFeatures(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+			var response FeaturesResponse
+			assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+			assert.Equal(t, tt.wantProducerStatsEnable, response.ProducerStatsEnabled)
+		})
+	}
+}
 
 func TestSeriesMetadata_DBBacked(t *testing.T) {
 	// Use SQLite provider for an integration-style test
@@ -169,6 +216,73 @@ type captureSeriesMetadataProvider struct {
 func (p *captureSeriesMetadataProvider) GetSeriesMetadata(_ context.Context, params db.SeriesMetadataParams) (db.PagedResult, error) {
 	p.captured = params
 	return db.PagedResult{}, nil
+}
+
+type captureProducerStatsProvider struct {
+	benchDBProvider
+	captured db.ProducerStatsParams
+	result   db.PagedResult
+}
+
+func (p *captureProducerStatsProvider) GetProducerStats(_ context.Context, params db.ProducerStatsParams) (db.PagedResult, error) {
+	p.captured = params
+	return p.result, nil
+}
+
+func TestListProducersRoute(t *testing.T) {
+	upstream, _ := url.Parse("http://127.0.0.1")
+	uiFS := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("ok")}}
+	expected := []db.ProducerStats{{
+		Job:               "node",
+		MetricCount:       2,
+		UsedMetricCount:   1,
+		UnusedMetricCount: 1,
+		Contribution:      66.6667,
+	}}
+	spy := &captureProducerStatsProvider{
+		result: db.PagedResult{
+			Total:      1,
+			TotalPages: 1,
+			Data:       expected,
+		},
+	}
+	r, err := NewRoutes(
+		WithDBProvider(spy),
+		WithProxy(upstream),
+		WithPromAPI(upstream),
+		WithHandlers(uiFS, prometheus.NewRegistry(), false),
+	)
+	if err != nil {
+		t.Fatalf("NewRoutes: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		"GET",
+		"/api/v1/producers?page=2&pageSize=25&sortBy=unusedMetricCount&sortOrder=asc&filter=cpu",
+		nil,
+	)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, db.ProducerStatsParams{
+		Page:      2,
+		PageSize:  25,
+		SortBy:    "unusedMetricCount",
+		SortOrder: "asc",
+		Filter:    "cpu",
+	}, spy.captured)
+	assert.JSONEq(t, `{
+		"total": 1,
+		"totalPages": 1,
+		"data": [{
+			"job": "node",
+			"metricCount": 2,
+			"usedMetricCount": 1,
+			"unusedMetricCount": 1,
+			"contribution": 66.6667
+		}]
+	}`, w.Body.String())
 }
 
 func TestSeriesMetadataPageSizeClamp(t *testing.T) {

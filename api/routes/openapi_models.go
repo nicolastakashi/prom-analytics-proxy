@@ -25,6 +25,16 @@ type SeriesMetadataResponse struct {
 	Data       []models.MetricMetadata `json:"data"`
 }
 
+type ProducerStatsResponse struct {
+	TotalPages int                `json:"totalPages"`
+	Total      int                `json:"total"`
+	Data       []db.ProducerStats `json:"data"`
+}
+
+type FeaturesResponse struct {
+	ProducerStatsEnabled bool `json:"producer_stats_enabled"`
+}
+
 type SerieExpressionsResponse struct {
 	TotalPages int                           `json:"totalPages"`
 	Total      int                           `json:"total"`
