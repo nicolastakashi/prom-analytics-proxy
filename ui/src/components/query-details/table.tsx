@@ -326,8 +326,7 @@ const columns: ExtendedColumnDef<QueryExecution>[] = [
     ),
     cell: ({ row }) => {
       const httpHeaders = row.getValue("httpHeaders") as
-        | Record<string, string>
-        | undefined;
+        Record<string, string> | undefined;
       if (!httpHeaders || Object.keys(httpHeaders).length === 0) {
         return <span className="text-muted-foreground">-</span>;
       }
