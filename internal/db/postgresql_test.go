@@ -634,16 +634,20 @@ func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
 	}})
 
 	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}))
-	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "no_summary_metric", Type: "gauge", Help: "no summary metric"}})
+	// Catalogued after the only RefreshMetricsUsageSummary run: this metric has
+	// never actually been evaluated, so it must not show up as "unused" - it
+	// should behave as "unknown" until a future refresh evaluates it. See
+	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "never_evaluated_metric", Type: "gauge", Help: "never evaluated metric"}})
 
 	tests := []struct {
 		name      string
 		usage     string
 		wantNames []string
 	}{
-		{name: "all metrics", usage: SeriesMetadataUsageAll, wantNames: []string{"no_summary_metric", "unused_metric", "used_metric"}},
+		{name: "all metrics", usage: SeriesMetadataUsageAll, wantNames: []string{"never_evaluated_metric", "unused_metric", "used_metric"}},
 		{name: "used metrics", usage: SeriesMetadataUsageUsed, wantNames: []string{"used_metric"}},
-		{name: "unused metrics", usage: SeriesMetadataUsageUnused, wantNames: []string{"no_summary_metric", "unused_metric"}},
+		{name: "unused metrics", usage: SeriesMetadataUsageUnused, wantNames: []string{"unused_metric"}},
 	}
 
 	for _, tt := range tests {
@@ -667,12 +671,14 @@ func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
 	}
 }
 
-// TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow pins the
-// invariant the new ?usage=unused query depends on: after UpsertMetricsCatalog,
-// every catalog row has a corresponding metrics_usage_summary row with
-// is_unused=TRUE and zero counts, even before any RefreshMetricsUsageSummary.
-// This invariant lets the unused query INNER JOIN safely instead of having to
-// fall back to a LEFT JOIN + IS NULL branch.
+// TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow pins two
+// invariants: (1) after UpsertMetricsCatalog, every catalog row has a
+// corresponding metrics_usage_summary row with zero counts, even before any
+// RefreshMetricsUsageSummary - this lets the unused query INNER JOIN safely
+// instead of falling back to a LEFT JOIN + IS NULL branch; and (2) that
+// placeholder row must NOT be marked is_unused=TRUE, since a metric that has
+// never been evaluated is not the same thing as a metric confirmed to have
+// zero usage. See https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
 func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testing.T) {
 	p, cleanup := newTestPostgreSQLProvider(t)
 	defer cleanup()
@@ -704,9 +710,48 @@ func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testi
 	assert.NoError(t, rows.Err())
 
 	assert.Equal(t, []summaryRow{
-		{name: "metric_a", isUnused: true},
-		{name: "metric_b", isUnused: true},
+		{name: "metric_a", isUnused: false},
+		{name: "metric_b", isUnused: false},
 	}, got)
+}
+
+// TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused guards the
+// write-path half of https://github.com/nicolastakashi/prom-analytics-proxy/issues/571:
+// GetSeriesMetadataByNames (used by the OTLP ingester's usage-unused lookup)
+// must source IsUnused from metrics_usage_summary.is_unused directly, not
+// recompute it from the four usage counts - counts alone cannot distinguish
+// "evaluated, confirmed zero usage" from "never evaluated yet".
+func TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "evaluated_unused_metric", Type: "gauge", Help: "evaluated, confirmed unused"},
+	})
+	// Evaluate: no usage anywhere for this metric, so RefreshMetricsUsageSummary
+	// confirms it as genuinely unused.
+	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}))
+
+	// Catalogued after the only refresh run: never evaluated.
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "fresh_metric", Type: "gauge", Help: "never evaluated"},
+	})
+
+	results, err := p.GetSeriesMetadataByNames(context.Background(), []string{"evaluated_unused_metric", "fresh_metric"}, "")
+	assert.NoError(t, err, "GetSeriesMetadataByNames")
+
+	byName := make(map[string]models.MetricMetadata, len(results))
+	for _, mm := range results {
+		byName[mm.Name] = mm
+	}
+
+	if assert.Contains(t, byName, "evaluated_unused_metric") {
+		assert.True(t, byName["evaluated_unused_metric"].IsUnused, "a metric confirmed unused by RefreshMetricsUsageSummary must report IsUnused=true")
+	}
+	if assert.Contains(t, byName, "fresh_metric") {
+		assert.False(t, byName["fresh_metric"].IsUnused, "a never-evaluated metric must not report IsUnused=true merely because its counts are zero")
+	}
 }
 
 func TestPostgreSQL_DashboardUsage(t *testing.T) {

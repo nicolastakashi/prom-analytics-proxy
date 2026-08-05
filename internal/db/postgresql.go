@@ -1010,10 +1010,18 @@ func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names
 		args  []any
 	)
 
+	// COALESCE(s.is_unused, FALSE) is the single source of truth for
+	// "confirmed unused" - it must not be recomputed from the four counts
+	// below, since a metric that was never evaluated by
+	// RefreshMetricsUsageSummary also has all-zero counts (see the
+	// placeholder insert in UpsertMetricsCatalog) and a missing summary row
+	// (FALSE from COALESCE) must fail toward "keep" the same way. See
+	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/571.
 	if job != "" {
 		query = `
             SELECT c.name, c.type, c.help, c.unit,
-                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
+                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at,
+                   COALESCE(s.is_unused, FALSE)
             FROM metrics_catalog c
             LEFT JOIN metrics_usage_summary s ON s.name = c.name
             WHERE c.name = ANY($1)
@@ -1023,7 +1031,8 @@ func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names
 	} else {
 		query = `
             SELECT c.name, c.type, c.help, c.unit,
-                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at
+                   COALESCE(s.alert_count,0), COALESCE(s.record_count,0), COALESCE(s.dashboard_count,0), COALESCE(s.query_count,0), s.last_queried_at,
+                   COALESCE(s.is_unused, FALSE)
             FROM metrics_catalog c
             LEFT JOIN metrics_usage_summary s ON s.name = c.name
             WHERE c.name = ANY($1)
@@ -1041,14 +1050,15 @@ func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names
 		name, mtype, help, unit     string
 		alert, record, dash, qcount int
 		last                        sql.NullTime
+		isUnused                    bool
 	}
 	out := make([]models.MetricMetadata, 0, len(names))
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last, &r.isUnused); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
-		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount}
+		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount, IsUnused: r.isUnused}
 		if r.last.Valid {
 			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
 		}
@@ -1092,11 +1102,18 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 		names[i] = it.Name
 	}
 
-	// Co-write a default-unused summary row per catalog item so the
+	// Co-write a placeholder summary row per catalog item so the
 	// metrics_catalog <-> metrics_usage_summary invariant holds before
 	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
-	// existing rows with real counts are not clobbered. The new
-	// ?usage=unused query depends on this invariant to use an INNER JOIN.
+	// existing rows with real counts are not clobbered.
+	//
+	// is_unused=FALSE here, not TRUE: a metric that has never been
+	// evaluated is not the same thing as one confirmed to have zero usage,
+	// and defaulting to TRUE previously caused every newly-catalogued
+	// metric to be treated as unused (and dropped/hidden) until the next
+	// successful RefreshMetricsUsageSummary run - which, if that job is
+	// failing, could be never. See
+	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
 	//
 	// One bulk INSERT via unnest() instead of one statement per item -
 	// the syncer calls this with the full catalog inventory (~tens of
@@ -1104,7 +1121,7 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	// add up fast.
 	if _, err := tx.ExecContext(ctx, `
         INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
-        SELECT n, 0, 0, 0, 0, NOW(), TRUE FROM unnest($1::text[]) AS n
+        SELECT n, 0, 0, 0, 0, NOW(), FALSE FROM unnest($1::text[]) AS n
         ON CONFLICT (name) DO NOTHING
     `, pq.Array(names)); err != nil {
 		_ = tx.Rollback()

@@ -903,11 +903,15 @@ func (i *OtlpIngester) isSummaryVariant(name string, summaryBases map[string]str
 	return "", false
 }
 
+// metricMetadataUnused reports whether mm is confirmed unused. This must be
+// sourced from metrics_usage_summary.is_unused (via mm.IsUnused), not
+// recomputed from the four usage counts - a metric that has never been
+// evaluated by RefreshMetricsUsageSummary also has all-zero counts, and
+// counts alone cannot distinguish "confirmed unused" from "not evaluated
+// yet". See https://github.com/nicolastakashi/prom-analytics-proxy/issues/570
+// and https://github.com/nicolastakashi/prom-analytics-proxy/issues/571.
 func metricMetadataUnused(mm models.MetricMetadata) bool {
-	return mm.AlertCount == 0 &&
-		mm.RecordCount == 0 &&
-		mm.DashboardCount == 0 &&
-		mm.QueryCount == 0
+	return mm.IsUnused
 }
 
 func resolveJob(res *resourcepb.Resource) string {
