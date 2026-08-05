@@ -242,6 +242,9 @@ func TestExport_DBError_FailOpen(t *testing.T) {
 	ing, err := NewOtlpIngester(cfg, mp)
 	assert.NoError(t, err)
 
+	exp := &captureExporter{}
+	ing.SetExporter(exp)
+
 	req := buildExportRequest(
 		buildGaugeMetric("unused_metric", 1),
 	)
@@ -256,7 +259,64 @@ func TestExport_DBError_FailOpen(t *testing.T) {
 	assert.Len(t, rms, 1)
 	assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1)
 
+	// Regression guard for https://github.com/nicolastakashi/prom-analytics-proxy/issues/569:
+	// a DB lookup error must not make Export() bail out before ever reaching the
+	// downstream exporter. "Fail open" has to mean the batch is actually forwarded,
+	// not just that the (never-reached) filtering step didn't mutate it in place.
+	assert.NotNil(t, exp.captured, "batch should have been forwarded to the downstream exporter despite the DB lookup error")
+	if exp.captured != nil {
+		assert.Len(t, exp.captured.ResourceMetrics, 1)
+		assert.Len(t, exp.captured.ResourceMetrics[0].ScopeMetrics[0].Metrics, 1)
+	}
+
 	mp.AssertExpectations(t)
+}
+
+// TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused verifies that when
+// usage lookups are split across multiple DB-lookup chunks, a DB error on one chunk
+// only fails open for that chunk's names -- metrics whose usage was already resolved
+// by a different, successful chunk must still be dropped normally.
+func TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{
+		Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{
+				LookupChunkSize: 1, // force one name per DB lookup chunk
+			},
+		},
+	}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	exp := &captureExporter{}
+	ing.SetExporter(exp)
+
+	req := buildExportRequest(
+		buildGaugeMetric("resolved_unused_metric", 1),
+		buildGaugeMetric("unresolved_metric", 1),
+	)
+
+	// One chunk resolves cleanly and confirms the metric is unused.
+	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"resolved_unused_metric"}, "").Return([]models.MetricMetadata{
+		{Name: "resolved_unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+	}, nil).Maybe()
+	// The other chunk's DB lookup fails.
+	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"unresolved_metric"}, "").Return(nil, assert.AnError).Maybe()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	assert.NotNil(t, exp.captured, "batch should still reach the downstream exporter")
+	if exp.captured != nil {
+		got := exp.captured.ResourceMetrics[0].ScopeMetrics[0].Metrics
+		names := make([]string, 0, len(got))
+		for _, m := range got {
+			names = append(names, m.GetName())
+		}
+		// resolved_unused_metric was confirmed unused by a successful chunk and must be
+		// dropped; unresolved_metric's chunk failed and must fail open (kept).
+		assert.ElementsMatch(t, []string{"unresolved_metric"}, names)
+	}
 }
 
 func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
