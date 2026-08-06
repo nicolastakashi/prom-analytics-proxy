@@ -68,7 +68,10 @@ func TestSeriesMetadata_UsageFilter_Route(t *testing.T) {
 		Type:          db.QueryTypeInstant,
 	}})
 	_ = provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now})
-	_ = provider.UpsertMetricsCatalog(context.Background(), []db.MetricCatalogItem{{Name: "no_summary_metric", Type: "gauge"}})
+	// Catalogued after the only RefreshMetricsUsageSummary run: this metric has
+	// never actually been evaluated, so it must not show up as "unused". See
+	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
+	_ = provider.UpsertMetricsCatalog(context.Background(), []db.MetricCatalogItem{{Name: "never_evaluated_metric", Type: "gauge"}})
 
 	upstream, _ := url.Parse("http://127.0.0.1")
 	reg := prometheus.NewRegistry()
@@ -93,7 +96,7 @@ func TestSeriesMetadata_UsageFilter_Route(t *testing.T) {
 		{
 			name:      "unused usage filter",
 			query:     "/api/v1/seriesMetadata?page=1&pageSize=10&type=all&usage=unused",
-			wantNames: []string{"no_summary_metric", "unused_metric"},
+			wantNames: []string{"unused_metric"},
 		},
 	}
 

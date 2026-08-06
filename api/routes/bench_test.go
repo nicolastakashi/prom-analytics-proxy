@@ -704,9 +704,19 @@ func BenchmarkSeriesMetadataUnused_SQLite_JobScopedScaleUp(b *testing.B) {
 			defer func() { _ = provider.Close() }()
 
 			seedCatalogAndSparseJobIndex(b, provider, totalN, scaleUpUnusedN, targetJob, noiseJob)
-			// No seedSummaryUsedRows call: every catalog row stays unused.
-			// UpsertMetricsCatalog already creates default-unused summary
-			// rows, so the unused predicate matches every metric.
+			// Evaluate the whole catalog via a real RefreshMetricsUsageSummary
+			// (no RulesUsage/DashboardUsage/queries seeded, so every row
+			// genuinely computes is_unused=TRUE) rather than relying on
+			// UpsertMetricsCatalog's placeholder default, which now defaults
+			// to is_unused=FALSE (unevaluated) precisely so it can't be
+			// mistaken for a confirmed-unused row. See
+			// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
+			if err := provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{
+				From: time.Now().Add(-time.Hour),
+				To:   time.Now().Add(time.Hour),
+			}); err != nil {
+				b.Fatalf("RefreshMetricsUsageSummary: %v", err)
+			}
 
 			var rawDB *sql.DB
 			provider.WithDB(func(d *sql.DB) { rawDB = d })
@@ -760,6 +770,15 @@ func BenchmarkSeriesMetadataUnused_PostgreSQL_JobScopedScaleUp(b *testing.B) {
 			defer cleanup()
 
 			seedCatalogAndSparseJobIndex(b, provider, totalN, scaleUpUnusedN, targetJob, noiseJob)
+			// See the SQLite JobScopedScaleUp benchmark's comment: this
+			// evaluates the whole catalog for real instead of relying on the
+			// (now unevaluated-by-default) placeholder rows.
+			if err := provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{
+				From: time.Now().Add(-time.Hour),
+				To:   time.Now().Add(time.Hour),
+			}); err != nil {
+				b.Fatalf("RefreshMetricsUsageSummary: %v", err)
+			}
 
 			var rawDB *sql.DB
 			provider.WithDB(func(d *sql.DB) { rawDB = d })

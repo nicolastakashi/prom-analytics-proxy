@@ -126,7 +126,7 @@ func TestExport_DropsUnusedMetrics_KeepsUsedAndUnknown(t *testing.T) {
 	// Expect a single call with any slice (we assert content via behavior)
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 		// unknown_metric intentionally not returned
 	}, nil).Once()
 
@@ -171,7 +171,7 @@ func TestExport_AllowedJobs_ScopesUnusedDrop(t *testing.T) {
 
 	// DB: mark "unused_metric" as unused globally
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	req := buildExportRequestForJobs(
@@ -204,7 +204,7 @@ func TestExport_DeniedJobs_DisablesUnusedDrop(t *testing.T) {
 
 	// DB: mark "unused_metric" as unused globally
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	req := buildExportRequestForJobs(
@@ -278,7 +278,7 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 	// Expect a single call with any slice (we assert content via behavior)
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 		// unknown_metric intentionally not returned
 	}, nil).Once()
 
@@ -310,9 +310,9 @@ func TestExport_DropsHistogramWhenAllVariantsUnused(t *testing.T) {
 
 	// All histogram variants are unused, but used_metric has queries
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 		{Name: "used_metric", QueryCount: 1},
 	}, nil).Once()
 
@@ -344,9 +344,9 @@ func TestExport_KeepsHistogramWhenVariantUsed(t *testing.T) {
 	// Histogram _bucket variant is used (has queries), so entire histogram should be kept
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "access_evaluation_duration_bucket", QueryCount: 5}, // Used!
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	_, err = ing.Export(context.Background(), req)
@@ -376,8 +376,8 @@ func TestExport_KeepsHistogramWhenVariantMissing(t *testing.T) {
 	// Only bucket and count variants returned, sum is missing
 	// Should fail open (keep histogram) when any variant is missing
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 		// sum variant intentionally missing
 	}, nil).Once()
 
@@ -391,6 +391,45 @@ func TestExport_KeepsHistogramWhenVariantMissing(t *testing.T) {
 	got := rms[0].ScopeMetrics[0].Metrics
 	assert.Len(t, got, 1)
 	assert.Equal(t, "access_evaluation_duration", got[0].GetName())
+
+	mp.AssertExpectations(t)
+}
+
+// TestExport_UnevaluatedMetric_NotConfirmedUnused_IsKept guards the fix for
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570 and
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/571: a metric
+// with all-zero usage counts is not necessarily unused - it may simply be a
+// freshly-catalogued metric that has not yet had a chance to be evaluated by
+// RefreshMetricsUsageSummary (see UpsertMetricsCatalog's placeholder insert,
+// which creates exactly this all-zero-counts shape for every newly-seen
+// metric). Only IsUnused=true, sourced from metrics_usage_summary.is_unused,
+// may be trusted as "confirmed unused" - zero counts alone must not cause a
+// drop.
+func TestExport_UnevaluatedMetric_NotConfirmedUnused_IsKept(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	ing, err := NewOtlpIngester(cfg, mp)
+	assert.NoError(t, err)
+
+	req := buildExportRequest(
+		buildGaugeMetric("brand_new_metric", 1),
+	)
+
+	// Zero counts, but IsUnused is explicitly false: this is what a
+	// freshly-catalogued, not-yet-evaluated metric looks like. It must not be
+	// treated as confirmed unused merely because its counts happen to be zero.
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+		{Name: "brand_new_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: false},
+	}, nil).Once()
+
+	_, err = ing.Export(context.Background(), req)
+	assert.NoError(t, err)
+
+	// Must be kept, not dropped, despite all-zero counts.
+	rms := req.ResourceMetrics
+	if assert.Len(t, rms, 1) && assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1) {
+		assert.Equal(t, "brand_new_metric", rms[0].ScopeMetrics[0].Metrics[0].GetName())
+	}
 
 	mp.AssertExpectations(t)
 }
@@ -440,7 +479,7 @@ func BenchmarkExport_FilterSizes(b *testing.B) {
 				k := int(float64(len(names)) * c.unusedRatio)
 				for i, n := range names {
 					if i < k {
-						res = append(res, models.MetricMetadata{Name: n})
+						res = append(res, models.MetricMetadata{Name: n, IsUnused: true})
 					} else {
 						res = append(res, models.MetricMetadata{Name: n, QueryCount: 1})
 					}
@@ -631,7 +670,7 @@ func TestExport_WithCacheDisabled_BehavesAsBefore(t *testing.T) {
 
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	_, err = ing.Export(context.Background(), req)
@@ -671,7 +710,7 @@ func TestExport_WithCacheEnabled_AllMisses_HitsDB(t *testing.T) {
 	// First call should hit DB (cache miss)
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	_, err = ing.Export(context.Background(), req)
@@ -716,7 +755,7 @@ func TestExport_WithCacheEnabled_UsedHit_SkipsDB(t *testing.T) {
 		// Should only contain unused_metric
 		return len(names) == 1 && names[0] == "unused_metric"
 	}), "").Return([]models.MetricMetadata{
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	_, err = ing.Export(context.Background(), req)
@@ -803,7 +842,7 @@ func TestExport_WithCacheError_FallsBackToDB(t *testing.T) {
 	// Should fall back to DB when cache errors
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
 		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 
 	_, err = ing.Export(context.Background(), req)
@@ -844,9 +883,9 @@ func TestExport_WithHistogramCache_HandlesVariantsCorrectly(t *testing.T) {
 
 	// DB should return metadata for all variants
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "http_request_duration_seconds_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "http_request_duration_seconds_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
-		{Name: "http_request_duration_seconds_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "http_request_duration_seconds_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "http_request_duration_seconds_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
+		{Name: "http_request_duration_seconds_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 		{Name: "regular_metric", QueryCount: 1},
 	}, nil).Once()
 

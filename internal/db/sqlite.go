@@ -996,10 +996,17 @@ func (p *SQLiteProvider) GetSeriesMetadataByNames(ctx context.Context, names []s
 		args = append(args, n)
 	}
 
-	// Static base with parameterized placeholders; append job filter as parameter, not as formatted value
+	// Static base with parameterized placeholders; append job filter as parameter, not as formatted value.
+	// COALESCE(s.is_unused, FALSE) is the single source of truth for "confirmed
+	// unused" - it must not be recomputed from the four counts below, since a
+	// metric that was never evaluated by RefreshMetricsUsageSummary also has
+	// all-zero counts (see the placeholder insert in UpsertMetricsCatalog) and
+	// a missing summary row (FALSE from COALESCE) must fail toward "keep" the
+	// same way. See https://github.com/nicolastakashi/prom-analytics-proxy/issues/571.
 	base := fmt.Sprintf(`
         SELECT c.name, c.type, c.help, c.unit,
-               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at
+               COALESCE(s.alert_count, 0), COALESCE(s.record_count, 0), COALESCE(s.dashboard_count, 0), COALESCE(s.query_count, 0), s.last_queried_at,
+               COALESCE(s.is_unused, FALSE)
         FROM metrics_catalog AS c
         LEFT JOIN metrics_usage_summary AS s ON s.name = c.name
         WHERE c.name IN (%s)
@@ -1023,12 +1030,13 @@ func (p *SQLiteProvider) GetSeriesMetadataByNames(ctx context.Context, names []s
 		name, mtype, help, unit     string
 		alert, record, dash, qcount int
 		last                        sql.NullTime
+		isUnused                    bool
 	}
 
 	results := make([]models.MetricMetadata, 0, len(names))
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
+		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last, &r.isUnused); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		mm := models.MetricMetadata{
@@ -1040,6 +1048,7 @@ func (p *SQLiteProvider) GetSeriesMetadataByNames(ctx context.Context, names []s
 			RecordCount:    r.record,
 			DashboardCount: r.dash,
 			QueryCount:     r.qcount,
+			IsUnused:       r.isUnused,
 		}
 		if r.last.Valid {
 			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
@@ -1078,18 +1087,25 @@ func (p *SQLiteProvider) UpsertMetricsCatalog(ctx context.Context, items []Metri
 	}
 	defer CloseResource(stmt)
 
-	// Co-write a default-unused summary row per catalog item so the
+	// Co-write a placeholder summary row per catalog item so the
 	// metrics_catalog <-> metrics_usage_summary invariant holds before
 	// the next RefreshMetricsUsageSummary. ON CONFLICT DO NOTHING means
-	// existing rows with real counts are not clobbered. The new
-	// ?usage=unused query depends on this invariant to use an INNER JOIN.
+	// existing rows with real counts are not clobbered.
+	//
+	// is_unused=FALSE here, not TRUE: a metric that has never been
+	// evaluated is not the same thing as one confirmed to have zero usage,
+	// and defaulting to TRUE previously caused every newly-catalogued
+	// metric to be treated as unused (and dropped/hidden) until the next
+	// successful RefreshMetricsUsageSummary run - which, if that job is
+	// failing, could be never. See
+	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
 	//
 	// Kept as a per-item prepared statement (vs. PG's bulk unnest) because
 	// SQLite is in-process: per-exec overhead is microseconds and there's
 	// no network round-trip to amortise.
 	summaryStmt, err := tx.PrepareContext(ctx, `
         INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
-        VALUES(?, 0, 0, 0, 0, datetime('now'), TRUE)
+        VALUES(?, 0, 0, 0, 0, datetime('now'), FALSE)
         ON CONFLICT(name) DO NOTHING
     `)
 	if err != nil {
