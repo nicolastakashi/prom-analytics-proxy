@@ -374,11 +374,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		i.bufferCatalogEntries(ctx, catalogMetrics)
 	}
 
-	unused, ok := i.lookupUnused(ctx, namesSet, histogramBases, summaryBases)
-	if !ok {
-		code = rpcOkCode
-		return &metricspb.ExportMetricsServiceResponse{}, nil
-	}
+	unused := i.lookupUnused(ctx, namesSet, histogramBases, summaryBases)
 	slog.DebugContext(ctx, "ingester.unused_metrics.count", "count", len(unused))
 
 	dryRun := i.config != nil && i.config.Ingester.DryRun
@@ -548,7 +544,7 @@ type histogramVariantState struct {
 	unusedSum    bool
 }
 
-func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases, summaryBases map[string]struct{}) (map[string]struct{}, bool) {
+func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct{}, histogramBases, summaryBases map[string]struct{}) map[string]struct{} {
 	unused := make(map[string]struct{})
 	histogramStates := i.initHistogramStates(histogramBases)
 	summaryStates := i.initSummaryStates(summaryBases)
@@ -556,40 +552,35 @@ func (i *OtlpIngester) lookupUnused(ctx context.Context, names map[string]struct
 	chunkSize := i.lookupChunkSize
 	batch := make([]string, 0, chunkSize)
 
-	flush := func() bool {
+	flush := func() {
 		if len(batch) == 0 {
-			return true
+			return
 		}
 
 		usedFromCache, unusedFromCache, misses := i.lookupCache(ctx, batch)
 		i.processCacheHits(usedFromCache, unusedFromCache, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 
 		if len(misses) > 0 {
-			if !i.processDBMisses(ctx, misses, histogramBases, histogramStates, summaryBases, summaryStates, unused) {
-				return false
-			}
+			// A DB error for this chunk fails open (see processDBMisses) and does
+			// not stop the remaining chunks from being looked up.
+			i.processDBMisses(ctx, misses, histogramBases, histogramStates, summaryBases, summaryStates, unused)
 		}
 
 		batch = batch[:0]
-		return true
 	}
 
 	// Stream through names in chunks
 	for n := range names {
 		batch = append(batch, n)
 		if len(batch) == chunkSize {
-			if ok := flush(); !ok {
-				return nil, false
-			}
+			flush()
 		}
 	}
-	if ok := flush(); !ok {
-		return nil, false
-	}
+	flush()
 
 	i.reconcileHistogramBases(histogramStates, unused, ctx)
 	i.reconcileSummaryBases(summaryStates, unused, ctx)
-	return unused, true
+	return unused
 }
 
 type summaryVariantState struct {
@@ -752,19 +743,25 @@ func (i *OtlpIngester) updateSummaryState(name string, summaryBases map[string]s
 }
 
 // processDBMisses queries the database for cache misses and updates states.
-func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}) bool {
+//
+// A DB error here fails open for the names in this chunk: it does not mark them
+// as unused, does not mark them as resolved, and does not abort the surrounding
+// lookupUnused/Export call. The affected names simply stay out of the unused
+// set for this batch (equivalent to "not confirmed unused"), so the batch is
+// still forwarded downstream instead of being silently discarded.
+// See https://github.com/nicolastakashi/prom-analytics-proxy/issues/569.
+func (i *OtlpIngester) processDBMisses(ctx context.Context, misses []string, histogramBases map[string]struct{}, histogramStates map[string]*histogramVariantState, summaryBases map[string]struct{}, summaryStates map[string]*summaryVariantState, unused map[string]struct{}) {
 	t0 := time.Now()
 	metas, err := i.db.GetSeriesMetadataByNames(ctx, misses, "")
 	if err != nil {
-		slog.ErrorContext(ctx, "ingester.lookup.failed_skipping_drops", "err", err)
+		slog.ErrorContext(ctx, "ingester.lookup.failed_treating_as_used", "err", err, "names_count", len(misses))
 		processorLookupErrorsTotal.Inc()
-		return false
+		return
 	}
 	processorLookupDurationSeconds.Observe(time.Since(t0).Seconds())
 
 	cacheWriteBack := i.processMetadata(metas, histogramBases, histogramStates, summaryBases, summaryStates, unused, ctx)
 	i.writeBackToCache(ctx, cacheWriteBack)
-	return true
 }
 
 // processMetadata processes database metadata and updates histogram states and unused map.
