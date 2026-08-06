@@ -36,9 +36,10 @@ type Syncer struct {
 
 	jobIndexWorkers int
 
-	syncDuration prometheus.Histogram
-	syncSuccess  prometheus.Counter
-	syncFailure  prometheus.Counter
+	syncDuration           prometheus.Histogram
+	syncSuccess            prometheus.Counter
+	syncFailure            prometheus.Counter
+	catalogSummaryMismatch prometheus.Counter
 }
 
 func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometheus.Registerer) (*Syncer, error) {
@@ -82,6 +83,10 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 	s.syncFailure = promauto.With(reg).NewCounter(prometheus.CounterOpts{
 		Name: "inventory_sync_failure_total",
 		Help: "Total number of failed inventory sync runs",
+	})
+	s.catalogSummaryMismatch = promauto.With(reg).NewCounter(prometheus.CounterOpts{
+		Name: "inventory_catalog_summary_mismatch_total",
+		Help: "Total number of runs where the metadata catalog was committed but the usage-summary refresh failed, stranding the affected metrics at placeholder values",
 	})
 
 	return s, nil
@@ -134,8 +139,20 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(ctx, s.runTimeout)
 	defer cancel()
 
-	if err := s.syncCatalogAndSummary(runCtx); err != nil {
+	catalogCommitted, err := s.syncCatalogAndSummary(ctx, runCtx)
+	if err != nil {
 		s.syncFailure.Inc()
+		if catalogCommitted {
+			// The metadata catalog step already committed (or was skipped)
+			// this run, so any newly-catalogued metrics now sit at their
+			// default placeholder summary values (is_unused=true, zero
+			// counts) until a future run successfully refreshes them.
+			// Surface this as its own signal so it isn't buried in the
+			// generic failure counter.
+			s.catalogSummaryMismatch.Inc()
+			slog.Warn("inventory: catalog committed but usage-summary refresh failed this run; affected metrics remain at placeholder values until the next scheduled sync",
+				"err", err)
+		}
 		s.syncDuration.Observe(time.Since(start).Seconds())
 		return
 	}
@@ -152,29 +169,45 @@ func (s *Syncer) runOnce(ctx context.Context) {
 	s.syncDuration.Observe(time.Since(start).Seconds())
 }
 
-func (s *Syncer) syncCatalogAndSummary(ctx context.Context) error {
+// syncCatalogAndSummary runs the metadata-catalog sync followed by the
+// usage-summary refresh. It reports whether the catalog step committed (or
+// was intentionally skipped) so the caller can tell an ordinary failure
+// apart from the partial-failure case where the catalog moved forward but
+// the summary refresh didn't.
+//
+// The two steps deliberately do NOT share a single deadline: the catalog
+// step is bounded by runCtx (itself bounded by runTimeout), while the
+// summary step gets its own context.WithTimeout(baseCtx, summaryStepTimeout)
+// built directly from baseCtx. Deriving the summary step's deadline from
+// runCtx instead would let a slow-but-successful catalog step eat into
+// runCtx's remaining budget and hand the refresh less than its configured
+// timeout - or none at all - on every single run, permanently starving it
+// (see #572). Giving the refresh its own independent budget guarantees it
+// always gets a full, fair shot regardless of how long the catalog step
+// took.
+func (s *Syncer) syncCatalogAndSummary(baseCtx, runCtx context.Context) (catalogCommitted bool, err error) {
 	if s.metadataSyncEnabled {
 		if s.metadataMetricsNameOnly {
-			if err := s.syncMetadataCatalogFromMetricNames(ctx); err != nil {
-				return err
+			if err := s.syncMetadataCatalogFromMetricNames(runCtx); err != nil {
+				return false, err
 			}
 		} else {
-			if err := s.syncMetadataCatalog(ctx); err != nil {
-				return err
+			if err := s.syncMetadataCatalog(runCtx); err != nil {
+				return false, err
 			}
 		}
 	} else {
 		slog.Info("inventory: metadata sync disabled, skipping catalog population")
 	}
 
-	sumCtx, cancelSum := context.WithTimeout(ctx, s.summaryStepTimeout)
+	sumCtx, cancelSum := context.WithTimeout(baseCtx, s.summaryStepTimeout)
 	defer cancelSum()
 	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
 	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, tr); err != nil {
 		slog.Error("inventory: refresh summary", "err", err)
-		return err
+		return true, err
 	}
-	return nil
+	return true, nil
 }
 
 func (s *Syncer) syncMetadataCatalog(ctx context.Context) error {
