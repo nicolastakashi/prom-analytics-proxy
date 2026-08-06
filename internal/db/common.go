@@ -150,6 +150,29 @@ func PrepareTimeRange(tr TimeRange, dialect string) (string, string) {
 	return tr.Format(SQLiteTimeFormat)
 }
 
+// warnIfSummaryRefreshWasNoOp logs when RefreshMetricsUsageSummary's INSERT
+// touched zero rows while metrics_catalog is non-empty. That combination
+// means every catalog row failed the last_synced_at freshness filter (see
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/579) - most
+// likely metadata sync has stopped advancing last_synced_at (disabled, or a
+// seen_ttl raised above inventory.time_window) - which otherwise surfaces as
+// a silently frozen summary with no error, the same failure class that issue
+// was about.
+func warnIfSummaryRefreshWasNoOp(ctx context.Context, db *sql.DB, rowsAffected int64, dialect string) {
+	if rowsAffected > 0 {
+		return
+	}
+	var catalogNonEmpty bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM metrics_catalog)`).Scan(&catalogNonEmpty); err != nil {
+		return // best-effort diagnostic; don't fail the refresh over it
+	}
+	if catalogNonEmpty {
+		slog.Warn("inventory: refresh summary touched no rows despite a non-empty catalog; "+
+			"every row failed the last_synced_at freshness filter - check that metadata sync is advancing last_synced_at",
+			"dialect", dialect)
+	}
+}
+
 // GetInterval returns the appropriate interval string for time-based queries
 func GetInterval(from, to time.Time, dialect string) string {
 	duration := to.Sub(from)

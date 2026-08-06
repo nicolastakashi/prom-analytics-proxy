@@ -1,8 +1,10 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"log/slog"
 	"os"
 	"sort"
 	"testing"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestSQLiteProvider creates a temporary SQLite database and returns a provider and cleanup.
@@ -448,6 +451,136 @@ func TestSQLite_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.T) {
 	if data, ok := res.Data.([]models.MetricMetadata); ok {
 		_ = data // basic smoke to ensure type is correct for future checks
 	}
+}
+
+// TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows is the
+// regression test for
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/579: a
+// catalog row Prometheus stopped reporting long ago (last_synced_at far in
+// the past) must not be recomputed on every refresh just because some usage
+// evidence happens to fall inside the window - it should be skipped
+// entirely, keeping whatever summary it last had (here, its placeholder
+// zero-count row from UpsertMetricsCatalog, is_unused=false per
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570:
+// "never evaluated" is distinct from "confirmed unused").
+func TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testing.T) {
+	p, cleanup := newTestSQLiteProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "fresh_metric", Type: "gauge", Help: "still scraped"},
+		{Name: "stale_metric", Type: "gauge", Help: "no longer scraped"},
+	})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	// Backdate stale_metric well outside any window the refresh below uses,
+	// simulating a metric Prometheus stopped reporting long ago.
+	_, err := rawDB.ExecContext(context.Background(),
+		`UPDATE metrics_catalog SET last_synced_at = datetime('now', '-90 days') WHERE name = ?`, "stale_metric")
+	assert.NoError(t, err, "backdate stale_metric")
+
+	now := time.Now().UTC()
+	// Usage evidence for BOTH metrics, inside the refresh window below - if
+	// the catalog-freshness filter didn't exist, both would come out used.
+	mustInsertQueries(t, p, []Query{
+		{
+			TS: now.Add(-time.Minute), QueryParam: "fresh_metric", TimeParam: now,
+			Duration: time.Millisecond, StatusCode: 200,
+			LabelMatchers: LabelMatchers{{"__name__": "fresh_metric"}}, Type: QueryTypeInstant,
+		},
+		{
+			TS: now.Add(-time.Minute), QueryParam: "stale_metric", TimeParam: now,
+			Duration: time.Millisecond, StatusCode: 200,
+			LabelMatchers: LabelMatchers{{"__name__": "stale_metric"}}, Type: QueryTypeInstant,
+		},
+	})
+
+	err = p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	// Select all four counts, not just query_count: is_unused is derived
+	// from all of them, so asserting on the whole row is what actually
+	// tells us WHICH count is off if this ever fails again, instead of
+	// leaving is_unused's false/true a mystery relative to a single count.
+	var fresh summaryRow
+	row := rawDB.QueryRowContext(context.Background(),
+		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = ?`, "fresh_metric")
+	require.NoError(t, row.Scan(&fresh.Alert, &fresh.Record, &fresh.Dashboard, &fresh.Query, &fresh.Unused))
+	assert.Greater(t, fresh.Query, 0, "fresh_metric should have been recomputed with real usage")
+	assert.False(t, fresh.Unused, "fresh_metric should be marked used")
+
+	var stale summaryRow
+	row = rawDB.QueryRowContext(context.Background(),
+		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = ?`, "stale_metric")
+	require.NoError(t, row.Scan(&stale.Alert, &stale.Record, &stale.Dashboard, &stale.Query, &stale.Unused))
+	assert.Equal(t, summaryRow{Alert: 0, Record: 0, Dashboard: 0, Query: 0, Unused: false}, stale,
+		"stale_metric's summary should remain untouched at its placeholder values - got %+v", stale)
+}
+
+// TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale guards a
+// suggestion adjacent to
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/579: when
+// every metrics_catalog row fails the freshness filter, the refresh's
+// INSERT touches zero rows and returns no error - indistinguishable,
+// without a log line, from "ran fine, nothing needed recomputing".
+// warnIfSummaryRefreshWasNoOp surfaces that combination so metadata-sync
+// stalling doesn't freeze summaries silently.
+func TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T) {
+	p, cleanup := newTestSQLiteProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "stale_metric", Type: "gauge", Help: "gone"}})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+	_, err := rawDB.ExecContext(context.Background(),
+		`UPDATE metrics_catalog SET last_synced_at = datetime('now', '-90 days') WHERE name = ?`, "stale_metric")
+	assert.NoError(t, err, "backdate stale_metric")
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prevLogger)
+
+	now := time.Now().UTC()
+	err = p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	assert.Contains(t, logs.String(), "refresh summary touched no rows",
+		"expected a warning when the freshness filter matches zero rows against a non-empty catalog")
+}
+
+// TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog is the
+// zero-rows counterpart of TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale:
+// an empty metrics_catalog also touches zero rows, but that's the ordinary
+// steady state of a fresh deployment, not a stalled sync - it must not log
+// the same warning.
+func TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
+	p, cleanup := newTestSQLiteProvider(t)
+	defer cleanup()
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prevLogger)
+
+	now := time.Now().UTC()
+	err := p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	assert.NotContains(t, logs.String(), "refresh summary touched no rows",
+		"an empty catalog is the normal steady state and must not be logged as a stalled sync")
+}
+
+// summaryRow mirrors the four counts + is_unused columns of
+// metrics_usage_summary, so a stale-vs-fresh diagnostic assertion can compare
+// (and print, on failure) the whole row at once instead of one column at a
+// time - useful since is_unused is derived from all four counts together.
+type summaryRow struct {
+	Alert, Record, Dashboard, Query int
+	Unused                          bool
 }
 
 func TestSQLite_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {
