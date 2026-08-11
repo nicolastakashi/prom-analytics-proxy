@@ -100,6 +100,24 @@ func (p *benchDBProvider) GetRulesUsage(_ context.Context, _ db.RulesUsageParams
 func (p *benchDBProvider) GetDashboardUsage(_ context.Context, _ db.DashboardUsageParams) (db.PagedResult, error) {
 	return db.PagedResult{}, nil
 }
+func (p *benchDBProvider) GetDashboardUsageCount(_ context.Context, _ db.DashboardUsageParams) (int, error) {
+	return 0, nil
+}
+func (p *benchDBProvider) GetSeriesMetadataCount(_ context.Context, _ db.SeriesMetadataParams) (int, error) {
+	return 0, nil
+}
+func (p *benchDBProvider) GetQueryExpressionsCount(_ context.Context, _ db.QueryExpressionsParams) (int, error) {
+	return 0, nil
+}
+func (p *benchDBProvider) GetQueryExecutionsCount(_ context.Context, _ db.QueryExecutionsParams) (int, error) {
+	return 0, nil
+}
+func (p *benchDBProvider) GetQueriesBySerieNameCount(_ context.Context, _ db.QueriesBySerieNameParams) (int, error) {
+	return 0, nil
+}
+func (p *benchDBProvider) GetRulesUsageCount(_ context.Context, _ db.RulesUsageParams) (int, error) {
+	return 0, nil
+}
 func (p *benchDBProvider) DeleteQueriesBefore(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
