@@ -13,10 +13,12 @@ import {
   MetricMetadata,
   MetricStatistics,
   MetricQueryPerformanceStatistics,
+  MetricUsageItem,
   QueryLatencyTrendsResult,
   DateRange,
 } from "@/lib/types";
 import { getQueryLatencyTrends } from "@/api/queries";
+import { usePagedQuery } from "@/hooks/use-paged-query";
 
 interface MetricsData {
   metrics: PagedResult<MetricMetadata> | undefined;
@@ -25,18 +27,6 @@ interface MetricsData {
 
 interface MetricStatisticsData {
   statistics: MetricStatistics | undefined;
-}
-
-interface MetricUsageResponse {
-  total: number;
-  totalPages: number;
-  data: Array<{
-    id?: string;
-    name: string;
-    url?: string;
-    groupName?: string;
-    expression?: string;
-  }>;
 }
 
 export function useSeriesMetadataTable(
@@ -49,9 +39,9 @@ export function useSeriesMetadataTable(
     data: metrics,
     isLoading,
     error,
-  } = useQuery<PagedResult<MetricMetadata>>({
-    queryKey: ["metrics", tableState, searchQuery, usage, job],
-    queryFn: () =>
+  } = usePagedQuery<MetricMetadata>(
+    ["metrics", tableState, searchQuery, usage, job],
+    () =>
       getSeriesMetadata(
         tableState?.page || 1,
         tableState?.pageSize || 10,
@@ -62,7 +52,7 @@ export function useSeriesMetadataTable(
         usage || "all",
         job,
       ),
-  });
+  );
 
   const { data: producers } = useQuery<string[]>({
     queryKey: ["producers"],
@@ -155,20 +145,11 @@ export function useMetricUsage(
   const fromParam = from ? from.toISOString() : "";
   const toParam = to ? to.toISOString() : "";
 
-  return useQuery<MetricUsageResponse, Error>({
-    queryKey: [
-      "metric-usage",
-      metricName,
-      kind,
-      page,
-      pageSize,
-      fromParam,
-      toParam,
-    ],
-    queryFn: () =>
-      getMetricUsage(metricName, kind, page, pageSize, fromParam, toParam),
-    enabled: !!metricName && !!kind,
-  });
+  return usePagedQuery<MetricUsageItem>(
+    ["metric-usage", metricName, kind, page, pageSize, fromParam, toParam],
+    () => getMetricUsage(metricName, kind, page, pageSize, fromParam, toParam),
+    { enabled: !!metricName && !!kind },
+  );
 }
 
 export function useSerieExpressions(

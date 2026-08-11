@@ -1,9 +1,10 @@
 import {
   MetricQueryPerformanceStatistics,
+  MetricMetadata,
   MetricStatistics,
+  MetricUsageItem,
   PagedResult,
 } from "@/lib/types";
-import { MetricMetadata } from "@/lib/types";
 import { toUTC } from "@/lib/utils/date-utils";
 
 interface SerieExpression {
@@ -18,18 +19,6 @@ interface SerieExpressionsResponse {
   data: SerieExpression[];
   total: number;
   totalPages: number;
-}
-
-interface MetricUsageResponse {
-  total: number;
-  totalPages: number;
-  data: Array<{
-    id?: string;
-    name: string;
-    url?: string;
-    groupName?: string;
-    expression?: string;
-  }>;
 }
 
 interface ApiConfig {
@@ -249,7 +238,7 @@ export async function getMetricUsage(
   pageSize: number = 10,
   from: string = "",
   to: string = "",
-): Promise<MetricUsageResponse> {
+): Promise<PagedResult<MetricUsageItem>> {
   const url = API_CONFIG.endpoints.metricUsage + `/${metricName}`;
   const params: Record<string, string | number> = { kind, page, pageSize };
 
@@ -261,7 +250,7 @@ export async function getMetricUsage(
   }
 
   return withErrorHandling(
-    () => fetchApiData<MetricUsageResponse>(url, params),
+    () => fetchApiData<PagedResult<MetricUsageItem>>(url, params),
     DEFAULT_ERROR_VALUES.metricUsage,
   );
 }
