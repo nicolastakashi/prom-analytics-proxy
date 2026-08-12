@@ -1,0 +1,97 @@
+package leaderelection
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
+)
+
+// fakeStrategy is a hand-written fake matching house style (see
+// fakeInventoryProvider in internal/inventory/syncer_test.go) — lets the
+// metrics test exercise Elector.Run without needing a real Postgres
+// instance, since the metrics wiring is generic on the elector wrapper and
+// has nothing to do with any particular strategy's SQL.
+type fakeStrategy struct {
+	acquired bool
+}
+
+func (f *fakeStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
+	if f.acquired {
+		return nil, nil, false, nil
+	}
+	f.acquired = true
+	leaderCtx, cancel := context.WithCancel(ctx)
+	return leaderCtx, func() { cancel(); f.acquired = false }, true, nil
+}
+
+// TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter proves the
+// metrics are generic on the elector wrapper: leaderelection_is_leader must
+// be 1 while fn runs and 0 after Run returns, and
+// leaderelection_transitions_total{to="leader"} must have incremented.
+func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
+	elector := newTestElector(&fakeStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
+
+	fnRunning := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- elector.Run(ctx, "metrics-test", func(fnCtx context.Context) {
+			close(fnRunning)
+			<-fnCtx.Done()
+		})
+	}()
+
+	select {
+	case <-fnRunning:
+	case <-time.After(time.Second):
+		t.Fatal("fn was never invoked")
+	}
+
+	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "leader")))
+
+	cancel()
+	assert.NoError(t, <-done)
+
+	assert.Equal(t, float64(0), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
+	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "follower")))
+}
+
+// TestNewMetrics_NilRegistererDefaultsToPrometheusDefault proves the
+// documented nil-reg behavior (NewAdvisoryElector's doc comment: "reg may
+// be nil, in which case metrics register against
+// prometheus.DefaultRegisterer") as an outcome an operator would actually
+// observe — the metric shows up when the process's default metrics
+// endpoint is scraped — rather than inspecting newMetrics' internals.
+// promauto.With(nil) would itself resolve to DefaultRegisterer even
+// without the explicit nil-check this test targets, so this also
+// incidentally guards against ever removing that check as "redundant".
+func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
+	m := newMetrics(nil)
+	t.Cleanup(func() {
+		prometheus.Unregister(m.isLeader)
+		prometheus.Unregister(m.transitions)
+	})
+	// A GaugeVec with no label combination ever touched reports no samples
+	// at all, regardless of which registry it's in — Gather() would find
+	// nothing either way, which would make this test pass for the wrong
+	// reason. Touching one first makes the check meaningful.
+	m.isLeader.WithLabelValues("nil-registerer-test").Set(1)
+
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	assert.NoError(t, err)
+
+	var found bool
+	for _, mf := range mfs {
+		if mf.GetName() == "leaderelection_is_leader" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "newMetrics(nil) must register against prometheus.DefaultRegisterer, not silently register nowhere scrapable")
+}
