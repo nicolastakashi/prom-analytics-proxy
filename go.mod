@@ -8,6 +8,7 @@ replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	github.com/oklog/run v1.2.0
 	github.com/perses/metrics-usage v0.7.0
@@ -62,7 +63,6 @@ require (
 	github.com/go-openapi/swag/stringutils v0.26.0 // indirect
 	github.com/go-openapi/swag/typeutils v0.26.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.26.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect

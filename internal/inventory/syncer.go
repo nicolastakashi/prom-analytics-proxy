@@ -96,28 +96,6 @@ func (s *Syncer) RunLeaderless(ctx context.Context) {
 	s.runLoop(ctx)
 }
 
-func (s *Syncer) RunWithLeader(ctx context.Context, isLeader func(context.Context) bool) {
-	backoff := time.Second
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		if isLeader(ctx) {
-			s.runLoop(ctx)
-		} else {
-			j := time.Duration(rand.Int63n(int64(backoff)))
-			select {
-			case <-time.After(backoff + j):
-			case <-ctx.Done():
-				return
-			}
-			if backoff < 10*time.Second {
-				backoff *= 2
-			}
-		}
-	}
-}
-
 func (s *Syncer) runLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.interval + time.Duration(rand.Int63n(int64(s.interval/5))))
 	defer ticker.Stop()

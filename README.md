@@ -287,6 +287,12 @@ Flags (api):
     	Interval between inventory sync runs (default 10m0s)
   -inventory-time-window duration
     	Time window for inventory data collection (default 720h0m0s)
+  -leader-election-lease-ttl duration
+    	Lease TTL (lease strategy only) (default 15s)
+  -leader-election-renew-interval duration
+    	Lease renewal interval; must be less than the lease TTL (lease strategy only) (default 5s)
+  -leader-election-strategy string
+    	Leader election strategy for the inventory syncer and retention worker when using PostgreSQL. Supported: advisory-lock, lease. (default "advisory-lock")
   -log-format string
     	Log format (text, json) (default "text")
   -log-level string
