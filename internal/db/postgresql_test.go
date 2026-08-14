@@ -730,6 +730,21 @@ func TestPostgreSQL_InsertRulesUsage_ConcurrentOverlappingUpsertsDoNotDeadlock(t
 	)
 }
 
+// TestPostgreSQL_InsertDashboardUsage_ConcurrentOverlappingUpsertsDoNotDeadlock
+// verifies InsertDashboardUsage tolerates concurrent calls upserting
+// overlapping rows in different orders without deadlocking (#595).
+func TestPostgreSQL_InsertDashboardUsage_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
+		func(i int) DashboardUsage {
+			return DashboardUsage{Id: fmt.Sprintf("deadlock_dash_%02d", i), Serie: "m", Name: "n", URL: "u"}
+		},
+		p.InsertDashboardUsage,
+	)
+}
+
 // -------------------- Additional Tests parity with SQLite --------------------
 
 func TestPostgreSQL_HistogramSummaryMetricsCatalog(t *testing.T) {
