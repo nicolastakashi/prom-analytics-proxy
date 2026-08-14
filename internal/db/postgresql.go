@@ -1070,41 +1070,75 @@ func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names
 	return out, nil
 }
 
+// upsertMetricsCatalogItems de-duplicates items by name (last occurrence
+// wins) and sorts the result by name. Both are required for
+// UpsertMetricsCatalog to stay safe under concurrent calls with
+// overlapping items, in any relative order or interleaving:
+//
+//   - Sorting guarantees every call, however many run concurrently,
+//     always acquires metrics_catalog row locks in the same order. Two
+//     concurrent calls upserting overlapping rows in different orders is
+//     Postgres's own documented deadlock precondition (#592).
+//   - De-duplication is required independently: a single bulk
+//     INSERT ... ON CONFLICT DO UPDATE statement errors ("ON CONFLICT DO
+//     UPDATE command cannot affect row a second time") if its own input
+//     contains the same conflict target twice.
+func upsertMetricsCatalogItems(items []MetricCatalogItem) []MetricCatalogItem {
+	deduped := make(map[string]MetricCatalogItem, len(items))
+	for _, it := range items {
+		deduped[it.Name] = it
+	}
+	sorted := make([]MetricCatalogItem, 0, len(deduped))
+	for _, it := range deduped {
+		sorted = append(sorted, it)
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	return sorted
+}
+
 func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []MetricCatalogItem) error {
 	if len(items) == 0 {
 		return nil
 	}
+	items = upsertMetricsCatalogItems(items)
+
+	names := make([]string, len(items))
+	types := make([]string, len(items))
+	helps := make([]string, len(items))
+	units := make([]string, len(items))
+	for i, it := range items {
+		names[i] = it.Name
+		types[i] = it.Type
+		helps[i] = it.Help
+		units[i] = it.Unit
+	}
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
+
+	// Both statements below run as one bulk INSERT via unnest() rather than
+	// one round-trip per item - the syncer calls this with the full catalog
+	// inventory (~tens of thousands of rows on a real Prometheus).
+	//
 	// last_synced_at is stored as TIMESTAMP WITHOUT TIME ZONE, so a bare NOW()
 	// lands in the server session's time zone while RefreshMetricsUsageSummary
 	// compares it against tr.From.UTC() (see PrepareTimeRange). AT TIME ZONE
 	// 'UTC' pins the written value to UTC so the two stay in the same clock
 	// domain regardless of session TimeZone.
-	stmt, err := tx.PrepareContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
         INSERT INTO metrics_catalog(name, type, help, unit, last_synced_at)
-        VALUES ($1, $2, $3, $4, NOW() AT TIME ZONE 'UTC')
+        SELECT n, t, h, u, NOW() AT TIME ZONE 'UTC'
+        FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS x(n, t, h, u)
         ON CONFLICT(name) DO UPDATE SET
           type=EXCLUDED.type,
           help=EXCLUDED.help,
           unit=EXCLUDED.unit,
           last_synced_at=EXCLUDED.last_synced_at
-    `)
-	if err != nil {
+    `, pq.Array(names), pq.Array(types), pq.Array(helps), pq.Array(units)); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("prepare: %w", err)
-	}
-	defer CloseResource(stmt)
-
-	names := make([]string, len(items))
-	for i, it := range items {
-		if _, err := stmt.ExecContext(ctx, it.Name, it.Type, it.Help, it.Unit); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("exec: %w", err)
-		}
-		names[i] = it.Name
+		return fmt.Errorf("exec: %w", err)
 	}
 
 	// Co-write a placeholder summary row per catalog item so the
@@ -1119,11 +1153,6 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	// successful RefreshMetricsUsageSummary run - which, if that job is
 	// failing, could be never. See
 	// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
-	//
-	// One bulk INSERT via unnest() instead of one statement per item -
-	// the syncer calls this with the full catalog inventory (~tens of
-	// thousands of rows on a real Prometheus), and per-item round-trips
-	// add up fast.
 	if _, err := tx.ExecContext(ctx, `
         INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, updated_at, is_unused)
         SELECT n, 0, 0, 0, 0, NOW(), FALSE FROM unnest($1::text[]) AS n

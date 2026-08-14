@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,6 +68,61 @@ func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
 		_ = pgContainer.Terminate(ctx)
 	}
 	return p, cleanup
+}
+
+// assertConcurrentOverlappingUpsertsDoNotDeadlock races two concurrent
+// calls to upsert - each given the same itemsPerCall items, built by
+// buildItem, but in exactly reversed relative order - and asserts neither
+// ever fails. Two callers upserting overlapping rows via ON CONFLICT DO
+// UPDATE in opposite orders is Postgres's own documented deadlock
+// precondition (see
+// https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-DEADLOCKS):
+// "the best defense against deadlocks is generally to avoid them by being
+// certain that all applications ... acquire locks ... in a consistent
+// order."
+//
+// This repeats the attempt many times: a deadlock only happens if the two
+// calls' row-lock acquisition genuinely overlaps in time, which goroutine
+// scheduling doesn't guarantee on any single attempt - one try could pass
+// by luck even against code that doesn't sort before upserting.
+func assertConcurrentOverlappingUpsertsDoNotDeadlock[T any](
+	t *testing.T,
+	itemsPerCall, attempts int,
+	buildItem func(i int) T,
+	upsert func(context.Context, []T) error,
+) {
+	t.Helper()
+
+	ascending := make([]T, itemsPerCall)
+	descending := make([]T, itemsPerCall)
+	for i := 0; i < itemsPerCall; i++ {
+		item := buildItem(i)
+		ascending[i] = item
+		descending[itemsPerCall-1-i] = item
+	}
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		ready := make(chan struct{})
+
+		for _, items := range [][]T{ascending, descending} {
+			items := items
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-ready
+				errs <- upsert(context.Background(), items)
+			}()
+		}
+		close(ready)
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			assert.NoError(t, err, "attempt %d: concurrent overlapping upserts must not fail", attempt)
+		}
+	}
 }
 
 // TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig verifies that
@@ -837,6 +893,82 @@ func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testi
 		{name: "metric_a", isUnused: false},
 		{name: "metric_b", isUnused: false},
 	}, got)
+}
+
+// TestPostgreSQL_UpsertMetricsCatalog_ConcurrentOverlappingUpsertsDoNotDeadlock
+// verifies UpsertMetricsCatalog tolerates concurrent calls upserting
+// overlapping rows in different orders without deadlocking (#592).
+func TestPostgreSQL_UpsertMetricsCatalog_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
+		func(i int) MetricCatalogItem {
+			return MetricCatalogItem{Name: fmt.Sprintf("deadlock_metric_%02d", i), Type: "gauge", Help: "h"}
+		},
+		p.UpsertMetricsCatalog,
+	)
+}
+
+// TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins
+// verifies a repeated name within one call resolves to its last
+// occurrence's values. This must keep holding with a bulk
+// INSERT ... ON CONFLICT DO UPDATE statement, which errors outright if
+// its own input contains the same conflict target twice ("ON CONFLICT DO
+// UPDATE command cannot affect row a second time"), so de-duplicating
+// before upserting is required independently of the deadlock fix itself.
+func TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "dup_metric", Type: "gauge", Help: "first"},
+		{Name: "other_metric", Type: "counter", Help: "unrelated"},
+		{Name: "dup_metric", Type: "counter", Help: "second"},
+	})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	var gotType, gotHelp string
+	err := rawDB.QueryRowContext(context.Background(),
+		`SELECT type, help FROM metrics_catalog WHERE name = $1`, "dup_metric").Scan(&gotType, &gotHelp)
+	assert.NoError(t, err)
+	assert.Equal(t, "counter", gotType, "the later occurrence in the same call must win")
+	assert.Equal(t, "second", gotHelp)
+}
+
+// TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues
+// verifies each row in a multi-row call gets its own field values, not
+// another row's. This guards against a risk specific to a bulk-unnest
+// statement: four parallel arrays (name/type/help/unit) are passed
+// positionally into unnest($1, $2, $3, $4), and a swap (e.g. passing
+// helps where types belongs) would compile fine and silently misfile
+// every row's fields.
+func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	items := []MetricCatalogItem{
+		{Name: "metric_alpha", Type: "gauge", Help: "help alpha", Unit: "bytes"},
+		{Name: "metric_beta", Type: "counter", Help: "help beta", Unit: "seconds"},
+		{Name: "metric_gamma", Type: "histogram", Help: "help gamma", Unit: "requests"},
+	}
+	mustUpsertCatalog(t, p, items)
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	for _, want := range items {
+		var gotType, gotHelp, gotUnit string
+		err := rawDB.QueryRowContext(context.Background(),
+			`SELECT type, help, unit FROM metrics_catalog WHERE name = $1`, want.Name).
+			Scan(&gotType, &gotHelp, &gotUnit)
+		assert.NoError(t, err, "row for %s", want.Name)
+		assert.Equal(t, want.Type, gotType, "%s: type", want.Name)
+		assert.Equal(t, want.Help, gotHelp, "%s: help", want.Name)
+		assert.Equal(t, want.Unit, gotUnit, "%s: unit", want.Name)
+	}
 }
 
 // TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused guards the
