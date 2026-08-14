@@ -971,6 +971,21 @@ func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *tes
 	}
 }
 
+// TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadlock
+// verifies UpsertMetricsJobIndex tolerates concurrent calls upserting
+// overlapping rows in different orders without deadlocking (#593).
+func TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
+		func(i int) MetricJobIndexItem {
+			return MetricJobIndexItem{Name: fmt.Sprintf("deadlock_metric_%02d", i), Job: "shared_job"}
+		},
+		p.UpsertMetricsJobIndex,
+	)
+}
+
 // TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused guards the
 // write-path half of https://github.com/nicolastakashi/prom-analytics-proxy/issues/571:
 // GetSeriesMetadataByNames (used by the OTLP ingester's usage-unused lookup)
