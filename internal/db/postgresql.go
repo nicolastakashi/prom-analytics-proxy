@@ -467,6 +467,34 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 		return nil
 	}
 
+	// Sort by the same composite key as the ON CONFLICT target below before
+	// upserting, so this function stays safe under concurrent calls with
+	// overlapping rows in any order - the same deadlock precondition as
+	// #592.
+	sort.Slice(normalized, func(i, j int) bool {
+		a, b := normalized[i], normalized[j]
+		if a.Serie != b.Serie {
+			return a.Serie < b.Serie
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.GroupName != b.GroupName {
+			return a.GroupName < b.GroupName
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		if a.Expression != b.Expression {
+			return a.Expression < b.Expression
+		}
+		// labels is part of the ON CONFLICT target too - two rows can
+		// share every other field and still be distinct conflict targets
+		// differing only in labels. Each item's Labels is already sorted
+		// (a few lines above), so joining is a stable, comparable form.
+		return strings.Join(a.Labels, ",") < strings.Join(b.Labels, ",")
+	})
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
