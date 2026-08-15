@@ -296,9 +296,12 @@ func TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused(t *testing.
 		buildGaugeMetric("unresolved_metric", 1),
 	)
 
-	// One chunk resolves cleanly and confirms the metric is unused.
+	// One chunk resolves cleanly and confirms the metric is unused. IsUnused
+	// is the field metricMetadataUnused actually checks (see its doc comment
+	// on models.MetricMetadata) - zero counts alone no longer mean unused,
+	// since they're also what an unevaluated metric looks like.
 	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"resolved_unused_metric"}, "").Return([]models.MetricMetadata{
-		{Name: "resolved_unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0},
+		{Name: "resolved_unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Maybe()
 	// The other chunk's DB lookup fails.
 	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"unresolved_metric"}, "").Return(nil, assert.AnError).Maybe()
