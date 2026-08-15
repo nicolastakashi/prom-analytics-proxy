@@ -25,6 +25,10 @@ func (m *MockDBProvider) ListJobs(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
+func (m *MockDBProvider) GetProducerStats(context.Context, db.ProducerStatsParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
+
 // Satisfy new Provider method; tests don't use it
 func (m *MockDBProvider) GetQueryExpressions(ctx context.Context, params db.QueryExpressionsParams) (db.PagedResult, error) {
 	return db.PagedResult{}, nil

@@ -33,8 +33,8 @@ func (p *benchDBProvider) GetSeriesMetadataByNames(_ context.Context, _ []string
 	return p.data, nil
 }
 
-func (p *benchDBProvider) Close() error                    { return nil }
-func (p *benchDBProvider) WithDB(_ func(*sql.DB))          {}
+func (p *benchDBProvider) Close() error                                 { return nil }
+func (p *benchDBProvider) WithDB(_ func(*sql.DB))                       {}
 func (p *benchDBProvider) Insert(_ context.Context, _ []db.Query) error { return nil }
 func (p *benchDBProvider) InsertRulesUsage(_ context.Context, _ []db.RulesUsage) error {
 	return nil
@@ -55,6 +55,9 @@ func (p *benchDBProvider) UpsertMetricsJobIndex(_ context.Context, _ []db.Metric
 	return nil
 }
 func (p *benchDBProvider) ListJobs(_ context.Context) ([]string, error) { return nil, nil }
+func (p *benchDBProvider) GetProducerStats(_ context.Context, _ db.ProducerStatsParams) (db.PagedResult, error) {
+	return db.PagedResult{}, nil
+}
 func (p *benchDBProvider) GetQueryTypes(_ context.Context, _ db.TimeRange, _ string) (*db.QueryTypesResult, error) {
 	return nil, nil
 }

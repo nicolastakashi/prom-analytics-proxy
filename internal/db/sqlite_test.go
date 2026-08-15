@@ -394,6 +394,92 @@ func TestSQLite_MetricsJobIndex_And_ListJobs(t *testing.T) {
 	assert.Equal(t, []string{"node", "prometheus"}, jobs)
 }
 
+func TestSQLite_GetProducerStats(t *testing.T) {
+	p, cleanup := newTestSQLiteProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "up", Type: "gauge"},
+		{Name: "process_cpu_seconds_total", Type: "counter"},
+	})
+	mustUpsertJobIndex(t, p, []MetricJobIndexItem{
+		{Name: "up", Job: "prometheus"},
+		{Name: "up", Job: "node"},
+		{Name: "process_cpu_seconds_total", Job: "node"},
+		// Job-index-only metrics have no reliable usage classification and must
+		// not be counted as unused.
+		{Name: "not_in_usage_summary", Job: "unsummarized"},
+	})
+
+	now := time.Now().UTC()
+	mustInsertQueries(t, p, []Query{{
+		TS:            now.Add(-time.Minute),
+		QueryParam:    "up",
+		TimeParam:     now,
+		Duration:      time.Millisecond,
+		StatusCode:    200,
+		LabelMatchers: LabelMatchers{{"__name__": "up"}},
+		Type:          QueryTypeInstant,
+	}})
+	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{
+		From: now.Add(-time.Hour),
+		To:   now,
+	}))
+
+	result, err := p.GetProducerStats(context.Background(), ProducerStatsParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "metricCount",
+		SortOrder: "desc",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 2, result.Total)
+	assert.Equal(t, 1, result.TotalPages)
+
+	producers, ok := result.Data.([]ProducerStats)
+	if assert.True(t, ok) && assert.Len(t, producers, 2) {
+		assert.Equal(t, ProducerStats{
+			Job:               "node",
+			MetricCount:       2,
+			UsedMetricCount:   1,
+			UnusedMetricCount: 1,
+			Contribution:      producers[0].Contribution,
+		}, producers[0])
+		assert.InDelta(t, 66.6667, producers[0].Contribution, 0.001)
+		assert.Equal(t, "prometheus", producers[1].Job)
+		assert.Equal(t, 1, producers[1].MetricCount)
+		assert.Equal(t, 1, producers[1].UsedMetricCount)
+		assert.Equal(t, 0, producers[1].UnusedMetricCount)
+		assert.InDelta(t, 33.3333, producers[1].Contribution, 0.001)
+	}
+
+	filtered, err := p.GetProducerStats(context.Background(), ProducerStatsParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "job",
+		SortOrder: "asc",
+		Filter:    "cpu",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, filtered.Total)
+	filteredProducers, ok := filtered.Data.([]ProducerStats)
+	if assert.True(t, ok) && assert.Len(t, filteredProducers, 1) {
+		assert.Equal(t, "node", filteredProducers[0].Job)
+		assert.Equal(t, 2, filteredProducers[0].MetricCount)
+	}
+
+	unsummarized, err := p.GetProducerStats(context.Background(), ProducerStatsParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "job",
+		SortOrder: "asc",
+		Filter:    "not_in_usage_summary",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, unsummarized.Total)
+	assert.Empty(t, unsummarized.Data)
+}
+
 func TestSQLite_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.T) {
 	p, cleanup := newTestSQLiteProvider(t)
 	defer cleanup()

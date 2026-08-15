@@ -130,11 +130,13 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
 		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
 		mux.Handle("/api/v1/jobs", http.HandlerFunc(r.listJobs))
+		mux.Handle("/api/v1/producers", http.HandlerFunc(r.listProducers))
 		mux.Handle("/api/v1/metrics/unused", http.HandlerFunc(r.metricsUnused))
 
 		// endpoint for perses metrics usage push from the client
 		mux.Handle("/api/v1/metrics", http.HandlerFunc(r.PushMetricsUsage))
 		mux.Handle("/api/v1/configs", http.HandlerFunc(r.getConfigs))
+		mux.Handle("/api/v1/features", http.HandlerFunc(r.getFeatures))
 
 		mux.Handle("/api/v1/query/push", http.HandlerFunc(r.queryPush))
 
@@ -1335,11 +1337,25 @@ func (r *routes) getConfigs(w http.ResponseWriter, req *http.Request) {
 		writeErrorResponse(req, w, fmt.Errorf("failed to marshal YAML: %w", err), http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/yaml")
 	if _, err := w.Write(yamlData); err != nil {
 		writeErrorResponse(req, w, fmt.Errorf("failed to write response: %w", err), http.StatusInternalServerError)
 		return
 	}
+}
+
+// @Summary Get UI feature availability
+// @Description Return backend capabilities used to gate optional UI features.
+// @Tags config
+// @Produce json
+// @Success 200 {object} FeaturesResponse
+// @Router /api/v1/features [get]
+func (r *routes) getFeatures(w http.ResponseWriter, req *http.Request) {
+	producerStatsEnabled := r.config != nil &&
+		r.config.Inventory.Enabled &&
+		r.config.Inventory.JobSyncEnabled
+	writeJSONResponse(req, w, FeaturesResponse{ProducerStatsEnabled: producerStatsEnabled})
 }
 
 // @Summary List jobs
@@ -1361,6 +1377,50 @@ func (r *routes) listJobs(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, struct {
 		Data []string `json:"data"`
 	}{Data: jobs})
+}
+
+// @Summary List producer statistics
+// @Description Get paginated producer metrics and usage contribution statistics.
+// @Tags metrics
+// @Produce json
+// @Param page query int false "Page number (default 1)"
+// @Param pageSize query int false "Page size (default 10, max 100)"
+// @Param sortBy query string false "Sort field (job, metricCount, usedMetricCount, unusedMetricCount, contribution)"
+// @Param sortOrder query string false "Sort order (asc or desc)"
+// @Param filter query string false "Filter by producer or metric name"
+// @Success 200 {object} ProducerStatsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /api/v1/producers [get]
+func (r *routes) listProducers(w http.ResponseWriter, req *http.Request) {
+	params := db.ProducerStatsParams{
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "metricCount",
+		SortOrder: "desc",
+		Filter:    req.FormValue("filter"),
+	}
+	if page, err := getQueryParamAsInt(req, "page", 1); err == nil {
+		params.Page = page
+	}
+	if pageSize, err := getQueryParamAsInt(req, "pageSize", 10); err == nil {
+		params.PageSize = pageSize
+	}
+	if sortBy := req.FormValue("sortBy"); sortBy != "" {
+		params.SortBy = sortBy
+	}
+	if sortOrder := req.FormValue("sortOrder"); sortOrder != "" {
+		params.SortOrder = sortOrder
+	}
+
+	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+	defer cancel()
+	producers, err := r.dbProvider.GetProducerStats(ctx, params)
+	if err != nil {
+		slog.Error("unable to list producer statistics", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("unable to list producer statistics: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSONResponse(req, w, producers)
 }
 
 // @Summary Check unused metrics

@@ -5,6 +5,7 @@ import { useSeriesMetadataTable } from "./use-metrics-data";
 import { TableState } from "@/lib/types";
 import { LoadingState } from "./loading";
 import { useDebounce } from "@/hooks/use-debounce";
+import { useSearchState } from "@/hooks/use-search-state";
 
 export default function MetricsExplorer() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -12,7 +13,7 @@ export default function MetricsExplorer() {
   const [usageFilter, setUsageFilter] = useState<"all" | "used" | "unused">(
     "all",
   );
-  const [producerFilter, setProducerFilter] = useState<string>("");
+  const [producerFilter, setProducerFilter] = useSearchState("job", "");
   const [tableState, setTableState] = useState<TableState>({
     page: 1,
     pageSize: 10,

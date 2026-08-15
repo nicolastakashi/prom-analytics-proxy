@@ -2,6 +2,7 @@ import {
   MetricQueryPerformanceStatistics,
   MetricStatistics,
   PagedResult,
+  ProducerStats,
 } from "@/lib/types";
 import { MetricMetadata } from "@/lib/types";
 import { toUTC } from "@/lib/utils/date-utils";
@@ -41,6 +42,8 @@ interface ApiConfig {
     serieExpressions: string;
     metricUsage: string;
     producers: string;
+    producerStats: string;
+    features: string;
   };
 }
 
@@ -69,6 +72,8 @@ const API_CONFIG: ApiConfig = {
     serieExpressions: "/api/v1/serieExpressions",
     metricUsage: "/api/v1/serieUsage",
     producers: "/api/v1/jobs",
+    producerStats: "/api/v1/producers",
+    features: "/api/v1/features",
   },
 };
 
@@ -273,4 +278,25 @@ export async function getProducers(): Promise<string[]> {
   if (!res.ok) throw new Error(`Failed to fetch producers: ${res.status}`);
   const body = (await res.json()) as { data: string[] };
   return body.data || [];
+}
+
+export async function getProducerStats(
+  page: number = 1,
+  pageSize: number = 10,
+  sortBy: string = "metricCount",
+  sortOrder: string = "desc",
+  filter: string = "",
+): Promise<PagedResult<ProducerStats>> {
+  return fetchApiData<PagedResult<ProducerStats>>(
+    API_CONFIG.endpoints.producerStats,
+    { page, pageSize, sortBy, sortOrder, filter },
+  );
+}
+
+export interface Features {
+  producer_stats_enabled: boolean;
+}
+
+export async function getFeatures(): Promise<Features> {
+  return fetchApiData<Features>(API_CONFIG.endpoints.features);
 }

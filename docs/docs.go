@@ -49,6 +49,26 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/features": {
+            "get": {
+                "description": "Return backend capabilities used to gate optional UI features.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get UI feature availability",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/routes.FeaturesResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/jobs": {
             "get": {
                 "description": "Get list of distinct job labels from stored series.",
@@ -258,6 +278,64 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/producers": {
+            "get": {
+                "description": "Get paginated producer metrics and usage contribution statistics.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "List producer statistics",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 10, max 100)",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (job, metricCount, usedMetricCount, unusedMetricCount, contribution)",
+                        "name": "sortBy",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc or desc)",
+                        "name": "sortOrder",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by producer or metric name",
+                        "name": "filter",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/routes.ProducerStatsResponse"
                         }
                     },
                     "500": {
@@ -1362,6 +1440,26 @@ const docTemplate = `{
                 }
             }
         },
+        "db.ProducerStats": {
+            "type": "object",
+            "properties": {
+                "contribution": {
+                    "type": "number"
+                },
+                "job": {
+                    "type": "string"
+                },
+                "metricCount": {
+                    "type": "integer"
+                },
+                "unusedMetricCount": {
+                    "type": "integer"
+                },
+                "usedMetricCount": {
+                    "type": "integer"
+                }
+            }
+        },
         "db.QueriesBySerieNameResult": {
             "type": "object",
             "properties": {
@@ -1765,6 +1863,14 @@ const docTemplate = `{
                 }
             }
         },
+        "routes.FeaturesResponse": {
+            "type": "object",
+            "properties": {
+                "producer_stats_enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "routes.MetricUsageItem": {
             "type": "object",
             "properties": {
@@ -1810,6 +1916,23 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/routes.MetricUsageItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "routes.ProducerStatsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/db.ProducerStats"
                     }
                 },
                 "total": {
