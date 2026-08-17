@@ -43,7 +43,7 @@ func (h *recordingHandler) snapshot() []slog.Record {
 // never be returned up through Run (already covered elsewhere), but it must
 // not be silently dropped either — bad credentials, an exhausted pool, or a
 // broken query otherwise means the leader-elected job never runs for the
-// life of the process, with nothing in the logs or metrics to distinguish
+// life of the process with nothing in the logs or metrics to distinguish
 // that from the normal "another replica is leader".
 func TestElector_Run_LogsErrorsFromAcquireOrHold(t *testing.T) {
 	handler := &recordingHandler{}

@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// fakeStrategy is a hand-written fake matching house style (see
-// fakeInventoryProvider in internal/inventory/syncer_test.go) — lets the
-// metrics test exercise Elector.Run without needing a real Postgres
-// instance, since the metrics wiring is generic on the elector wrapper and
-// has nothing to do with any particular strategy's SQL.
+// fakeStrategy is a hand-written fake letting the metrics tests exercise
+// Elector.Run without needing a real Postgres instance, since the metrics
+// wiring is generic on the elector wrapper and has nothing to do with any
+// particular strategy's SQL.
 type fakeStrategy struct {
 	acquired bool
 }

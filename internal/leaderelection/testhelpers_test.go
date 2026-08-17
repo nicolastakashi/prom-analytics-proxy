@@ -9,16 +9,15 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // newTestPostgresDB spins up a disposable PostgreSQL using Testcontainers and
-// returns a live *sql.DB, mirroring internal/db/postgresql_test.go's
-// newTestPostgreSQLProvider pattern but returning a raw *sql.DB: this package
-// has no dependency on internal/db, so there's no Provider to build here.
+// returns a live *sql.DB: this package has no dependency on internal/db, so
+// there's no Provider abstraction to build here, just the raw connection.
 func newTestPostgresDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -39,16 +38,16 @@ func newTestPostgresDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
 
 	host, err := pgContainer.Host(ctx)
-	assert.NoError(t, err, "container host")
+	require.NoError(t, err, "container host") // every subsequent step needs a valid host
 	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	assert.NoError(t, err, "container port")
+	require.NoError(t, err, "container port")
 
 	dsn := fmt.Sprintf("host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable", host, port.Port())
 	db, err := sql.Open("postgres", dsn)
-	assert.NoError(t, err, "open postgres connection")
+	require.NoError(t, err, "open postgres connection")
 	t.Cleanup(func() { _ = db.Close() })
 
-	assert.NoError(t, db.PingContext(ctx), "ping postgres")
+	require.NoError(t, db.PingContext(ctx), "ping postgres") // a test built on a dead db is not worth continuing
 	return db
 }
 

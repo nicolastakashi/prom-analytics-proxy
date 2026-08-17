@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdvisoryStrategy_ReleasesLockExplicitly_NotJustViaConnClose pins the
@@ -23,13 +24,13 @@ func TestAdvisoryStrategy_ReleasesLockExplicitly_NotJustViaConnClose(t *testing.
 
 	ctx := context.Background()
 	_, release, ok, err := strat.acquireOrHold(ctx, "release-test")
-	assert.NoError(t, err)
-	assert.True(t, ok)
+	require.NoError(t, err) // release() below would nil-panic on failure to acquire
+	require.True(t, ok)
 
 	release()
 
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'").Scan(&count)
-	assert.NoError(t, err)
+	require.NoError(t, err) // count is meaningless if the query itself failed
 	assert.Equal(t, 0, count, "advisory lock must be released via pg_advisory_unlock, not left to connection-pool GC")
 }

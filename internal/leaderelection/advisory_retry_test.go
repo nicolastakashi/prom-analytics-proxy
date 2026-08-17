@@ -13,11 +13,9 @@ import (
 )
 
 // flakyConnGetter fails the first failsLeft calls to Conn, then delegates to
-// the real connGetter. This is a hand-written fake matching house style
-// (see fakeProvider in internal/retention/retention_test.go and
-// fakeMetadataAPI in internal/inventory/syncer_test.go) — introduced purely
-// as a test seam, since forcing a real Postgres connection to fail exactly
-// once via testcontainers stop/start is slow and imprecise.
+// the real connGetter — a hand-written fake introduced purely as a test
+// seam, since forcing a real Postgres connection to fail exactly once via
+// testcontainers stop/start is slow and imprecise.
 type flakyConnGetter struct {
 	real      connGetter
 	failsLeft int32
