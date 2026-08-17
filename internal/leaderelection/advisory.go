@@ -26,13 +26,21 @@ type connGetter interface {
 // timeout.
 const releaseUnlockTimeout = 5 * time.Second
 
+// defaultLivenessInterval is how often a held lock's physical connection is
+// pinged to detect a backend session that died without the client noticing
+// (server restart, pg_terminate_backend, a half-open partition) — see
+// newHeldLease.
+const defaultLivenessInterval = 3 * time.Second
+
 // advisoryConn is the seam newHeldLease needs from the physical connection
 // holding the lock — a dedicated interface (parallel to connGetter's
-// rationale) so tests can inject deterministic unlock outcomes that would
-// otherwise require forcing a real Postgres backend into that exact state.
-// pqAdvisoryConn is the only production implementation, backed by a real
-// *sql.Conn.
+// rationale) so tests can inject deterministic unlock/ping outcomes that
+// would otherwise require forcing a real Postgres backend into that exact
+// state. pqAdvisoryConn is the only production implementation, backed by a
+// real *sql.Conn.
 type advisoryConn interface {
+	// ping reports whether the physical connection/session is still alive.
+	ping(ctx context.Context) error
 	// unlock issues pg_advisory_unlock and reports whether it actually
 	// released the lock — session-scoped locks make this a real possible
 	// false, not just a defensive check.
@@ -45,6 +53,8 @@ type advisoryConn interface {
 }
 
 type pqAdvisoryConn struct{ c *sql.Conn }
+
+func (p *pqAdvisoryConn) ping(ctx context.Context) error { return p.c.PingContext(ctx) }
 
 func (p *pqAdvisoryConn) unlock(ctx context.Context, key int64) (bool, error) {
 	var unlocked bool
@@ -71,11 +81,12 @@ func NewAdvisoryElector(db *sql.DB, reg prometheus.Registerer) Elector {
 // why release() below explicitly unlocks rather than relying on conn.Close()
 // alone (see docs/leader-election.md).
 type advisoryLockStrategy struct {
-	db connGetter
+	db               connGetter
+	livenessInterval time.Duration
 }
 
 func newAdvisoryLockStrategy(db connGetter) *advisoryLockStrategy {
-	return &advisoryLockStrategy{db: db}
+	return &advisoryLockStrategy{db: db, livenessInterval: defaultLivenessInterval}
 }
 
 func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
@@ -96,16 +107,44 @@ func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (
 		return nil, nil, false, nil
 	}
 
-	leaderCtx, release := newHeldLease(ctx, &pqAdvisoryConn{c: conn}, key, name)
+	leaderCtx, release := newHeldLease(ctx, &pqAdvisoryConn{c: conn}, key, name, s.livenessInterval)
 	return leaderCtx, release, true, nil
 }
 
 // newHeldLease builds the leaderCtx/release pair for a lock already held on
-// ac.
-func newHeldLease(ctx context.Context, ac advisoryConn, key int64, name string) (context.Context, func()) {
+// ac, and starts the background liveness check that makes good on strategy's
+// documented guarantee that leaderCtx is canceled the instant leadership is
+// lost — including when Postgres frees the lock out from under this process
+// (a dead backend session releases it immediately) rather than only when
+// release() is called. Without this check, a dead session and a live
+// leaderCtx are indistinguishable to the caller, and a second replica taking
+// over the lock races the first replica's still-running fn: the split-brain
+// this package exists to prevent.
+func newHeldLease(ctx context.Context, ac advisoryConn, key int64, name string, livenessInterval time.Duration) (context.Context, func()) {
 	leaderCtx, cancel := context.WithCancel(ctx)
+	stop := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(livenessInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-leaderCtx.Done():
+				return
+			case <-ticker.C:
+				if err := ac.ping(leaderCtx); err != nil {
+					slog.Warn("advisory lock connection lost; stepping down", "lease", name, "err", err)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 
 	release := func() {
+		close(stop)
 		cancel()
 		// Detached from ctx (release must still run even if ctx is already
 		// canceled) but bounded by releaseUnlockTimeout, not unbounded —
