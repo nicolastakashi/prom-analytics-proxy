@@ -86,8 +86,7 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 		e.m.isLeader.WithLabelValues(name).Set(1)
 		e.m.transitions.WithLabelValues(name, "leader").Inc()
 
-		fn(leaderCtx)
-		release()
+		runAndRelease(leaderCtx, fn, release, name)
 
 		e.m.isLeader.WithLabelValues(name).Set(0)
 		e.m.transitions.WithLabelValues(name, "follower").Inc()
@@ -95,6 +94,25 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 		// mid-run (a lease strategy may cancel leaderCtx on its own);
 		// looping back lets the checks above sort out which happened.
 	}
+}
+
+// runAndRelease calls fn and guarantees release runs afterward — including
+// when fn panics. release() physically unlocks over a connection that, at
+// the moment of a panic, is still alive; it does not depend on Postgres
+// ever detecting a dead session, unlike process-death paths (SIGKILL,
+// OOM-kill, a host disappearing) that no amount of recover() can reach. The
+// panic is logged and re-raised, not swallowed — deferred calls still run
+// to completion during that re-panic's unwind, so release() executes
+// before it escapes this function.
+func runAndRelease(leaderCtx context.Context, fn func(context.Context), release func(), name string) {
+	defer release()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("leader-elected fn panicked; releasing lock before repanicking", "lease", name, "panic", r)
+			panic(r)
+		}
+	}()
+	fn(leaderCtx)
 }
 
 // sleep waits for d or ctx cancellation, whichever comes first, reporting
