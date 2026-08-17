@@ -1647,6 +1647,10 @@ const docTemplate = `{
                 "help": {
                     "type": "string"
                 },
+                "isUnused": {
+                    "description": "IsUnused reflects metrics_usage_summary.is_unused as evaluated by\nRefreshMetricsUsageSummary. It is the single source of truth for\nwhether a metric is confirmed unused - callers must not infer\n\"unused\" from AlertCount/RecordCount/DashboardCount/QueryCount being\nzero, since zero counts are also what an unevaluated metric looks\nlike before its first RefreshMetricsUsageSummary run.",
+                    "type": "boolean"
+                },
                 "lastQueriedAt": {
                     "type": "string"
                 },

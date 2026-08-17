@@ -238,6 +238,15 @@ definitions:
         type: integer
       help:
         type: string
+      isUnused:
+        description: |-
+          IsUnused reflects metrics_usage_summary.is_unused as evaluated by
+          RefreshMetricsUsageSummary. It is the single source of truth for
+          whether a metric is confirmed unused - callers must not infer
+          "unused" from AlertCount/RecordCount/DashboardCount/QueryCount being
+          zero, since zero counts are also what an unevaluated metric looks
+          like before its first RefreshMetricsUsageSummary run.
+        type: boolean
       lastQueriedAt:
         type: string
       name:
