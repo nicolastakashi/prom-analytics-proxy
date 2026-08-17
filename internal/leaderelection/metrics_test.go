@@ -95,3 +95,43 @@ func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
 	}
 	assert.True(t, found, "newMetrics(nil) must register against prometheus.DefaultRegisterer, not silently register nowhere scrapable")
 }
+
+// TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader
+// pins the fix for a fleet-wide blind spot: a GaugeVec only creates a child
+// series on first WithLabelValues, so a replica that never wins an election
+// would otherwise export no series for its lease at all — indistinguishable
+// from "process dead" or "lease name misconfigured" when scraped. The
+// registry is Gather()'d directly rather than read through
+// WithLabelValues, which would create the series as a side effect of the
+// assertion itself and pass even without the fix.
+func TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader(t *testing.T) {
+	strat := &recordingStrategy{} // returnErr == nil: never grants leadership
+	elector, reg := newTestElectorWithRegistry(strat, backoffConfig{initial: 5 * time.Millisecond, max: 5 * time.Millisecond})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_ = elector.Run(ctx, "zero-init-test", func(context.Context) {
+		t.Fatal("fn must never run: this strategy never grants leadership")
+	})
+
+	mfs, err := reg.Gather()
+	assert.NoError(t, err)
+
+	var value *float64
+	for _, mf := range mfs {
+		if mf.GetName() != "leaderelection_is_leader" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "lease_name" && l.GetValue() == "zero-init-test" {
+					v := m.GetGauge().GetValue()
+					value = &v
+				}
+			}
+		}
+	}
+	if assert.NotNil(t, value, "a follower that never won an election must still export a series for its lease, not none at all") {
+		assert.Equal(t, float64(0), *value)
+	}
+}

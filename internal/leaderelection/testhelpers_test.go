@@ -57,5 +57,15 @@ func newTestPostgresDB(t *testing.T) *sql.DB {
 // twice against one shared registry panics), so this is the one place
 // that decision lives rather than being repeated at every call site.
 func newTestElector(strat strategy, backoff backoffConfig) *elector {
-	return newElector(strat, backoff, prometheus.NewRegistry())
+	e, _ := newTestElectorWithRegistry(strat, backoff)
+	return e
+}
+
+// newTestElectorWithRegistry is newTestElector's variant for tests that
+// need to Gather() the registry directly — e.g. to prove a gauge's series
+// exists without the test itself creating it via WithLabelValues, which
+// would happen if it read the gauge instead.
+func newTestElectorWithRegistry(strat strategy, backoff backoffConfig) (*elector, *prometheus.Registry) {
+	reg := prometheus.NewRegistry()
+	return newElector(strat, backoff, reg), reg
 }

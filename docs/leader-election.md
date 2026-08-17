@@ -27,7 +27,7 @@ The retry loop treats "someone else currently holds it" (`ok=false, err=nil`) an
 
 Both are emitted generically by the `Elector` wrapper, so any future leader-election strategy gets this instrumentation for free.
 
-Example: find any lease with no current leader (a healthy fleet should always show exactly one leader per lease name):
+Example: find any lease with no current leader (a healthy fleet should always show exactly one leader per lease name). Every replica exports `0` for a lease it isn't leading, not just `1` for the one that is, so a leaderless lease still has series to query against — `max` across them is `0`:
 ```
-count by (lease_name) (leaderelection_is_leader == 1)
+max by (lease_name) (leaderelection_is_leader) == 0
 ```

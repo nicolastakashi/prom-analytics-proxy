@@ -42,6 +42,12 @@ func newElector(strat strategy, backoff backoffConfig, reg prometheus.Registerer
 }
 
 func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)) error {
+	// Set even though this replica has never won: a GaugeVec only creates
+	// this series on first WithLabelValues, so without this a follower
+	// that never wins exports no series at all — indistinguishable from
+	// "process dead" when scraped fleet-wide.
+	e.m.isLeader.WithLabelValues(name).Set(0)
+
 	wait := e.backoff.initial
 	for {
 		if ctx.Err() != nil {
