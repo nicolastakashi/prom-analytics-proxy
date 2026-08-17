@@ -319,6 +319,8 @@ Flags (api):
     	Port of the postgresql server. (default 5432)
   -postgresql-sslmode string
     	SSL mode for the postgresql server. (default "disable")
+  -postgresql-statement-timeout duration
+    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.
   -postgresql-user string
     	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
   -push-metrics-usage-timeout duration
@@ -453,6 +455,8 @@ Flags (metrics ingester):
     	Port of the postgresql server. (default 5432)
   -postgresql-sslmode string
     	SSL mode for the postgresql server. (default "disable")
+  -postgresql-statement-timeout duration
+    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.
   -postgresql-user string
     	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
   -sqlite-database-path string
