@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdvisoryStrategy_RepeatedContentionDoesNotLeakConnections tests the
@@ -23,8 +24,8 @@ func TestAdvisoryStrategy_RepeatedContentionDoesNotLeakConnections(t *testing.T)
 
 	ctx := context.Background()
 	_, release, ok, err := winner.acquireOrHold(ctx, "leak-contention-test")
-	assert.NoError(t, err)
-	assert.True(t, ok)
+	require.NoError(t, err) // release() below would nil-panic on failure to acquire
+	require.True(t, ok)
 	defer release()
 
 	const attempts = 50
@@ -34,8 +35,8 @@ func TestAdvisoryStrategy_RepeatedContentionDoesNotLeakConnections(t *testing.T)
 		assert.False(t, ok, "still held by winner")
 	}
 
-	assert.Less(t, db.Stats().OpenConnections, attempts,
-		"repeatedly losing the race must not leak a connection per attempt")
+	assert.LessOrEqual(t, db.Stats().OpenConnections, 5,
+		"repeatedly losing the race must keep OpenConnections flat, not grow with attempts")
 }
 
 // TestAdvisoryStrategy_RepeatedAcquireReleaseDoesNotLeakConnections is the
@@ -52,11 +53,11 @@ func TestAdvisoryStrategy_RepeatedAcquireReleaseDoesNotLeakConnections(t *testin
 	const cycles = 50
 	for i := 0; i < cycles; i++ {
 		_, release, ok, err := strat.acquireOrHold(ctx, "leak-cycle-test")
-		assert.NoError(t, err)
-		assert.True(t, ok)
+		require.NoError(t, err) // release() below would nil-panic on failure to acquire
+		require.True(t, ok)
 		release()
 	}
 
-	assert.Less(t, db.Stats().OpenConnections, cycles,
-		"repeated acquire/release cycles must not leak a connection per cycle")
+	assert.LessOrEqual(t, db.Stats().OpenConnections, 5,
+		"repeated acquire/release cycles must keep OpenConnections flat, not grow with cycle count")
 }
