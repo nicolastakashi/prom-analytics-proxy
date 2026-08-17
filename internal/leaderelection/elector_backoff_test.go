@@ -115,6 +115,77 @@ func TestElector_Run_ContentionPollsAtFixedIntervalWithoutBackoff(t *testing.T) 
 	}
 }
 
+// failThenSucceedOnceStrategy fails to acquire failsBeforeSuccess times
+// (recording each attempt's wall-clock time), grants leadership exactly
+// once on the attempt right after that, then fails on every attempt after —
+// letting a test observe backoff's state exactly at the moment leadership
+// is (re)acquired and immediately lost again.
+type failThenSucceedOnceStrategy struct {
+	mu                 sync.Mutex
+	times              []time.Time
+	failsBeforeSuccess int
+	attempts           int
+	succeeded          bool
+}
+
+func (s *failThenSucceedOnceStrategy) acquireOrHold(ctx context.Context, _ string) (context.Context, func(), bool, error) {
+	s.mu.Lock()
+	s.times = append(s.times, time.Now())
+	s.attempts++
+	attempt := s.attempts
+	alreadySucceeded := s.succeeded
+	s.mu.Unlock()
+
+	if attempt == s.failsBeforeSuccess+1 && !alreadySucceeded {
+		s.mu.Lock()
+		s.succeeded = true
+		s.mu.Unlock()
+		leaderCtx, cancel := context.WithCancel(ctx)
+		return leaderCtx, cancel, true, nil
+	}
+	return nil, nil, false, errors.New("simulated error")
+}
+
+func (s *failThenSucceedOnceStrategy) snapshot() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.times...)
+}
+
+// TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership pins
+// backoffConfig's documented reset behavior ("resetting to initial the
+// moment leadership is (re)acquired"), which nothing else in this suite
+// exercises: every other backoff test either never succeeds or never fails
+// again afterward. Without the reset, a transient blip early in a
+// long-running process's life would permanently inflate its post-blip
+// contention-polling latency toward max — this proves failure immediately
+// following a hand-off starts from initial again, not from wherever backoff
+// had grown to pre-hand-off.
+func TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership(t *testing.T) {
+	const initial = 5 * time.Millisecond
+	const max = 100 * time.Millisecond
+	const failsBeforeSuccess = 6 // enough doublings from 5ms to reach the 100ms cap
+	strat := &failThenSucceedOnceStrategy{failsBeforeSuccess: failsBeforeSuccess}
+	elector := newTestElector(strat, backoffConfig{initial: initial, max: max})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	err := elector.Run(ctx, "backoff-reset-test", func(context.Context) {}) // fn returns immediately: release right away
+	assert.NoError(t, err)
+
+	times := strat.snapshot()
+	require.Greater(t, len(times), failsBeforeSuccess+2, "must have retried past the hand-off at least once")
+
+	successIdx := failsBeforeSuccess // 0-indexed: the (failsBeforeSuccess+1)-th attempt
+	preSuccessGap := times[successIdx].Sub(times[successIdx-1])
+	postSuccessGap := times[successIdx+2].Sub(times[successIdx+1])
+
+	assert.Greater(t, preSuccessGap, initial*4,
+		"sanity check: backoff must actually have grown well past initial before the hand-off")
+	assert.InDelta(t, float64(initial), float64(postSuccessGap), float64(15*time.Millisecond),
+		"the first retry after losing leadership again must wait ~initial, not continue from the pre-hand-off backoff")
+}
+
 // TestJitter_StaysWithinBoundsAndVaries pins jitter as a pure function,
 // independent of timing: it must never move a duration by more than ~20%,
 // but also must not be a no-op — replicas started by the same rollout would
