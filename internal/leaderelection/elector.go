@@ -2,6 +2,7 @@ package leaderelection
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -51,7 +52,13 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 			// Both "held by someone else" (err == nil) and a transient
 			// error retry identically here: an error from acquireOrHold
 			// must never cause a silent, permanent return — the only
-			// event allowed to stop this loop is ctx being canceled.
+			// event allowed to stop this loop is ctx being canceled — but
+			// must also not go unlogged, or a persistently broken election
+			// is indistinguishable from the ordinary "another replica is
+			// leader".
+			if err != nil {
+				slog.Warn("leader election attempt failed", "lease", name, "err", err)
+			}
 			select {
 			case <-ctx.Done():
 				return nil
