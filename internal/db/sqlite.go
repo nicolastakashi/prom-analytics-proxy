@@ -1185,9 +1185,10 @@ func (p *SQLiteProvider) ListJobs(ctx context.Context) ([]string, error) {
 	return jobs, nil
 }
 
-func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
-	from, to := PrepareTimeRange(tr, "sqlite")
-	query := `
+// refreshMetricsUsageSummaryQuerySQLite is kept as a package-level const so
+// a test can assert on the exact statement RefreshMetricsUsageSummary runs
+// without risking drift between a duplicated copy and the real query.
+const refreshMetricsUsageSummaryQuerySQLite = `
     INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at, is_unused)
     SELECT c.name,
            COALESCE(ra.alert_count, 0),
@@ -1224,6 +1225,12 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
         WHERE ts BETWEEN ? AND ?
         GROUP BY name
     ) qa USING(name)
+    -- Only recompute catalog rows Prometheus has actually reconfirmed
+    -- within the window: this bounds the scan to actively-synced metrics
+    -- instead of every name ever seen, however long ago. See
+    -- https://github.com/nicolastakashi/prom-analytics-proxy/issues/579.
+    -- Rows that age out simply keep whatever summary they last had.
+    WHERE c.last_synced_at >= ?
     ON CONFLICT(name) DO UPDATE SET
         alert_count=excluded.alert_count,
         record_count=excluded.record_count,
@@ -1233,9 +1240,15 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
         updated_at=excluded.updated_at,
         is_unused=excluded.is_unused;
     `
-	_, err := p.db.ExecContext(ctx, query, to, from, to, from, from, to)
+
+func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	from, to := PrepareTimeRange(tr, "sqlite")
+	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQuerySQLite, to, from, to, from, from, to, from)
 	if err != nil {
 		return fmt.Errorf("refresh summary: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil {
+		warnIfSummaryRefreshWasNoOp(ctx, p.db, n, "sqlite")
 	}
 	return nil
 }
