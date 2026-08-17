@@ -3,6 +3,9 @@ package leaderelection
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"log/slog"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -15,6 +18,43 @@ import (
 type connGetter interface {
 	Conn(ctx context.Context) (*sql.Conn, error)
 }
+
+// releaseUnlockTimeout bounds the pg_advisory_unlock call issued while
+// releasing leadership. release() must run detached from the caller's ctx
+// (see newHeldLease), but not unboundedly: release runs on the SIGTERM path,
+// and an unbounded call there can block process shutdown on the OS TCP
+// timeout.
+const releaseUnlockTimeout = 5 * time.Second
+
+// advisoryConn is the seam newHeldLease needs from the physical connection
+// holding the lock — a dedicated interface (parallel to connGetter's
+// rationale) so tests can inject deterministic unlock outcomes that would
+// otherwise require forcing a real Postgres backend into that exact state.
+// pqAdvisoryConn is the only production implementation, backed by a real
+// *sql.Conn.
+type advisoryConn interface {
+	// unlock issues pg_advisory_unlock and reports whether it actually
+	// released the lock — session-scoped locks make this a real possible
+	// false, not just a defensive check.
+	unlock(ctx context.Context, key int64) (unlocked bool, err error)
+	// discard marks the connection unfit for pool reuse; the next
+	// operation against it physically closes it instead of pooling it.
+	discard()
+	// close returns the connection to the pool for reuse.
+	close() error
+}
+
+type pqAdvisoryConn struct{ c *sql.Conn }
+
+func (p *pqAdvisoryConn) unlock(ctx context.Context, key int64) (bool, error) {
+	var unlocked bool
+	err := p.c.QueryRowContext(ctx, "SELECT pg_advisory_unlock($1)", key).Scan(&unlocked)
+	return unlocked, err
+}
+
+func (p *pqAdvisoryConn) discard() { _ = p.c.Raw(func(any) error { return driver.ErrBadConn }) }
+
+func (p *pqAdvisoryConn) close() error { return p.c.Close() }
 
 // NewAdvisoryElector returns an Elector backed by PostgreSQL session-level
 // advisory locks (pg_try_advisory_lock). db may be nil only if the caller
@@ -56,17 +96,33 @@ func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (
 		return nil, nil, false, nil
 	}
 
+	leaderCtx, release := newHeldLease(ctx, &pqAdvisoryConn{c: conn}, key, name)
+	return leaderCtx, release, true, nil
+}
+
+// newHeldLease builds the leaderCtx/release pair for a lock already held on
+// ac.
+func newHeldLease(ctx context.Context, ac advisoryConn, key int64, name string) (context.Context, func()) {
 	leaderCtx, cancel := context.WithCancel(ctx)
+
 	release := func() {
 		cancel()
-		// Explicit unlock: the lock is scoped to this physical
-		// connection, not to conn.Close()'s pool-return semantics, so
-		// release must say so explicitly. context.Background() is
-		// deliberate too — this is unconditional cleanup, not
-		// cancelable work, and must still run even if ctx is already
-		// canceled.
-		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", key)
-		_ = conn.Close()
+		// Detached from ctx (release must still run even if ctx is already
+		// canceled) but bounded by releaseUnlockTimeout, not unbounded —
+		// see its doc comment.
+		relCtx, relCancel := context.WithTimeout(context.Background(), releaseUnlockTimeout)
+		defer relCancel()
+		unlocked, err := ac.unlock(relCtx, key)
+		if err != nil || !unlocked {
+			// Session-scoped: a connection returned to the pool with the
+			// unlock unresolved would stay leader-locked forever, reused by
+			// ordinary queries. Discarding it forces Postgres to tear down
+			// the session, which releases the lock as a side effect.
+			slog.Warn("advisory unlock failed; discarding connection", "lease", name, "unlocked", unlocked, "err", err)
+			ac.discard()
+			return
+		}
+		_ = ac.close()
 	}
-	return leaderCtx, release, true, nil
+	return leaderCtx, release
 }
