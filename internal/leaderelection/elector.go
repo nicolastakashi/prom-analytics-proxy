@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -48,27 +49,28 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 		}
 
 		leaderCtx, release, ok, err := e.strat.acquireOrHold(ctx, name)
-		if err != nil || !ok {
-			// Both "held by someone else" (err == nil) and a transient
-			// error retry identically here: an error from acquireOrHold
-			// must never cause a silent, permanent return — the only
-			// event allowed to stop this loop is ctx being canceled — but
-			// must also not go unlogged, or a persistently broken election
-			// is indistinguishable from the ordinary "another replica is
-			// leader".
-			if err != nil {
-				slog.Warn("leader election attempt failed", "lease", name, "err", err)
-			}
-			select {
-			case <-ctx.Done():
+		if err != nil {
+			// Must never cause a silent, permanent return — the only event
+			// allowed to stop this loop is ctx being canceled — but must
+			// also not go unlogged, or a persistently broken election
+			// (bad credentials, exhausted pool) is indistinguishable from
+			// the ordinary "another replica is leader".
+			slog.Warn("leader election attempt failed", "lease", name, "err", err)
+			if !e.sleep(ctx, jitter(wait)) {
 				return nil
-			case <-time.After(wait):
 			}
-			if wait < e.backoff.max {
-				wait *= 2
-				if wait > e.backoff.max {
-					wait = e.backoff.max
-				}
+			wait = growBackoff(wait, e.backoff.max)
+			continue
+		}
+		if !ok {
+			// "Held by someone else" is the steady state for every
+			// follower, not a failure — back off here and every standby
+			// walks its wait toward max over time, regressing failover
+			// latency well past the fixed poll interval this replaces.
+			// Poll at the fixed initial interval for as long as
+			// contention persists.
+			if !e.sleep(ctx, e.backoff.initial) {
+				return nil
 			}
 			continue
 		}
@@ -87,4 +89,38 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 		// mid-run (a lease strategy may cancel leaderCtx on its own);
 		// looping back lets the checks above sort out which happened.
 	}
+}
+
+// sleep waits for d or ctx cancellation, whichever comes first, reporting
+// which one happened so callers can distinguish "waited it out" from "must
+// stop".
+func (e *elector) sleep(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
+}
+
+// growBackoff doubles wait, capped at max.
+func growBackoff(wait, max time.Duration) time.Duration {
+	wait *= 2
+	if wait > max {
+		wait = max
+	}
+	return wait
+}
+
+// jitter adds up to ±20% randomness to d so replicas started by the same
+// rollout don't all retry against Postgres in lockstep.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	delta := time.Duration(rand.Int64N(int64(d)/5 + 1))
+	if rand.IntN(2) == 0 {
+		return d - delta
+	}
+	return d + delta
 }

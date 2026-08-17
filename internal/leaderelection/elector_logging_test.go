@@ -38,14 +38,6 @@ func (h *recordingHandler) snapshot() []slog.Record {
 	return append([]slog.Record(nil), h.records...)
 }
 
-// erroringStrategy always fails to acquire with the same error, letting a
-// test observe the error branch's logging without needing a real database.
-type erroringStrategy struct{ err error }
-
-func (s *erroringStrategy) acquireOrHold(context.Context, string) (context.Context, func(), bool, error) {
-	return nil, nil, false, s.err
-}
-
 // TestElector_Run_LogsErrorsFromAcquireOrHold pins the "logged" half of
 // strategy's documented contract for ok=false, err!=nil: the error must
 // never be returned up through Run (already covered elsewhere), but it must
@@ -59,7 +51,7 @@ func TestElector_Run_LogsErrorsFromAcquireOrHold(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	strat := &erroringStrategy{err: errors.New("simulated transient error")}
+	strat := &recordingStrategy{returnErr: errors.New("simulated transient error")}
 	elector := newTestElector(strat, backoffConfig{initial: 5 * time.Millisecond, max: 10 * time.Millisecond})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
