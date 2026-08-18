@@ -24,6 +24,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/ingester"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/inventory"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/leaderelection"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/retention"
 )
 
@@ -169,6 +170,17 @@ func Run(uiFS fs.FS) error {
 		})
 	}
 
+	// Both leader-elected jobs below share one Elector instance: constructing
+	// leaderelection.NewAdvisoryElector twice against the same reg would
+	// panic on duplicate metric registration.
+	var pgElector leaderelection.Elector
+	if db.DatabaseProvider(config.DefaultConfig.Database.Provider) == db.PostGreSQL &&
+		(config.DefaultConfig.Inventory.Enabled || config.DefaultConfig.Retention.Enabled) {
+		dbProvider.WithDB(func(d *sql.DB) {
+			pgElector = leaderelection.NewAdvisoryElector(d, reg)
+		})
+	}
+
 	if config.DefaultConfig.Inventory.Enabled {
 		inv, err := inventory.NewSyncer(dbProvider, config.DefaultConfig.Upstream.URL, config.DefaultConfig, reg)
 		if err != nil {
@@ -176,13 +188,10 @@ func Run(uiFS fs.FS) error {
 		} else {
 			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
 			case db.PostGreSQL:
-				dbProvider.WithDB(func(d *sql.DB) {
-					ctx, cancel := context.WithCancel(context.Background())
-					g.Add(func() error {
-						inventory.WithPGAdvisoryLeadership(ctx, d, 0x6d657472696373, inv.RunLeaderless)
-						return nil
-					}, func(err error) { cancel() })
-				})
+				ctx, cancel := context.WithCancel(context.Background())
+				g.Add(func() error {
+					return pgElector.Run(ctx, "metric-analytics-inventory", inv.RunLeaderless)
+				}, func(err error) { cancel() })
 			default:
 				ctx, cancel := context.WithCancel(context.Background())
 				g.Add(func() error { inv.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
@@ -197,13 +206,10 @@ func Run(uiFS fs.FS) error {
 		} else {
 			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
 			case db.PostGreSQL:
-				dbProvider.WithDB(func(d *sql.DB) {
-					ctx, cancel := context.WithCancel(context.Background())
-					g.Add(func() error {
-						inventory.WithPGAdvisoryLeadership(ctx, d, int64(0x726574656e74696f), retWorker.RunLeaderless)
-						return nil
-					}, func(err error) { cancel() })
-				})
+				ctx, cancel := context.WithCancel(context.Background())
+				g.Add(func() error {
+					return pgElector.Run(ctx, "metric-analytics-retention", retWorker.RunLeaderless)
+				}, func(err error) { cancel() })
 			default:
 				ctx, cancel := context.WithCancel(context.Background())
 				g.Add(func() error { retWorker.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
