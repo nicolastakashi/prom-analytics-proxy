@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -442,6 +444,128 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.
 	})
 	assert.NoError(t, err, "GetSeriesMetadata")
 	assert.Greater(t, res.Total, 0)
+}
+
+// TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows is the
+// PostgreSQL counterpart of TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows:
+// see there for the full rationale.
+func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "fresh_metric", Type: "gauge", Help: "still scraped"},
+		{Name: "stale_metric", Type: "gauge", Help: "no longer scraped"},
+	})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	_, err := rawDB.ExecContext(context.Background(),
+		`UPDATE metrics_catalog SET last_synced_at = NOW() - INTERVAL '90 days' WHERE name = $1`, "stale_metric")
+	assert.NoError(t, err, "backdate stale_metric")
+
+	now := time.Now().UTC()
+	mustInsertQueries(t, p, []Query{
+		{
+			TS: now.Add(-time.Minute), QueryParam: "fresh_metric", TimeParam: now,
+			Duration: time.Millisecond, StatusCode: 200,
+			LabelMatchers: LabelMatchers{{"__name__": "fresh_metric"}}, Type: QueryTypeInstant,
+		},
+		{
+			TS: now.Add(-time.Minute), QueryParam: "stale_metric", TimeParam: now,
+			Duration: time.Millisecond, StatusCode: 200,
+			LabelMatchers: LabelMatchers{{"__name__": "stale_metric"}}, Type: QueryTypeInstant,
+		},
+	})
+
+	err = p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	// Select all four counts, not just query_count: is_unused is derived
+	// from all of them, so asserting on the whole row is what actually
+	// tells us WHICH count is off if this ever fails again, instead of
+	// leaving is_unused's false/true a mystery relative to a single count.
+	var fresh summaryRow
+	row := rawDB.QueryRowContext(context.Background(),
+		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = $1`, "fresh_metric")
+	require.NoError(t, row.Scan(&fresh.Alert, &fresh.Record, &fresh.Dashboard, &fresh.Query, &fresh.Unused))
+	assert.Greater(t, fresh.Query, 0, "fresh_metric should have been recomputed with real usage")
+	assert.False(t, fresh.Unused, "fresh_metric should be marked used")
+
+	var stale summaryRow
+	row = rawDB.QueryRowContext(context.Background(),
+		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = $1`, "stale_metric")
+	require.NoError(t, row.Scan(&stale.Alert, &stale.Record, &stale.Dashboard, &stale.Query, &stale.Unused))
+	assert.Equal(t, summaryRow{Alert: 0, Record: 0, Dashboard: 0, Query: 0, Unused: false}, stale,
+		"stale_metric's summary should remain untouched at its placeholder values - got %+v", stale)
+}
+
+// TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC guards last_synced_at
+// staying in the same clock domain as the $1 bound RefreshMetricsUsageSummary
+// compares it against (tr.From.UTC(), via PrepareTimeRange): last_synced_at is
+// TIMESTAMP WITHOUT TIME ZONE, so a bare NOW() lands in the writing session's
+// TimeZone instead of UTC, silently turning the freshness filter into a
+// permanent no-op on any server whose TimeZone isn't UTC. This container's own
+// session already defaults to TimeZone=UTC - which would let the bug pass
+// vacuously - so the database default is pinned to a fixed, DST-free non-UTC
+// offset before the provider (and its connection pool) ever connects.
+func TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC(t *testing.T) {
+	ctx := context.Background()
+	pgContainer, err := postgres.Run(ctx, "postgres:16",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
+	}
+	defer func() { _ = pgContainer.Terminate(ctx) }()
+
+	host, err := pgContainer.Host(ctx)
+	require.NoError(t, err, "container host")
+	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
+	require.NoError(t, err, "container port")
+	portNum, err := strconv.Atoi(port.Port())
+	require.NoError(t, err, "container port number")
+
+	bootstrapDSN := fmt.Sprintf(
+		"host='%s' port=%d user='testuser' password='testpass' dbname='testdb' sslmode='disable'",
+		host, portNum,
+	)
+	bootstrap, err := sql.Open("postgres", bootstrapDSN)
+	require.NoError(t, err, "open bootstrap connection")
+	_, err = bootstrap.ExecContext(ctx, `ALTER DATABASE testdb SET TIME ZONE 'Etc/GMT+5'`)
+	require.NoError(t, err, "pin database default TimeZone to a fixed non-UTC offset")
+	require.NoError(t, bootstrap.Close())
+
+	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:        host,
+		Port:        portNum,
+		User:        "testuser",
+		Password:    "testpass",
+		Database:    "testdb",
+		SSLMode:     "disable",
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err, "failed to init postgres provider")
+	defer func() { _ = p.Close() }()
+
+	require.NoError(t, p.UpsertMetricsCatalog(ctx, []MetricCatalogItem{{Name: "tz_metric", Type: "gauge", Help: "h"}}))
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	var lastSynced time.Time
+	row := rawDB.QueryRowContext(ctx, `SELECT last_synced_at FROM metrics_catalog WHERE name = $1`, "tz_metric")
+	require.NoError(t, row.Scan(&lastSynced), "scan last_synced_at")
+
+	assert.WithinDuration(t, time.Now().UTC(), lastSynced, 10*time.Second,
+		"last_synced_at must be written in UTC regardless of the writing session's TimeZone (pinned to Etc/GMT+5 here); "+
+			"a bare NOW() would drift by the session's offset instead")
 }
 
 func TestPostgreSQL_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {

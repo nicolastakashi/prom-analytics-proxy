@@ -1078,9 +1078,14 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
+	// last_synced_at is stored as TIMESTAMP WITHOUT TIME ZONE, so a bare NOW()
+	// lands in the server session's time zone while RefreshMetricsUsageSummary
+	// compares it against tr.From.UTC() (see PrepareTimeRange). AT TIME ZONE
+	// 'UTC' pins the written value to UTC so the two stay in the same clock
+	// domain regardless of session TimeZone.
 	stmt, err := tx.PrepareContext(ctx, `
         INSERT INTO metrics_catalog(name, type, help, unit, last_synced_at)
-        VALUES ($1, $2, $3, $4, NOW())
+        VALUES ($1, $2, $3, $4, NOW() AT TIME ZONE 'UTC')
         ON CONFLICT(name) DO UPDATE SET
           type=EXCLUDED.type,
           help=EXCLUDED.help,
@@ -1134,9 +1139,10 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	return nil
 }
 
-func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
-	from, to := PrepareTimeRange(tr, "postgresql")
-	query := `
+// refreshMetricsUsageSummaryQueryPostgreSQL is kept as a package-level const
+// so a test can assert on the exact statement RefreshMetricsUsageSummary
+// runs without risking drift between a duplicated copy and the real query.
+const refreshMetricsUsageSummaryQueryPostgreSQL = `
     INSERT INTO metrics_usage_summary(name, alert_count, record_count, dashboard_count, query_count, last_queried_at, updated_at, is_unused)
     SELECT c.name,
            COALESCE(ra.alert_count, 0),
@@ -1173,6 +1179,14 @@ func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr 
         WHERE ts BETWEEN $1 AND $2
         GROUP BY 1
     ) qa USING(name)
+    -- Only recompute catalog rows Prometheus has actually reconfirmed
+    -- within the window: this bounds the scan to actively-synced metrics
+    -- instead of every name ever seen, however long ago. See
+    -- https://github.com/nicolastakashi/prom-analytics-proxy/issues/579.
+    -- Rows that age out simply keep whatever summary they last had. Reuses
+    -- $1 rather than adding a new bind param, since it's the same lower
+    -- bound already used above.
+    WHERE c.last_synced_at >= $1
     ON CONFLICT(name) DO UPDATE SET
         alert_count=EXCLUDED.alert_count,
         record_count=EXCLUDED.record_count,
@@ -1182,9 +1196,15 @@ func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr 
         updated_at=EXCLUDED.updated_at,
         is_unused=EXCLUDED.is_unused;
     `
-	_, err := p.db.ExecContext(ctx, query, from, to)
+
+func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	from, to := PrepareTimeRange(tr, "postgresql")
+	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQueryPostgreSQL, from, to)
 	if err != nil {
 		return fmt.Errorf("refresh summary: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil {
+		warnIfSummaryRefreshWasNoOp(ctx, p.db, n, "postgresql")
 	}
 	return nil
 }
