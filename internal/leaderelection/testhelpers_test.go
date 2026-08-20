@@ -55,12 +55,14 @@ func newTestPostgresDB(t *testing.T) *sql.DB {
 	// directly here instead. Keep this DDL in sync with that file if the
 	// schema ever changes.
 	_, err = db.ExecContext(ctx, `
+		CREATE SEQUENCE IF NOT EXISTS leader_lease_fence_token_seq;
 		CREATE TABLE IF NOT EXISTS leader_leases (
 			lease_name  TEXT PRIMARY KEY,
 			holder_id   TEXT NOT NULL,
-			fence_token BIGINT NOT NULL DEFAULT 0,
+			fence_token BIGINT NOT NULL DEFAULT nextval('leader_lease_fence_token_seq'),
 			expires_at  TIMESTAMPTZ NOT NULL
-		)`)
+		);
+		ALTER SEQUENCE leader_lease_fence_token_seq OWNED BY leader_leases.fence_token`)
 	require.NoError(t, err, "create leader_leases table")
 
 	return db

@@ -17,14 +17,22 @@ import (
 // affects no row, so RETURNING yields sql.ErrNoRows: that's the "not
 // acquired" signal. now() and make_interval() run server-side so every
 // comparison and every writer agree on the same clock.
+//
+// fence_token draws from leader_lease_fence_token_seq rather than being
+// incremented in place — see docs/leader-election.md for why a per-row
+// counter can't give the same monotonicity guarantee. Every execution,
+// including a same-holder renewal, burns one sequence value via
+// nextval() in the VALUES clause: Postgres evaluates it to build EXCLUDED
+// even when the ON CONFLICT branch is what actually runs, and the CASE
+// below discards it whenever the token itself doesn't change.
 const acquireOrRenewLeaseSQL = `
 INSERT INTO leader_leases (lease_name, holder_id, fence_token, expires_at)
-VALUES ($1, $2, 1, now() + make_interval(secs => $3))
+VALUES ($1, $2, nextval('leader_lease_fence_token_seq'), now() + make_interval(secs => $3))
 ON CONFLICT (lease_name) DO UPDATE SET
     holder_id   = EXCLUDED.holder_id,
     fence_token = CASE WHEN leader_leases.holder_id = EXCLUDED.holder_id
                         THEN leader_leases.fence_token
-                        ELSE leader_leases.fence_token + 1
+                        ELSE EXCLUDED.fence_token
                    END,
     expires_at  = EXCLUDED.expires_at
 WHERE leader_leases.expires_at < now()
