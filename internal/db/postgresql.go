@@ -698,6 +698,21 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 		return nil
 	}
 
+	// Collect into a slice and sort by (id, serie) - the same ON CONFLICT
+	// target below - instead of iterating the dedup map directly, so this
+	// function stays safe under concurrent calls with overlapping rows in
+	// any order - the same deadlock precondition as #592.
+	normalized := make([]DashboardUsage, 0, len(dedup))
+	for _, d := range dedup {
+		normalized = append(normalized, d)
+	}
+	sort.Slice(normalized, func(i, j int) bool {
+		if normalized[i].Id != normalized[j].Id {
+			return normalized[i].Id < normalized[j].Id
+		}
+		return normalized[i].Serie < normalized[j].Serie
+	})
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -721,7 +736,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 	defer CloseResource(stmt)
 
 	now := time.Now().UTC()
-	for _, d := range dedup {
+	for _, d := range normalized {
 		if _, err := stmt.ExecContext(ctx, d.Id, d.Serie, d.Name, d.URL, now); err != nil {
 			return fmt.Errorf("failed to execute upsert: %w", err)
 		}
