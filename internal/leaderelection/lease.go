@@ -121,8 +121,8 @@ type leaseRenewer interface {
 }
 
 // watchdog renews the lease via r every renewInterval for as long as
-// leaderCtx is alive, canceling it the moment leadership can no longer be
-// trusted:
+// leaderCtx is alive (via runCancelWatchdog), canceling it the moment
+// leadership can no longer be trusted:
 //   - !stillOK (err == nil): the lease is confirmed held by another
 //     holder — authoritative, cancels immediately.
 //   - err != nil: transient (e.g. a dropped connection); retried on the
@@ -130,36 +130,24 @@ type leaseRenewer interface {
 //     reaches ttl, since by then the lease may genuinely have expired
 //     server-side.
 func watchdog(leaderCtx context.Context, cancel context.CancelFunc, r leaseRenewer, name string, renewInterval, ttl time.Duration) chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(renewInterval)
-		defer ticker.Stop()
-		lastSuccess := time.Now()
-		for {
-			select {
-			case <-leaderCtx.Done():
-				return
-			case <-ticker.C:
-				_, stillOK, err := r.tryAcquireOrRenew(leaderCtx, name)
-				switch {
-				case err == nil && stillOK:
-					lastSuccess = time.Now()
-				case err == nil && !stillOK:
-					slog.Warn("lease lost to another holder; stepping down", "lease", name)
-					cancel()
-					return
-				case time.Since(lastSuccess) >= ttl:
-					slog.Warn("lease renewal failing past TTL margin; stepping down", "lease", name, "err", err)
-					cancel()
-					return
-				default:
-					slog.Warn("lease renewal failed; retrying within TTL margin", "lease", name, "err", err)
-				}
-			}
+	lastSuccess := time.Now()
+	return runCancelWatchdog(leaderCtx, cancel, renewInterval, func(renewCtx context.Context) bool {
+		_, stillOK, err := r.tryAcquireOrRenew(renewCtx, name)
+		switch {
+		case err == nil && stillOK:
+			lastSuccess = time.Now()
+			return true
+		case err == nil && !stillOK:
+			slog.Warn("lease lost to another holder; stepping down", "lease", name)
+			return false
+		case time.Since(lastSuccess) >= ttl:
+			slog.Warn("lease renewal failing past TTL margin; stepping down", "lease", name, "err", err)
+			return false
+		default:
+			slog.Warn("lease renewal failed; retrying within TTL margin", "lease", name, "err", err)
+			return true
 		}
-	}()
-	return done
+	})
 }
 
 // tryAcquireOrRenew is the one-round-trip SQL call shared by the initial

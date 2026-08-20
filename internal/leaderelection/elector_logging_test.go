@@ -5,38 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
-
-// recordingHandler is a hand-written slog.Handler fake that records every
-// record handled, so a test can assert on log output without parsing text
-// from an io.Writer.
-type recordingHandler struct {
-	mu      sync.Mutex
-	records []slog.Record
-}
-
-func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
-
-func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.records = append(h.records, r)
-	return nil
-}
-
-func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *recordingHandler) WithGroup(string) slog.Handler      { return h }
-
-func (h *recordingHandler) snapshot() []slog.Record {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return append([]slog.Record(nil), h.records...)
-}
 
 // TestElector_Run_LogsErrorsFromAcquireOrHold pins the "logged" half of
 // strategy's documented contract for ok=false, err!=nil: the error must
