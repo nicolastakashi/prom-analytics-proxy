@@ -7,12 +7,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
-import { ColumnDef, SortingState } from "@tanstack/react-table";
+import { SortingState } from "@tanstack/react-table";
+import { LegacyColumnDef } from "@tanstack/react-table/legacy";
+import type { TableData } from "@/components/data-table/types";
 import { DateRange } from "@/lib/types";
 import { formatUnit } from "@/lib/utils";
 
 // Define our extended column type with maxWidth
-type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+type ExtendedColumnDef<
+  TData extends TableData,
+  TValue = unknown,
+> = LegacyColumnDef<TData, TValue> & {
   maxWidth?: string | number;
 };
 
@@ -214,11 +219,11 @@ const getDashboardColumns = (): ExtendedColumnDef<
 ];
 
 // Generic tab content component
-interface TabContentProps<T> {
+interface TabContentProps<T extends TableData> {
   isLoading: boolean;
   error: unknown;
   data: { data: T[]; totalPages: number } | undefined;
-  columns: ColumnDef<T, unknown>[];
+  columns: LegacyColumnDef<T, unknown>[];
   state: TabState;
   searchColumn: string;
   pageSize: number;
@@ -228,7 +233,7 @@ interface TabContentProps<T> {
 }
 
 // DataTable doesn't enforce the searchColumn type at runtime, so we'll use this workaround
-function TabContent<T>({
+function TabContent<T extends TableData>({
   isLoading,
   error,
   data,

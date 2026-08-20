@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
-import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import type { SortingState } from "@tanstack/react-table";
+import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
+import type { TableData } from "@/components/data-table/types";
 import { useDateRange } from "@/contexts/date-range";
 import { useDebounce } from "@/hooks/use-debounce";
 import { getQueryExpressions } from "@/api/queries";
@@ -20,7 +22,10 @@ import { useSearchNumberState, useSearchState } from "@/hooks/use-search-state";
 import { formatUnit } from "@/lib/utils";
 
 // Extend ColumnDef to support maxWidth so DataTable can apply ellipsis + tooltip
-type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+type ExtendedColumnDef<
+  TData extends TableData,
+  TValue = unknown,
+> = LegacyColumnDef<TData, TValue> & {
   maxWidth?: string | number;
 };
 

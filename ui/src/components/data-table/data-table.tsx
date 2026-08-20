@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
+import { flexRender, SortingState, OnChangeFn } from "@tanstack/react-table";
 import {
-  flexRender,
   getCoreRowModel,
-  useReactTable,
+  useLegacyTable,
   getPaginationRowModel,
   getSortedRowModel,
   getFilteredRowModel,
-  SortingState,
-  OnChangeFn,
-  ColumnDef,
-} from "@tanstack/react-table";
+  LegacyColumnDef,
+} from "@tanstack/react-table/legacy";
 import {
   Table,
   TableBody,
@@ -26,9 +24,9 @@ import {
 } from "@/components/ui/tooltip";
 import { DataTableFilter } from "./data-table-filter";
 import { DataTablePagination } from "./data-table-pagination";
-import { DataTableProps } from "./types";
+import { DataTableProps, TableData } from "./types";
 
-export function DataTable<TData>({
+export function DataTable<TData extends TableData>({
   data,
   columns,
   searchColumn,
@@ -58,21 +56,25 @@ export function DataTable<TData>({
   );
   const [currentPageSize] = useState(pageSize);
 
-  // Use external state if in server-side mode
+  // Use external state if in server-side mode. These effects intentionally
+  // sync controlled props into local state for the server-side mode.
   useEffect(() => {
     if (serverSide && externalSortingState) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSorting(externalSortingState);
     }
   }, [serverSide, externalSortingState]);
 
   useEffect(() => {
     if (serverSide && externalFilterValue !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGlobalFilter(externalFilterValue);
     }
   }, [serverSide, externalFilterValue]);
 
   useEffect(() => {
     if (serverSide && externalCurrentPage !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPageIndex(externalCurrentPage - 1);
     }
   }, [serverSide, externalCurrentPage]);
@@ -117,14 +119,12 @@ export function DataTable<TData>({
   // Reset to first page when data changes (for client-side mode)
   useEffect(() => {
     if (!serverSide) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPageIndex(0);
     }
   }, [data, serverSide]);
 
-  // TanStack Table returns non-memoizable helpers; this component is already
-  // opted out of React Compiler memoization with "use no memo".
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+  const table = useLegacyTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -200,7 +200,7 @@ export function DataTable<TData>({
                 >
                   {row.getVisibleCells().map((cell) => {
                     // Get maxWidth from column def if it exists
-                    const columnDef = cell.column.columnDef as ColumnDef<
+                    const columnDef = cell.column.columnDef as LegacyColumnDef<
                       TData,
                       unknown
                     > & { maxWidth?: string | number };

@@ -1,9 +1,17 @@
-import { ColumnDef, SortingState } from "@tanstack/react-table";
+import { SortingState } from "@tanstack/react-table";
+import { LegacyColumnDef } from "@tanstack/react-table/legacy";
+
+// TanStack Table v9's RowData bound requires an index signature; row shapes
+// throughout this app are plain interfaces, so widen with `any` here once.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TableData = Record<string, any>;
 
 // Core DataTable props interface
-export interface DataTableProps<TData> {
+export interface DataTableProps<TData extends TableData> {
   data: TData[];
-  columns: Array<ColumnDef<TData, unknown> & { maxWidth?: string | number }>;
+  columns: Array<
+    LegacyColumnDef<TData, unknown> & { maxWidth?: string | number }
+  >;
   searchColumn?: keyof TData;
   pagination?: boolean;
   pageSize?: number;
