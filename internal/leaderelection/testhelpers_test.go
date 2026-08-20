@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,4 +94,21 @@ func newTestElector(strat strategy, backoff backoffConfig) *elector {
 func newTestElectorWithRegistry(strat strategy, backoff backoffConfig) (*elector, *prometheus.Registry) {
 	reg := prometheus.NewRegistry()
 	return newElector(strat, backoff, reg), reg
+}
+
+// releaseTrackingStrategy always grants leadership immediately and records
+// whether release() has run — enough seam for any test that needs a
+// trivial, always-succeeding strategy without a real database, whether or
+// not it cares about the release tracking itself.
+type releaseTrackingStrategy struct {
+	released atomic.Bool
+}
+
+func (s *releaseTrackingStrategy) acquireOrHold(ctx context.Context, _ string) (context.Context, func(), bool, error) {
+	leaderCtx, cancel := context.WithCancel(ctx)
+	release := func() {
+		cancel()
+		s.released.Store(true)
+	}
+	return leaderCtx, release, true, nil
 }

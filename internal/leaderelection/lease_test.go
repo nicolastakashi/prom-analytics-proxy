@@ -12,115 +12,119 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLeaseStrategy_AcquireWhenFree_Succeeds(t *testing.T) {
+// TestLeaseStrategy_Lifecycle groups the core acquire/renew/release
+// invariants as subtests sharing one Postgres container: each already
+// operates on its own lease name, so nothing here needs isolation beyond
+// that, and there's no reason to pay for a separate container per check.
+func TestLeaseStrategy_Lifecycle(t *testing.T) {
 	db := newTestPostgresDB(t)
-	strat := newLeaseStrategy(db, time.Second, noRenewal)
 
-	_, release, ok, err := strat.acquireOrHold(context.Background(), "lifecycle-test")
-	require.NoError(t, err)
-	require.True(t, ok)
-	defer release()
-}
+	t.Run("AcquireWhenFree_Succeeds", func(t *testing.T) {
+		strat := newLeaseStrategy(db, time.Second, noRenewal)
 
-// TestLeaseStrategy_AcquireOrHold_ReturnsGenuineErrorUnchanged proves
-// acquireOrHold's error path (as opposed to the ordinary "held by someone
-// else" ok=false/err=nil case): a real failure out of tryAcquireOrRenew —
-// here, an already-canceled ctx, which QueryRowContext reports directly
-// rather than as sql.ErrNoRows — must come back as a non-nil err with ctx
-// and release both nil, not be mistaken for contention.
-func TestLeaseStrategy_AcquireOrHold_ReturnsGenuineErrorUnchanged(t *testing.T) {
-	db := newTestPostgresDB(t)
-	strat := newLeaseStrategy(db, time.Second, noRenewal)
+		_, release, ok, err := strat.acquireOrHold(context.Background(), "lifecycle-test")
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer release()
+	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	// AcquireOrHold_ReturnsGenuineErrorUnchanged proves acquireOrHold's
+	// error path (as opposed to the ordinary "held by someone else"
+	// ok=false/err=nil case): a real failure out of tryAcquireOrRenew —
+	// here, an already-canceled ctx, which QueryRowContext reports
+	// directly rather than as sql.ErrNoRows — must come back as a
+	// non-nil err with ctx and release both nil, not be mistaken for
+	// contention.
+	t.Run("AcquireOrHold_ReturnsGenuineErrorUnchanged", func(t *testing.T) {
+		strat := newLeaseStrategy(db, time.Second, noRenewal)
 
-	leaderCtx, release, ok, err := strat.acquireOrHold(ctx, "canceled-ctx-test")
-	assert.Error(t, err)
-	assert.False(t, ok)
-	assert.Nil(t, leaderCtx)
-	assert.Nil(t, release)
-}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
-func TestLeaseStrategy_FailsWhenHeldByAnotherLiveHolder(t *testing.T) {
-	db := newTestPostgresDB(t)
-	holderA := newLeaseStrategy(db, time.Second, noRenewal)
-	holderB := newLeaseStrategy(db, time.Second, noRenewal)
+		leaderCtx, release, ok, err := strat.acquireOrHold(ctx, "canceled-ctx-test")
+		assert.Error(t, err)
+		assert.False(t, ok)
+		assert.Nil(t, leaderCtx)
+		assert.Nil(t, release)
+	})
 
-	_, release, ok, err := holderA.acquireOrHold(context.Background(), "contended-test")
-	require.NoError(t, err)
-	require.True(t, ok)
-	defer release()
+	t.Run("FailsWhenHeldByAnotherLiveHolder", func(t *testing.T) {
+		holderA := newLeaseStrategy(db, time.Second, noRenewal)
+		holderB := newLeaseStrategy(db, time.Second, noRenewal)
 
-	_, _, ok, err = holderB.acquireOrHold(context.Background(), "contended-test")
-	assert.NoError(t, err)
-	assert.False(t, ok, "a second holder must not acquire a lease still held by someone else")
-}
+		_, release, ok, err := holderA.acquireOrHold(context.Background(), "contended-test")
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer release()
 
-func TestLeaseStrategy_SucceedsAfterExpiry(t *testing.T) {
-	db := newTestPostgresDB(t)
-	holderA := newLeaseStrategy(db, 50*time.Millisecond, noRenewal)
-	holderB := newLeaseStrategy(db, time.Second, noRenewal)
+		_, _, ok, err = holderB.acquireOrHold(context.Background(), "contended-test")
+		assert.NoError(t, err)
+		assert.False(t, ok, "a second holder must not acquire a lease still held by someone else")
+	})
 
-	_, _, ok, err := holderA.acquireOrHold(context.Background(), "expiry-test")
-	assert.NoError(t, err)
-	assert.True(t, ok)
-	// holderA never renews again, and noRenewal keeps its watchdog dormant
-	// for the life of this test — simulating it having disappeared.
+	t.Run("SucceedsAfterExpiry", func(t *testing.T) {
+		holderA := newLeaseStrategy(db, 50*time.Millisecond, noRenewal)
+		holderB := newLeaseStrategy(db, time.Second, noRenewal)
 
-	time.Sleep(100 * time.Millisecond)
+		_, _, ok, err := holderA.acquireOrHold(context.Background(), "expiry-test")
+		assert.NoError(t, err)
+		assert.True(t, ok)
+		// holderA never renews again, and noRenewal keeps its watchdog
+		// dormant for the life of this test — simulating it having
+		// disappeared.
 
-	_, release, ok, err := holderB.acquireOrHold(context.Background(), "expiry-test")
-	require.NoError(t, err)
-	require.True(t, ok, "a lease must become acquirable again once it has expired")
-	defer release()
-}
+		time.Sleep(100 * time.Millisecond)
 
-func TestLeaseStrategy_RenewExtendsExpiryWithoutBumpingFenceToken(t *testing.T) {
-	db := newTestPostgresDB(t)
-	holderA := newLeaseStrategy(db, time.Second, noRenewal)
+		_, release, ok, err := holderB.acquireOrHold(context.Background(), "expiry-test")
+		require.NoError(t, err)
+		require.True(t, ok, "a lease must become acquirable again once it has expired")
+		defer release()
+	})
 
-	ctx := context.Background()
-	_, release, ok, err := holderA.acquireOrHold(ctx, "renew-test")
-	require.NoError(t, err)
-	require.True(t, ok)
-	defer release()
+	t.Run("RenewExtendsExpiryWithoutBumpingFenceToken", func(t *testing.T) {
+		holderA := newLeaseStrategy(db, time.Second, noRenewal)
 
-	tokenAfterAcquire, expiresAfterAcquire := queryLease(t, db, "renew-test")
+		ctx := context.Background()
+		_, release, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer release()
 
-	time.Sleep(10 * time.Millisecond)
-	_, release2, ok, err := holderA.acquireOrHold(ctx, "renew-test")
-	require.NoError(t, err)
-	require.True(t, ok)
-	defer release2()
+		tokenAfterAcquire, expiresAfterAcquire := queryLease(t, db, "renew-test")
 
-	tokenAfterRenew, expiresAfterRenew := queryLease(t, db, "renew-test")
+		time.Sleep(10 * time.Millisecond)
+		_, release2, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		require.NoError(t, err)
+		require.True(t, ok)
+		defer release2()
 
-	assert.Equal(t, tokenAfterAcquire, tokenAfterRenew, "the same holder renewing must not bump the fence token")
-	assert.True(t, expiresAfterRenew.After(expiresAfterAcquire), "renewing must extend expires_at")
-}
+		tokenAfterRenew, expiresAfterRenew := queryLease(t, db, "renew-test")
 
-// TestLeaseStrategy_ReleaseAllowsImmediateReacquisitionByAnotherHolder
-// pins graceful handoff: a holder that steps down via release() must let
-// another replica take over immediately, not force it to wait out the
-// full TTL as an ungraceful death would (see TestLeaseStrategy_
-// FailoverAfterUngracefulDeath for that other case). The TTL here is
-// deliberately long — holder B succeeding can only be explained by
-// release() itself, not by expiry.
-func TestLeaseStrategy_ReleaseAllowsImmediateReacquisitionByAnotherHolder(t *testing.T) {
-	db := newTestPostgresDB(t)
-	holderA := newLeaseStrategy(db, time.Minute, noRenewal)
-	holderB := newLeaseStrategy(db, time.Minute, noRenewal)
+		assert.Equal(t, tokenAfterAcquire, tokenAfterRenew, "the same holder renewing must not bump the fence token")
+		assert.True(t, expiresAfterRenew.After(expiresAfterAcquire), "renewing must extend expires_at")
+	})
 
-	_, release, ok, err := holderA.acquireOrHold(context.Background(), "handoff-test")
-	require.NoError(t, err)
-	require.True(t, ok)
+	// ReleaseAllowsImmediateReacquisitionByAnotherHolder pins graceful
+	// handoff: a holder that steps down via release() must let another
+	// replica take over immediately, not force it to wait out the full
+	// TTL as an ungraceful death would (see
+	// TestLeaseStrategy_FailoverAfterUngracefulDeath for that other
+	// case). The TTL here is deliberately long — holder B succeeding can
+	// only be explained by release() itself, not by expiry.
+	t.Run("ReleaseAllowsImmediateReacquisitionByAnotherHolder", func(t *testing.T) {
+		holderA := newLeaseStrategy(db, time.Minute, noRenewal)
+		holderB := newLeaseStrategy(db, time.Minute, noRenewal)
 
-	release()
+		_, release, ok, err := holderA.acquireOrHold(context.Background(), "handoff-test")
+		require.NoError(t, err)
+		require.True(t, ok)
 
-	_, _, ok, err = holderB.acquireOrHold(context.Background(), "handoff-test")
-	assert.NoError(t, err)
-	assert.True(t, ok, "a graceful release must let another holder acquire immediately, without waiting out the TTL")
+		release()
+
+		_, _, ok, err = holderB.acquireOrHold(context.Background(), "handoff-test")
+		assert.NoError(t, err)
+		assert.True(t, ok, "a graceful release must let another holder acquire immediately, without waiting out the TTL")
+	})
 }
 
 // TestLeaseStrategy_Release_LogsWarningWhenExpiryUpdateFails proves
@@ -130,6 +134,9 @@ func TestLeaseStrategy_ReleaseAllowsImmediateReacquisitionByAnotherHolder(t *tes
 // release still runs), and must log the failure rather than drop it
 // silently, since the only consequence at that point is the next holder
 // waiting out the full TTL instead of taking over immediately.
+//
+// Kept out of TestLeaseStrategy_Lifecycle's shared container: this test
+// closes the DB itself, which would take every other subtest down with it.
 func TestLeaseStrategy_Release_LogsWarningWhenExpiryUpdateFails(t *testing.T) {
 	handler := &recordingHandler{}
 	prev := slog.Default()
