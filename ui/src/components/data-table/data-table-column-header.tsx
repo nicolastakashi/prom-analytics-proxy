@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { Column } from "@tanstack/react-table";
-import { DataTableColumnHeaderProps } from "./types";
+import { LegacyColumn } from "@tanstack/react-table/legacy";
+import { DataTableColumnHeaderProps, TableData } from "./types";
 
 export function DataTableColumnHeader({
   column,
@@ -9,7 +9,7 @@ export function DataTableColumnHeader({
   className,
 }: DataTableColumnHeaderProps) {
   // Type assertion for column as it comes from the interface as unknown
-  const tableColumn = column as Column<unknown, unknown>;
+  const tableColumn = column as LegacyColumn<TableData, unknown>;
 
   if (!tableColumn.getCanSort()) {
     return <div className={className}>{title}</div>;

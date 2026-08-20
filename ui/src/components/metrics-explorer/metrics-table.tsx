@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { type ColumnDef, SortingState } from "@tanstack/react-table";
+import { SortingState } from "@tanstack/react-table";
+import { type LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { MetricTypeTag } from "@/components/metrics-explorer/metric-type-tag";
 import { useLocation } from "wouter";
 import { MetricMetadata, PagedResult, TableState } from "@/lib/types";
@@ -84,7 +85,7 @@ export function MetricsTable({
     });
   };
 
-  const columns: ColumnDef<MetricMetadata>[] = [
+  const columns: LegacyColumnDef<MetricMetadata>[] = [
     {
       accessorKey: "name",
       size: 200,

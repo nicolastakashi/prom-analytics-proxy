@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { type ColumnDef, type SortingState } from "@tanstack/react-table";
+import { type SortingState } from "@tanstack/react-table";
+import { type LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { ArrowUpDown } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Producer } from "@/lib/types";
@@ -35,7 +36,7 @@ export function MetricProducers({ metricName }: MetricProducersProps) {
     0,
   );
 
-  const columns = React.useMemo<ColumnDef<Producer>[]>(
+  const columns = React.useMemo<LegacyColumnDef<Producer>[]>(
     () => [
       {
         accessorKey: "job",

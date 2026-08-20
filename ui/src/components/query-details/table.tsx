@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
-import type { ColumnDef, SortingState } from "@tanstack/react-table";
+import type { SortingState } from "@tanstack/react-table";
+import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
+import type { TableData } from "@/components/data-table/types";
 import { useDateRange } from "@/contexts/date-range";
 import { getQueryExecutions } from "@/api/queries";
 import type { PagedResult, QueryExecution } from "@/lib/types";
@@ -15,7 +17,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useSearchParams } from "wouter";
 
-type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+type ExtendedColumnDef<
+  TData extends TableData,
+  TValue = unknown,
+> = LegacyColumnDef<TData, TValue> & {
   maxWidth?: string | number;
 };
 
