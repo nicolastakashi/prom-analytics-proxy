@@ -1242,6 +1242,22 @@ func (p *PostGreSQLProvider) UpsertMetricsJobIndex(ctx context.Context, items []
 	if len(items) == 0 {
 		return nil
 	}
+	// Sort by (name, job) before upserting, so this function stays safe
+	// under concurrent calls with overlapping rows in any order - the same
+	// deadlock precondition as #592. Unlike UpsertMetricsCatalog, no
+	// de-duplication is needed: the per-row loop stays as-is, so a
+	// repeated (name, job) pair within one call is just two separate
+	// statements, not the single-statement "ON CONFLICT DO UPDATE command
+	// cannot affect row a second time" case that requires it there.
+	sorted := make([]MetricJobIndexItem, len(items))
+	copy(sorted, items)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Name != sorted[j].Name {
+			return sorted[i].Name < sorted[j].Name
+		}
+		return sorted[i].Job < sorted[j].Job
+	})
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -1257,7 +1273,7 @@ func (p *PostGreSQLProvider) UpsertMetricsJobIndex(ctx context.Context, items []
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer CloseResource(stmt)
-	for _, it := range items {
+	for _, it := range sorted {
 		if _, err := stmt.ExecContext(ctx, it.Name, it.Job); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("exec: %w", err)
