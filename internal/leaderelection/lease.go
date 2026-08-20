@@ -81,31 +81,10 @@ func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (context
 	}
 
 	// Leadership acquired. A background watchdog renews on renewInterval
-	// for as long as leaderCtx is alive; the moment a renewal attempt
-	// stops succeeding for this holder — lost to someone else, or a DB
-	// error — it cancels leaderCtx immediately, rather than waiting for
-	// fn to return on its own. This is what makes a lost lease actually
-	// stop in-flight work, closing the gap a one-time leadership check
-	// (checked once, then trusted for the rest of a run) would leave.
+	// for as long as leaderCtx is alive — see watchdog for how it decides
+	// when a renewal failure actually means leadership is gone.
 	leaderCtx, cancel := context.WithCancel(ctx)
-	watchdogDone := make(chan struct{})
-	go func() {
-		defer close(watchdogDone)
-		ticker := time.NewTicker(s.renewInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-leaderCtx.Done():
-				return
-			case <-ticker.C:
-				_, stillOK, err := s.tryAcquireOrRenew(leaderCtx, name)
-				if err != nil || !stillOK {
-					cancel()
-					return
-				}
-			}
-		}
-	}()
+	watchdogDone := watchdog(leaderCtx, cancel, s, name, s.renewInterval, s.ttl)
 
 	release := func() {
 		cancel()
@@ -122,6 +101,57 @@ func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (context
 		}
 	}
 	return leaderCtx, release, true, nil
+}
+
+// leaseRenewer is the seam watchdog needs to attempt a renewal — a
+// dedicated interface (parallel to advisoryConn's rationale) purely so
+// tests can inject deterministic transient-then-recovered failure
+// sequences that a real Postgres connection can't be forced into on
+// demand. *leaseStrategy satisfies this trivially via tryAcquireOrRenew.
+type leaseRenewer interface {
+	tryAcquireOrRenew(ctx context.Context, name string) (fenceToken int64, ok bool, err error)
+}
+
+// watchdog renews the lease via r every renewInterval for as long as
+// leaderCtx is alive, canceling it the moment leadership can no longer be
+// trusted:
+//   - !stillOK (err == nil): the lease is confirmed held by another
+//     holder — authoritative, cancels immediately.
+//   - err != nil: transient (e.g. a dropped connection); retried on the
+//     next tick. Cancels only once time since the last successful renewal
+//     reaches ttl, since by then the lease may genuinely have expired
+//     server-side.
+func watchdog(leaderCtx context.Context, cancel context.CancelFunc, r leaseRenewer, name string, renewInterval, ttl time.Duration) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(renewInterval)
+		defer ticker.Stop()
+		lastSuccess := time.Now()
+		for {
+			select {
+			case <-leaderCtx.Done():
+				return
+			case <-ticker.C:
+				_, stillOK, err := r.tryAcquireOrRenew(leaderCtx, name)
+				switch {
+				case err == nil && stillOK:
+					lastSuccess = time.Now()
+				case err == nil && !stillOK:
+					slog.Warn("lease lost to another holder; stepping down", "lease", name)
+					cancel()
+					return
+				case time.Since(lastSuccess) >= ttl:
+					slog.Warn("lease renewal failing past TTL margin; stepping down", "lease", name, "err", err)
+					cancel()
+					return
+				default:
+					slog.Warn("lease renewal failed; retrying within TTL margin", "lease", name, "err", err)
+				}
+			}
+		}
+	}()
+	return done
 }
 
 // tryAcquireOrRenew is the one-round-trip SQL call shared by the initial
