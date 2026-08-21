@@ -63,28 +63,6 @@ func (w *Worker) RunLeaderless(ctx context.Context) {
 	w.runLoop(ctx)
 }
 
-func (w *Worker) RunWithLeader(ctx context.Context, isLeader func(context.Context) bool) {
-	backoff := time.Second
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		if isLeader(ctx) {
-			w.runLoop(ctx)
-		} else {
-			j := time.Duration(rand.Int63n(int64(backoff)))
-			select {
-			case <-time.After(backoff + j):
-			case <-ctx.Done():
-				return
-			}
-			if backoff < 10*time.Second {
-				backoff *= 2
-			}
-		}
-	}
-}
-
 func (w *Worker) runLoop(ctx context.Context) {
 	// Calculate jitter as 20% of interval, with a minimum of 1 nanosecond to avoid panic
 	jitterBase := w.interval / 5

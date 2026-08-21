@@ -112,40 +112,30 @@ func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (
 }
 
 // newHeldLease builds the leaderCtx/release pair for a lock already held on
-// ac, and starts the background liveness check that makes good on strategy's
-// documented guarantee that leaderCtx is canceled the instant leadership is
-// lost — including when Postgres frees the lock out from under this process
-// (a dead backend session releases it immediately) rather than only when
-// release() is called. Without this check, a dead session and a live
-// leaderCtx are indistinguishable to the caller, and a second replica taking
-// over the lock races the first replica's still-running fn: the split-brain
-// this package exists to prevent.
+// ac, and starts the background liveness check (via runCancelWatchdog) that
+// makes good on strategy's documented guarantee that leaderCtx is canceled
+// the instant leadership is lost — including when Postgres frees the lock
+// out from under this process (a dead backend session releases it
+// immediately) rather than only when release() is called. Without this
+// check, a dead session and a live leaderCtx are indistinguishable to the
+// caller, and a second replica taking over the lock races the first
+// replica's still-running fn: the split-brain this package exists to
+// prevent.
 func newHeldLease(ctx context.Context, ac advisoryConn, key int64, name string, livenessInterval time.Duration) (context.Context, func()) {
 	leaderCtx, cancel := context.WithCancel(ctx)
-	stop := make(chan struct{})
 
-	go func() {
-		ticker := time.NewTicker(livenessInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-leaderCtx.Done():
-				return
-			case <-ticker.C:
-				if err := ac.ping(leaderCtx); err != nil {
-					slog.Warn("advisory lock connection lost; stepping down", "lease", name, "err", err)
-					cancel()
-					return
-				}
-			}
+	done := runCancelWatchdog(leaderCtx, cancel, livenessInterval, func(pingCtx context.Context) bool {
+		if err := ac.ping(pingCtx); err != nil {
+			slog.Warn("advisory lock connection lost; stepping down", "lease", name, "err", err)
+			return false
 		}
-	}()
+		return true
+	})
 
 	release := func() {
-		close(stop)
 		cancel()
+		<-done // the liveness goroutine must not still be pinging ac when we unlock/discard it below
+
 		// Detached from ctx (release must still run even if ctx is already
 		// canceled) but bounded by releaseUnlockTimeout, not unbounded —
 		// see its doc comment.

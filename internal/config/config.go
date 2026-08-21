@@ -15,19 +15,20 @@ import (
 const DefaultMemoryLimitRatio = 0.9
 
 type Config struct {
-	Upstream        UpstreamConfig    `yaml:"upstream,omitempty"`
-	Server          ServerConfig      `yaml:"server,omitempty"`
-	Ingester        IngesterConfig    `yaml:"ingester,omitempty"`
-	Database        DatabaseConfig    `yaml:"database,omitempty"`
-	Insert          InsertConfig      `yaml:"insert,omitempty"`
-	Tracing         *otlp.Config      `yaml:"tracing,omitempty"`
-	MemoryLimit     MemoryLimitConfig `yaml:"memory_limit,omitempty"`
-	MetadataLimit   uint64            `yaml:"metadata_limit,omitempty"`
-	SeriesLimit     uint64            `yaml:"series_limit,omitempty"`
-	CORS            CORSConfig        `yaml:"cors,omitempty"`
-	Inventory       InventoryConfig   `yaml:"inventory,omitempty"`
-	QueryProcessing QueryProcessing   `yaml:"query_processing,omitempty"`
-	Retention       RetentionConfig   `yaml:"retention,omitempty"`
+	Upstream        UpstreamConfig       `yaml:"upstream,omitempty"`
+	Server          ServerConfig         `yaml:"server,omitempty"`
+	Ingester        IngesterConfig       `yaml:"ingester,omitempty"`
+	Database        DatabaseConfig       `yaml:"database,omitempty"`
+	Insert          InsertConfig         `yaml:"insert,omitempty"`
+	Tracing         *otlp.Config         `yaml:"tracing,omitempty"`
+	MemoryLimit     MemoryLimitConfig    `yaml:"memory_limit,omitempty"`
+	MetadataLimit   uint64               `yaml:"metadata_limit,omitempty"`
+	SeriesLimit     uint64               `yaml:"series_limit,omitempty"`
+	CORS            CORSConfig           `yaml:"cors,omitempty"`
+	Inventory       InventoryConfig      `yaml:"inventory,omitempty"`
+	QueryProcessing QueryProcessing      `yaml:"query_processing,omitempty"`
+	Retention       RetentionConfig      `yaml:"retention,omitempty"`
+	LeaderElection  LeaderElectionConfig `yaml:"leader_election,omitempty"`
 }
 
 type QueryProcessing struct {
@@ -141,6 +142,25 @@ type RetentionConfig struct {
 	QueriesMaxAge time.Duration `yaml:"queries_max_age,omitempty"`
 }
 
+// LeaderElectionConfig selects and configures the strategy used to elect a
+// single leader (for the inventory syncer and the retention worker) across
+// replicas sharing one PostgreSQL database. Only used when
+// Database.Provider is "postgresql" — see internal/leaderelection and
+// docs/leader-election.md.
+type LeaderElectionConfig struct {
+	// Strategy selects the leader-election mechanism. Supported values:
+	// "advisory-lock" (default) or "lease". LeaseTTL and RenewInterval are
+	// ignored by the advisory-lock strategy. Kept as a plain string here —
+	// flag.StringVar only binds to *string, and this package can't import
+	// internal/leaderelection.Strategy's typed constants without an import
+	// cycle (that package already imports this one for LeaderElectionConfig
+	// itself) — see internal/leaderelection.Strategy for the enum type
+	// everything that branches on this value actually uses.
+	Strategy      string        `yaml:"strategy,omitempty"`
+	LeaseTTL      time.Duration `yaml:"lease_ttl,omitempty"`
+	RenewInterval time.Duration `yaml:"renew_interval,omitempty"`
+}
+
 var DefaultConfig = &Config{
 	CORS: CORSConfig{
 		AllowedOrigins:   []string{"*"},
@@ -182,6 +202,11 @@ var DefaultConfig = &Config{
 		Interval:      1 * time.Hour,
 		RunTimeout:    5 * time.Minute,
 		QueriesMaxAge: 30 * 24 * time.Hour,
+	},
+	LeaderElection: LeaderElectionConfig{
+		Strategy:      "advisory-lock",
+		LeaseTTL:      15 * time.Second,
+		RenewInterval: 5 * time.Second,
 	},
 	Ingester: IngesterConfig{
 		Protocol: string(ProtocolOTLP),
@@ -413,6 +438,16 @@ func RegisterRetentionFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&DefaultConfig.Retention.Interval, "retention-interval", DefaultConfig.Retention.Interval, "Interval between retention runs")
 	flagSet.DurationVar(&DefaultConfig.Retention.RunTimeout, "retention-run-timeout", DefaultConfig.Retention.RunTimeout, "Timeout for each retention run")
 	flagSet.DurationVar(&DefaultConfig.Retention.QueriesMaxAge, "retention-queries-max-age", DefaultConfig.Retention.QueriesMaxAge, "Maximum age for queries before deletion")
+}
+
+// RegisterLeaderElectionFlags registers flags for selecting and configuring
+// the leader-election strategy used (when Database.Provider is
+// "postgresql") to coordinate the inventory syncer and retention worker
+// across replicas. See internal/leaderelection and docs/leader-election.md.
+func RegisterLeaderElectionFlags(flagSet *flag.FlagSet) {
+	flagSet.StringVar(&DefaultConfig.LeaderElection.Strategy, "leader-election-strategy", DefaultConfig.LeaderElection.Strategy, "Leader election strategy for the inventory syncer and retention worker when using PostgreSQL. Supported: advisory-lock, lease.")
+	flagSet.DurationVar(&DefaultConfig.LeaderElection.LeaseTTL, "leader-election-lease-ttl", DefaultConfig.LeaderElection.LeaseTTL, "Lease TTL (lease strategy only)")
+	flagSet.DurationVar(&DefaultConfig.LeaderElection.RenewInterval, "leader-election-renew-interval", DefaultConfig.LeaderElection.RenewInterval, "Lease renewal interval; must be less than the lease TTL (lease strategy only)")
 }
 
 func LogConfig(cmd string) {

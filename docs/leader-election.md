@@ -1,6 +1,6 @@
 # Leader election
 
-`internal/leaderelection` coordinates single-leader execution of the inventory syncer and the retention worker across multiple replicas of `prom-analytics-proxy` sharing one PostgreSQL database. Only one replica runs each of these jobs at a time; the rest wait, and one of them takes over automatically if the current leader disappears.
+`internal/leaderelection` coordinates single-leader execution of the inventory syncer and the retention worker across multiple replicas of `prom-analytics-proxy` sharing one PostgreSQL database. Only one replica runs each of these jobs at a time; the rest wait, and one of them takes over automatically if the current leader disappears. Two strategies are available, selected by `-leader-election-strategy`: `advisory-lock` (the default) and `lease`.
 
 ## Why this exists
 
@@ -10,7 +10,7 @@ Both the inventory syncer (`internal/inventory`) and the retention worker (`inte
 
 This package is only used when `-database-provider=postgresql`. When running with SQLite, `cmd/api`'s wiring skips leader election entirely and runs the inventory syncer and retention worker directly on every replica. This isn't a gap — SQLite mode in this project is single-instance-per-file by deployment convention (each replica has its own local database file; there is no shared file for multiple processes to coordinate access to), so there's nothing for a leader-election mechanism to arbitrate.
 
-## How it works today: PostgreSQL advisory locks
+## Strategy: advisory-lock (default)
 
 `NewAdvisoryElector` implements `Elector` using PostgreSQL's session-level advisory locks (`pg_try_advisory_lock`). Each replica repeatedly attempts to acquire a lock keyed by the lease name (`"metric-analytics-inventory"`, `"metric-analytics-retention"`); the one that succeeds runs the job for as long as it holds the lock, and every other replica backs off and retries.
 
@@ -22,12 +22,38 @@ A panic in the elected job itself is also caught and re-raised after release run
 
 The retry loop treats "someone else currently holds it" (`ok=false, err=nil`) and a genuine error (`err!=nil`, e.g. a dropped connection or a query failure) differently: contention polls at the fixed initial interval for as long as it persists — since that's the steady state for every follower, growing it would regress failover latency — while errors back off with growing (jittered) delays up to a configured cap, and are logged. Either way, the loop only ever stops, returning `nil`, when the caller's own `ctx` is canceled. A leader-election loop that returns early on an ordinary, retryable error is a correctness bug on its own (every other replica is left with no leader at all until the process restarts), so this package treats "stop retrying" and "ctx canceled" as the same event by construction, rather than as two cases that happen to behave the same way today.
 
+Requires no schema beyond what `internal/db`'s migrations already provide, and needs no configuration — this is why it's the default.
+
+## Strategy: lease
+
+`newLeaseStrategy` implements `strategy` using a row in a `leader_leases` table instead of a session-level lock. A lease's validity is a plain timestamp (`expires_at`) compared server-side against `now()` — its correctness has nothing to do with any connection's physical lifecycle, which is the property the advisory-lock strategy has to work hard (explicit `pg_advisory_unlock`) to get right. If a holder disappears without ever releasing — crash, panic, a killed pod — it simply stops renewing, and any other replica can take over automatically as soon as `expires_at` passes. Nothing needs to notice the holder is gone; there's no "held by nobody, forever" state to reach in the first place.
+
+Acquiring and renewing are the same one-round-trip SQL statement (`INSERT ... ON CONFLICT (lease_name) DO UPDATE ... WHERE ...`): it succeeds if the lease is free, expired, or already held by the caller, and does nothing (so `RETURNING` yields no row) if it's live and held by someone else. Every comparison runs server-side (`now()`, `make_interval()`), so acquisition can't be affected by clock skew between replicas.
+
+Each successful acquire starts a background renewal goroutine that re-runs the same statement every `-leader-election-renew-interval`, for as long as the caller holds leadership. It cancels the context passed into the running job the instant leadership is actually lost — the running job needs to stop mid-run, not just be noticed at its next natural checkpoint — but "actually lost" is deliberately narrower than "a renewal attempt failed": losing the lease to a different holder is confirmed by the database itself (the renewal statement's `WHERE` clause matched no row) and cancels immediately, while a database error (a dropped connection, a query timeout) says nothing about who holds the lease and is instead retried on the next tick. Only once the time since the last successful renewal reaches the TTL — meaning the lease may genuinely have expired server-side by then — does the watchdog give up. Canceling on every transient error would throw away the TTL margin the renew interval exists to provide, aborting in-flight work over a blip the lease was sized to absorb.
+
+A graceful step-down (releasing while still the holder — a normal rolling deploy, not a crash) proactively expires the lease instead of leaving the next holder to wait out the full TTL: release sets `expires_at` into the past, conditioned on still owning the row, so a race with a holder that's already taken over is a harmless no-op.
+
+Each acquired lease also carries a `fence_token`, drawn from a dedicated sequence (`leader_lease_fence_token_seq`) every time the lease changes hands (not on a same-holder renewal). A downstream consumer that wants to reject writes from a holder that has since lost the lease can compare the token it acquired with against the current one — this package doesn't use the token for anything itself today, but the column exists so that guarantee is available without a schema change later. The token is sourced from a sequence rather than incrementing the row's own previous value specifically so that guarantee survives the row itself being deleted and recreated — an operator forcing a failover, a disaster-recovery cleanup — which a per-row counter cannot: it would restart at its initial value on the next fresh insert, letting a reissued token collide with or fall below one a consumer already saw.
+
+`leader_leases` is created by `internal/db`'s own migrations (`internal/db/migrations/postgresql/0015_leader_leases.sql`), alongside every other table this project uses — the same schema-versioning mechanism, not a separate one. It's created unconditionally on every PostgreSQL deployment regardless of which strategy is selected: one small, empty, unused table on advisory-lock deployments costs essentially nothing, and it keeps schema state independent of which feature flag happens to be set, rather than depending on it.
+
+### Choosing between them
+
+| | `advisory-lock` (default) | `lease` |
+|---|---|---|
+| Schema footprint | none | one table, created on first use |
+| Configuration | none | `-leader-election-lease-ttl`, `-leader-election-renew-interval` |
+| Recovery from an ungraceful holder death | depends on the OS/driver eventually closing the dead connection | bounded by the TTL, always |
+
+`-leader-election-lease-ttl` (default `15s`) and `-leader-election-renew-interval` (default `5s`, must be strictly less than the TTL — `New` rejects a config where it isn't) control how quickly a lease strategy notices and recovers from a dead holder versus how much renewal traffic it generates. A renew interval close to the TTL risks a healthy holder losing its own lease to a slow renewal round-trip; the default 3:1 ratio leaves comfortable margin.
+
 ## Metrics
 
 - `leaderelection_is_leader` (gauge, label `lease_name`) — `1` while this process holds leadership for that lease, `0` otherwise.
 - `leaderelection_transitions_total` (counter, labels `lease_name`, `to` ∈ `{leader, follower}`) — incremented on every leadership transition.
 
-Both are emitted generically by the `Elector` wrapper, so any future leader-election strategy gets this instrumentation for free.
+Both are emitted generically by the `Elector` wrapper — the lease strategy gets this instrumentation for free, identically to the advisory-lock strategy, and so will any strategy added after it.
 
 Example: find any lease with no current leader (a healthy fleet should always show exactly one leader per lease name). Every replica exports `0` for a lease it isn't leading, not just `1` for the one that is, so a leaderless lease still has series to query against — `max` across them is `0`:
 ```

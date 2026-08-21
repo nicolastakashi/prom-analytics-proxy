@@ -50,6 +50,7 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	config.RegisterInventoryFlags(fs)
 	config.RegisterMemoryLimitFlags(fs)
 	config.RegisterRetentionFlags(fs)
+	config.RegisterLeaderElectionFlags(fs)
 }
 
 func Run(uiFS fs.FS) error {
@@ -171,14 +172,23 @@ func Run(uiFS fs.FS) error {
 	}
 
 	// Both leader-elected jobs below share one Elector instance: constructing
-	// leaderelection.NewAdvisoryElector twice against the same reg would
-	// panic on duplicate metric registration.
+	// leaderelection.New twice against the same reg would panic on
+	// duplicate metric registration.
 	var pgElector leaderelection.Elector
 	if db.DatabaseProvider(config.DefaultConfig.Database.Provider) == db.PostGreSQL &&
 		(config.DefaultConfig.Inventory.Enabled || config.DefaultConfig.Retention.Enabled) {
+		var leErr error
 		dbProvider.WithDB(func(d *sql.DB) {
-			pgElector = leaderelection.NewAdvisoryElector(d, reg)
+			pgElector, leErr = leaderelection.New(config.DefaultConfig.LeaderElection, d, reg)
 		})
+		if leErr != nil {
+			// Fail fast: a misconfiguration here (bad strategy, TTL/renew
+			// interval) would otherwise leave the inventory syncer and
+			// retention worker silently never running on any replica,
+			// with only this log line to explain it.
+			slog.Error("unable to construct leader elector", "err", leErr)
+			return fmt.Errorf("construct leader elector: %w", leErr)
+		}
 	}
 
 	if config.DefaultConfig.Inventory.Enabled {

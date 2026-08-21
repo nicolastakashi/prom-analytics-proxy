@@ -10,29 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// fakeStrategy is a hand-written fake letting the metrics tests exercise
-// Elector.Run without needing a real Postgres instance, since the metrics
-// wiring is generic on the elector wrapper and has nothing to do with any
-// particular strategy's SQL.
-type fakeStrategy struct {
-	acquired bool
-}
-
-func (f *fakeStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
-	if f.acquired {
-		return nil, nil, false, nil
-	}
-	f.acquired = true
-	leaderCtx, cancel := context.WithCancel(ctx)
-	return leaderCtx, func() { cancel(); f.acquired = false }, true, nil
-}
-
 // TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter proves the
 // metrics are generic on the elector wrapper: leaderelection_is_leader must
 // be 1 while fn runs and 0 after Run returns, and
 // leaderelection_transitions_total{to="leader"} must have incremented.
 func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
-	elector := newTestElector(&fakeStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
+	elector := newTestElector(&releaseTrackingStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
 
 	fnRunning := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -2,29 +2,12 @@ package leaderelection
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// releaseTrackingStrategy always grants leadership immediately and records
-// whether release() has run — enough seam to observe release ordering
-// relative to a panic in fn without needing a real Postgres connection.
-type releaseTrackingStrategy struct {
-	released atomic.Bool
-}
-
-func (s *releaseTrackingStrategy) acquireOrHold(ctx context.Context, _ string) (context.Context, func(), bool, error) {
-	leaderCtx, cancel := context.WithCancel(ctx)
-	release := func() {
-		cancel()
-		s.released.Store(true)
-	}
-	return leaderCtx, release, true, nil
-}
 
 // TestElector_Run_ReleasesLock_WhenFnPanics pins the guarantee that a panic
 // in fn must not skip release(): release() physically unlocks over a
