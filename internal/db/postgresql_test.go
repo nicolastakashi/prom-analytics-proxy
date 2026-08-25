@@ -712,6 +712,68 @@ func TestPostgreSQL_InsertDashboardUsage_UpsertBehavior(t *testing.T) {
 	}
 }
 
+// TestPostgreSQL_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery guards
+// GetRulesUsage's ORDER BY construction: it interpolates SortOrder directly
+// into SQL text, so an unvalidated value is a real SQL injection vector
+// unless it's run through ValidateSortField first, the same whitelist every
+// other paginated method already uses.
+func TestPostgreSQL_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	mustInsertRules(t, p, []RulesUsage{
+		{Serie: "up", GroupName: "g1", Name: "r1", Expression: "e1", Kind: string(RuleUsageKindAlert), Labels: []string{"l"}},
+		{Serie: "up", GroupName: "g2", Name: "r2", Expression: "e2", Kind: string(RuleUsageKindAlert), Labels: []string{"l"}},
+	})
+
+	out, err := p.GetRulesUsage(context.Background(), RulesUsageParams{
+		Serie:     "up",
+		Kind:      string(RuleUsageKindAlert),
+		TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)},
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "name",
+		SortOrder: "asc; DROP TABLE RulesUsage; --",
+	})
+	assert.NoError(t, err, "GetRulesUsage must not error on an invalid SortOrder")
+	rows, ok := out.Data.([]RulesUsage)
+	if assert.True(t, ok, "type conversion") {
+		assert.Len(t, rows, 2,
+			"both rules must still be returned - an invalid SortOrder must fall back to a safe default order, not corrupt the result set")
+	}
+}
+
+// TestPostgreSQL_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery is
+// TestPostgreSQL_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery's
+// counterpart for GetDashboardUsage, which has the identical
+// SortOrder-interpolation shape.
+func TestPostgreSQL_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	base := time.Now().UTC().Truncate(time.Minute)
+	mustInsertDashboards(t, p, []DashboardUsage{
+		{Id: "d1", Serie: "m1", Name: "Dash 1", URL: "http://d/1", CreatedAt: base},
+		{Id: "d2", Serie: "m1", Name: "Dash 2", URL: "http://d/2", CreatedAt: base},
+	})
+
+	out, err := p.GetDashboardUsage(context.Background(), DashboardUsageParams{
+		Serie:     "m1",
+		TimeRange: TimeRange{From: base.Add(-1 * time.Hour), To: base.Add(1 * time.Hour)},
+		Page:      1,
+		PageSize:  10,
+		SortBy:    "name",
+		SortOrder: "asc; DROP TABLE DashboardUsage; --",
+	})
+	assert.NoError(t, err, "GetDashboardUsage must not error on an invalid SortOrder")
+	rows, ok := out.Data.([]DashboardUsage)
+	if assert.True(t, ok, "type conversion") {
+		assert.Len(t, rows, 2,
+			"both dashboards must still be returned - an invalid SortOrder must fall back to a safe default order, not corrupt the result set")
+	}
+}
+
 // TestPostgreSQL_InsertRulesUsage_ConcurrentOverlappingUpsertsDoNotDeadlock
 // verifies InsertRulesUsage tolerates concurrent calls upserting
 // overlapping rows in different orders without deadlocking (#594).
