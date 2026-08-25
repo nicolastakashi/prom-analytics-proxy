@@ -265,37 +265,43 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 
 	startTime, endTime := PrepareTimeRange(params.TimeRange, "sqlite")
 
+	// filterClause is shared with the count query below (see countMatching)
+	// so both see the identical row set.
+	filterClause := `
+		json_extract(labelMatchers, '$[0].__name__') = ?
+		AND ts BETWEEN ? AND ?
+		AND CASE
+			WHEN ? != '' THEN
+				queryParam LIKE '%' || ? || '%'
+			ELSE
+				1=1
+			END
+	`
+	filterArgs := []interface{}{
+		params.SerieName, startTime, endTime,
+		params.Filter, params.Filter,
+	}
+
+	countQuery := `SELECT COUNT(DISTINCT queryParam) FROM queries WHERE ` + filterClause
+	totalCount, err := countMatching(ctx, p.db, countQuery, filterArgs...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("count: %w", err)
+	}
+	if totalCount == 0 {
+		return PagedResult{Total: 0, TotalPages: 0, Data: []QueriesBySerieNameResult{}}, nil
+	}
+
 	query := `
-	WITH filtered_queries AS (
-		SELECT
-			queryParam,
-			AVG(duration) AS avgDuration,
-			AVG(peakSamples) AS avgPeakySamples,
-			MAX(peakSamples) AS maxPeakSamples
-		FROM
-			queries
-		WHERE
-			json_extract(labelMatchers, '$[0].__name__') = ?
-			AND ts BETWEEN ? AND ?
-			AND CASE
-				WHEN ? != '' THEN
-					queryParam LIKE '%' || ? || '%'
-				ELSE
-					1=1
-				END
-		GROUP BY
-			queryParam
-	),
-	counted_queries AS (
-		SELECT COUNT(*) as total_count
-		FROM filtered_queries
-	)
 	SELECT
-		q.*,
-		cq.total_count
+		queryParam,
+		AVG(duration) AS avgDuration,
+		AVG(peakSamples) AS avgPeakySamples,
+		MAX(peakSamples) AS maxPeakSamples
 	FROM
-		filtered_queries q,
-		counted_queries cq
+		queries
+	WHERE ` + filterClause + `
+	GROUP BY
+		queryParam
 	ORDER BY
 		CASE WHEN ? = 'asc' THEN
 			CASE ?
@@ -316,14 +322,12 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 	LIMIT ? OFFSET ?;
 	`
 
-	args := []interface{}{
-		params.SerieName, startTime, endTime,
-		params.Filter, params.Filter,
+	args := append(append([]interface{}{}, filterArgs...),
 		params.SortOrder, params.SortBy,
 		params.SortOrder, params.SortBy,
 		params.PageSize,
-		(params.Page - 1) * params.PageSize,
-	}
+		(params.Page-1)*params.PageSize,
+	)
 
 	stmt, err := p.db.PrepareContext(ctx, query)
 	if err != nil {
@@ -338,7 +342,6 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 	defer CloseResource(rows)
 
 	results := []QueriesBySerieNameResult{}
-	var totalCount int
 
 	for rows.Next() {
 		var result QueriesBySerieNameResult
@@ -347,7 +350,6 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 			&result.AvgDuration,
 			&result.AvgPeakySamples,
 			&result.MaxPeakSamples,
-			&totalCount,
 		); err != nil {
 			return PagedResult{}, ErrorWithOperation(err, "scanning row")
 		}
@@ -494,9 +496,8 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
                 1=1
             END;
     `
-	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery, params.Serie, params.Kind, endTime, startTime,
-		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
+	totalCount, err := countMatching(ctx, p.db, countQuery, params.Serie, params.Kind, endTime, startTime,
+		params.Filter, params.Filter, params.Filter)
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
@@ -711,10 +712,9 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
                 1=1
             END;
     `
-	var totalCount int
-	err := p.db.QueryRowContext(ctx, countQuery,
+	totalCount, err := countMatching(ctx, p.db, countQuery,
 		params.Serie, endTime, startTime,
-		params.Filter, params.Filter, params.Filter).Scan(&totalCount)
+		params.Filter, params.Filter, params.Filter)
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
 	}
@@ -1731,11 +1731,24 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
 
 	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
 
+	// filterClause is shared with the count query below (see countMatching)
+	// so both see the identical row set.
+	filterClause := `ts BETWEEN datetime(?) AND datetime(?) AND CASE WHEN ? != '' THEN queryParam LIKE '%' || ? || '%' ELSE 1=1 END`
+	filterArgs := []interface{}{from, to, params.Filter, params.Filter}
+
+	countQuery := `SELECT COUNT(DISTINCT fingerprint) FROM queries WHERE ` + filterClause
+	totalCount, err := countMatching(ctx, p.db, countQuery, filterArgs...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to count query expressions: %w", err)
+	}
+	if totalCount == 0 {
+		return PagedResult{Total: 0, TotalPages: 0, Data: []QueryExpression{}}, nil
+	}
+
 	query := `
         WITH filtered AS (
             SELECT * FROM queries
-            WHERE ts BETWEEN datetime(?) AND datetime(?)
-              AND CASE WHEN ? != '' THEN queryParam LIKE '%' || ? || '%' ELSE 1=1 END
+            WHERE ` + filterClause + `
         ), latest AS (
             SELECT fingerprint, queryParam, ts,
                    ROW_NUMBER() OVER (PARTITION BY fingerprint ORDER BY ts DESC) AS rn
@@ -1750,11 +1763,9 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
                 (SELECT l.queryParam FROM latest l WHERE l.fingerprint = f.fingerprint AND l.rn = 1) AS query
             FROM filtered f
             GROUP BY f.fingerprint
-        ), counted AS (
-            SELECT COUNT(*) AS total_count FROM grouped
         )
-        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples, total_count
-        FROM grouped, counted
+        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples
+        FROM grouped
         ORDER BY
             CASE WHEN ? = 'asc' THEN
                 CASE ?
@@ -1777,7 +1788,10 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
         LIMIT ? OFFSET ?;
     `
 
-	args := []interface{}{from, to, params.Filter, params.Filter, params.SortOrder, params.SortBy, params.SortOrder, params.SortBy, params.PageSize, (params.Page - 1) * params.PageSize}
+	args := append(append([]interface{}{}, filterArgs...),
+		params.SortOrder, params.SortBy, params.SortOrder, params.SortBy,
+		params.PageSize, (params.Page-1)*params.PageSize,
+	)
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1785,13 +1799,10 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
 	}
 	defer CloseResource(rows)
 
-	var (
-		results    []QueryExpression
-		totalCount int
-	)
+	var results []QueryExpression
 	for rows.Next() {
 		var r QueryExpression
-		if err := rows.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples, &totalCount); err != nil {
+		if err := rows.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 		results = append(results, r)
@@ -1822,6 +1833,25 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 
 	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
 
+	// filterClause is shared with the count query below (see countMatching)
+	// so both see the identical row set.
+	filterClause := `
+		julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
+			  BETWEEN julianday(?) AND julianday(?)
+		  AND fingerprint = ?
+		  AND CASE WHEN ? != '' THEN type = ? ELSE 1=1 END
+	`
+	filterArgs := []interface{}{from, to, params.Fingerprint, params.Type, params.Type}
+
+	countQuery := `SELECT COUNT(*) FROM queries WHERE ` + filterClause
+	totalCount, err := countMatching(ctx, p.db, countQuery, filterArgs...)
+	if err != nil {
+		return PagedResult{}, fmt.Errorf("failed to count executions: %w", err)
+	}
+	if totalCount == 0 {
+		return PagedResult{Total: 0, TotalPages: 0, Data: []QueryExecutionRow{}}, nil
+	}
+
 	query := `
         WITH filtered AS (
             SELECT
@@ -1836,12 +1866,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 				httpHeaders,
                 julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19)) AS nts
             FROM queries
-            WHERE julianday(substr(REPLACE(REPLACE(ts, 'T', ' '), 'Z', ''),1,19))
-                  BETWEEN julianday(?) AND julianday(?)
-              AND fingerprint = ?
-              AND CASE WHEN ? != '' THEN type = ? ELSE 1=1 END
-        ), counted AS (
-            SELECT COUNT(*) AS total_count FROM filtered
+            WHERE ` + filterClause + `
         )
         SELECT
             ts,
@@ -1852,9 +1877,8 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 			httpHeaders,
 			start,
 			"end",
-            COALESCE(step, 0) AS steps,
-            total_count
-        FROM filtered, counted
+            COALESCE(step, 0) AS steps
+        FROM filtered
         ORDER BY
             CASE WHEN ? = 'asc' THEN
                 CASE ?
@@ -1879,10 +1903,10 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
         LIMIT ? OFFSET ?;
     `
 
-	args := []interface{}{from, to, params.Fingerprint, params.Type, params.Type,
+	args := append(append([]interface{}{}, filterArgs...),
 		params.SortOrder, params.SortBy, params.SortOrder, params.SortBy,
-		params.PageSize, (params.Page - 1) * params.PageSize,
-	}
+		params.PageSize, (params.Page-1)*params.PageSize,
+	)
 
 	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1890,10 +1914,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 	}
 	defer CloseResource(rows)
 
-	var (
-		results    []QueryExecutionRow
-		totalCount int
-	)
+	var results []QueryExecutionRow
 	for rows.Next() {
 		var ts time.Time
 		var status int
@@ -1904,7 +1925,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 		var start time.Time
 		var end time.Time
 		var httpHeadersJSON string
-		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &start, &end, &steps, &totalCount); err != nil {
+		if err := rows.Scan(&ts, &status, &duration, &samples, &typ, &httpHeadersJSON, &start, &end, &steps); err != nil {
 			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
 		}
 		r := QueryExecutionRow{Timestamp: ts, Status: status, Duration: duration, Samples: samples, Type: typ, Steps: steps, Start: start, End: end}
