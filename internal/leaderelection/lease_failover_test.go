@@ -32,17 +32,17 @@ func TestLeaseStrategy_FailoverAfterUngracefulDeath(t *testing.T) {
 	holderB := newLeaseStrategy(db, ttl, noRenewal)
 
 	ctx := context.Background()
-	_, _, ok, err := holderA.acquireOrHold(ctx, "failover-test")
+	_, ok, err := holderA.acquireOrHold(ctx, "failover-test")
 	assert.NoError(t, err)
 	assert.True(t, ok)
 	// holderA "dies" here: no further acquireOrHold or release calls.
 
-	_, _, ok, err = holderB.acquireOrHold(ctx, "failover-test")
+	_, ok, err = holderB.acquireOrHold(ctx, "failover-test")
 	assert.NoError(t, err)
 	assert.False(t, ok, "the lease must not transfer before the TTL elapses")
 
 	assert.Eventually(t, func() bool {
-		_, _, ok, err := holderB.acquireOrHold(ctx, "failover-test")
+		_, ok, err := holderB.acquireOrHold(ctx, "failover-test")
 		return err == nil && ok
 	}, ttl*4, 10*time.Millisecond, "holder B should acquire the lease shortly after holder A's TTL expires")
 }

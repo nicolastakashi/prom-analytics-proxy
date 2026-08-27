@@ -23,11 +23,11 @@ type recordingStrategy struct {
 	returnErr error
 }
 
-func (s *recordingStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
+func (s *recordingStrategy) acquireOrHold(ctx context.Context, name string) (acquisition, bool, error) {
 	s.mu.Lock()
 	s.times = append(s.times, time.Now())
 	s.mu.Unlock()
-	return nil, nil, false, s.returnErr
+	return acquisition{}, false, s.returnErr
 }
 
 func (s *recordingStrategy) snapshot() []time.Time {
@@ -128,7 +128,7 @@ type failThenSucceedOnceStrategy struct {
 	succeeded          bool
 }
 
-func (s *failThenSucceedOnceStrategy) acquireOrHold(ctx context.Context, _ string) (context.Context, func(), bool, error) {
+func (s *failThenSucceedOnceStrategy) acquireOrHold(ctx context.Context, _ string) (acquisition, bool, error) {
 	s.mu.Lock()
 	s.times = append(s.times, time.Now())
 	s.attempts++
@@ -141,9 +141,9 @@ func (s *failThenSucceedOnceStrategy) acquireOrHold(ctx context.Context, _ strin
 		s.succeeded = true
 		s.mu.Unlock()
 		leaderCtx, cancel := context.WithCancel(ctx)
-		return leaderCtx, cancel, true, nil
+		return acquisition{leaderCtx: leaderCtx, release: cancel}, true, nil
 	}
-	return nil, nil, false, errors.New("simulated error")
+	return acquisition{}, false, errors.New("simulated error")
 }
 
 func (s *failThenSucceedOnceStrategy) snapshot() []time.Time {

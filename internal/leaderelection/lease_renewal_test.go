@@ -64,7 +64,7 @@ func TestElector_Run_HoldsLeadershipAcrossMultipleRenewalTicks(t *testing.T) {
 		default:
 		}
 
-		_, _, ok, err := rival.acquireOrHold(context.Background(), "sustained-renewal-test")
+		_, ok, err := rival.acquireOrHold(context.Background(), "sustained-renewal-test")
 		assert.NoError(t, err)
 		assert.False(t, ok, "the lease must still be held by the original holder throughout the hold window")
 
