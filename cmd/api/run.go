@@ -173,21 +173,26 @@ func Run(uiFS fs.FS) error {
 
 	provider := db.DatabaseProvider(config.DefaultConfig.Database.Provider)
 
-	// Both leader-elected jobs below share one Elector instance: constructing
-	// leaderelection.New twice against the same reg would panic on
-	// duplicate metric registration.
-	var pgElector leaderelection.Elector
-	if provider == db.PostGreSQL &&
-		(config.DefaultConfig.Inventory.Enabled || config.DefaultConfig.Retention.Enabled) {
-		var leErr error
-		dbProvider.WithDB(func(d *sql.DB) {
-			pgElector, leErr = leaderelection.New(config.DefaultConfig.LeaderElection, d, reg)
-		})
-		if leErr != nil {
-			// Fail fast: a misconfiguration here (bad strategy, TTL/renew
-			// interval) would otherwise leave the inventory syncer and
-			// retention worker silently never running on any replica.
-			return fmt.Errorf("construct leader elector: %w", leErr)
+	// Both jobs below share one Elector instance: constructing two against
+	// the same reg would panic on duplicate metric registration.
+	var elector leaderelection.Elector
+	if config.DefaultConfig.Inventory.Enabled || config.DefaultConfig.Retention.Enabled {
+		if provider == db.PostGreSQL {
+			var leErr error
+			dbProvider.WithDB(func(d *sql.DB) {
+				elector, leErr = leaderelection.New(config.DefaultConfig.LeaderElection, d, reg)
+			})
+			if leErr != nil {
+				// Fail fast: a misconfiguration here (bad strategy, TTL/renew
+				// interval) would otherwise leave the inventory syncer and
+				// retention worker silently never running on any replica.
+				return fmt.Errorf("construct leader elector: %w", leErr)
+			}
+		} else {
+			// SQLite is single-instance-per-file by deployment convention:
+			// no other replica can be running these jobs against this
+			// database, so this one holds leadership outright.
+			elector = leaderelection.NewSoleInstance(reg)
 		}
 	}
 
@@ -199,7 +204,7 @@ func Run(uiFS fs.FS) error {
 		if err != nil {
 			return fmt.Errorf("create inventory syncer: %w", err)
 		}
-		addPeriodicJob(&g, provider, pgElector, "metric-analytics-inventory", config.DefaultConfig.Inventory.SyncInterval, inv)
+		addPeriodicJob(&g, elector, "metric-analytics-inventory", config.DefaultConfig.Inventory.SyncInterval, inv)
 	}
 
 	if config.DefaultConfig.Retention.Enabled {
@@ -207,7 +212,7 @@ func Run(uiFS fs.FS) error {
 		if err != nil {
 			return fmt.Errorf("create retention worker: %w", err)
 		}
-		addPeriodicJob(&g, provider, pgElector, "metric-analytics-retention", config.DefaultConfig.Retention.Interval, retWorker)
+		addPeriodicJob(&g, elector, "metric-analytics-retention", config.DefaultConfig.Retention.Interval, retWorker)
 	}
 
 	{
