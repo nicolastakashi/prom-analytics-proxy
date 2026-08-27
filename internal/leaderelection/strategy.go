@@ -31,4 +31,8 @@ type acquisition struct {
 	// the underlying lock or lease itself, never relying on connection-pool
 	// GC to do so eventually.
 	release func()
+	// reporter is where this term's cycles report themselves, for a strategy
+	// that acts on them (see CycleReporter). Nil is valid and usual: a
+	// strategy with no renewal-vs-job-liveness gap to close leaves it unset.
+	reporter CycleReporter
 }
