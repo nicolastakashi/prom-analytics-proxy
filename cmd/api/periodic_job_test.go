@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/oklog/run"
@@ -16,6 +15,11 @@ import (
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/leaderelection"
 )
+
+// testBudget is deliberately unlike any interval these tests pass, so a
+// budget that reached the scheduler as an interval (or the reverse) shows up
+// as a failure rather than as an unnoticed swap.
+const testBudget = 90 * time.Second
 
 // fakePeriodicJob is periodicJob's test double: counts the cycles it was
 // asked to run, and closes ran on the first of them when a test needs to
@@ -41,14 +45,29 @@ func (f *fakePeriodicJob) RunOnce(context.Context) {
 type fakeElector struct {
 	name string
 	err  error
+	// budgets, when set, makes this elector report cycles to itself, so a
+	// test can see what the scheduler declared.
+	budgets chan time.Duration
 }
 
-func (f *fakeElector) Run(ctx context.Context, name string, fn func(context.Context)) error {
+func (f *fakeElector) Run(ctx context.Context, name string, fn func(context.Context, leaderelection.CycleReporter)) error {
 	f.name = name
 	fnCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
-	fn(fnCtx)
+
+	var reporter leaderelection.CycleReporter
+	if f.budgets != nil {
+		reporter = f
+	}
+	fn(fnCtx, reporter)
 	return f.err
+}
+
+func (f *fakeElector) CycleStarted(_ context.Context, _ context.CancelFunc, budget time.Duration) {
+	select {
+	case f.budgets <- budget:
+	default:
+	}
 }
 
 func TestAddPeriodicJob_SchedulesCyclesThroughTheElectorUnderTheGivenLeaseName(t *testing.T) {
@@ -56,7 +75,7 @@ func TestAddPeriodicJob_SchedulesCyclesThroughTheElectorUnderTheGivenLeaseName(t
 	job := &fakePeriodicJob{}
 	elector := &fakeElector{err: context.Canceled}
 
-	addPeriodicJob(&g, elector, "test-lease", time.Hour, job)
+	addPeriodicJob(&g, elector, "test-lease", time.Hour, testBudget, job)
 
 	err := g.Run()
 	require.ErrorIs(t, err, context.Canceled)
@@ -71,7 +90,7 @@ func TestAddPeriodicJob_SoleInstanceElectorSchedulesCyclesToo(t *testing.T) {
 	var g run.Group
 	job := &fakePeriodicJob{ran: make(chan struct{})}
 
-	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "sole-lease", time.Hour, job)
+	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "sole-lease", time.Hour, testBudget, job)
 	// End the group only once a cycle has actually run: an elector hands
 	// leadership to nobody if its context is already canceled, so racing
 	// cancellation against the first cycle would prove nothing either way.
@@ -106,7 +125,7 @@ func TestAddPeriodicJob_InterruptCancelsTheContextPassedToTheJob(t *testing.T) {
 	var g run.Group
 
 	blocking := &blockingPeriodicJob{started: make(chan struct{}), canceled: make(chan struct{})}
-	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "blocking-lease", time.Hour, blocking)
+	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "blocking-lease", time.Hour, testBudget, blocking)
 
 	// A sibling actor that fails once the job is genuinely mid-cycle: that
 	// failure is what makes g invoke every other actor's interrupt, and
@@ -134,74 +153,24 @@ func TestAddPeriodicJob_InterruptCancelsTheContextPassedToTheJob(t *testing.T) {
 	}
 }
 
-// TestRunPeriodically_RunsOneCycleImmediatelyThenOnePerJitteredInterval
-// pins the whole schedule the one shared scheduler produces: a cycle at
-// once, then one per interval, spaced by no less than interval and no more
-// than 20% beyond it, until its context ends. The synctest bubble's clock
-// makes those spacings exact rather than approximate, so the jitter's upper
-// bound is checkable at a realistic interval instead of inferred from a
-// tiny one.
-func TestRunPeriodically_RunsOneCycleImmediatelyThenOnePerJitteredInterval(t *testing.T) {
-	const (
-		interval = 10 * time.Minute
-		cycles   = 3
-		// One schedule draws its jitter once, so it samples the range once;
-		// repeated schedules make a draw outside the bound very unlikely to
-		// go unnoticed. Fake time makes the repetition free.
-		schedules = 20
-	)
+// TestAddPeriodicJob_DeclaresTheBudgetItWasGivenNotTheInterval proves the two
+// durations don't get crossed on the way through: the scheduler reports the
+// caller's budget, and the interval it ticks on stays the interval. Nothing
+// else here would notice a swap, since a job's cycles run the same either
+// way until something enforces the budget.
+func TestAddPeriodicJob_DeclaresTheBudgetItWasGivenNotTheInterval(t *testing.T) {
+	var g run.Group
+	elector := &fakeElector{err: context.Canceled, budgets: make(chan time.Duration, 1)}
+	const interval = 12 * time.Hour
 
-	synctest.Test(t, func(t *testing.T) {
-		for s := range schedules {
-			ctx, cancel := context.WithCancel(context.Background())
+	addPeriodicJob(&g, elector, "budget-lease", interval, testBudget, &fakePeriodicJob{})
 
-			start := time.Now()
-			var ranAt []time.Duration
-			returned := make(chan struct{})
-			go func() {
-				defer close(returned)
-				runPeriodically(ctx, interval, func(context.Context) {
-					ranAt = append(ranAt, time.Since(start))
-					if len(ranAt) == cycles {
-						cancel()
-					}
-				})
-			}()
-			<-returned
-			cancel()
-
-			require.Len(t, ranAt, cycles, "the scheduler must keep running cycles until its context ends")
-			assert.Zero(t, ranAt[0], "the first cycle runs immediately, not after a full interval")
-			for i := 1; i < len(ranAt); i++ {
-				gap := ranAt[i] - ranAt[i-1]
-				assert.GreaterOrEqual(t, gap, interval, "schedule %d cycle %d ran early: jitter must only ever delay a tick", s, i)
-				assert.Less(t, gap, interval+interval/5, "schedule %d cycle %d ran late: jitter must stay within 20%% of the interval", s, i)
-			}
-		}
-	})
-}
-
-// TestRunPeriodically_IntervalTooSmallToJitter covers the jitter floor: an
-// interval below 5ns leaves 20% of it under a nanosecond, and the floor is
-// what keeps that from panicking.
-func TestRunPeriodically_IntervalTooSmallToJitter(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		runs := 0
-		returned := make(chan struct{})
-		go func() {
-			defer close(returned)
-			runPeriodically(ctx, 4*time.Nanosecond, func(context.Context) {
-				runs++
-				if runs == 2 {
-					cancel()
-				}
-			})
-		}()
-		<-returned
-
-		assert.Equal(t, 2, runs)
-	})
+	require.ErrorIs(t, g.Run(), context.Canceled)
+	select {
+	case got := <-elector.budgets:
+		assert.Equal(t, testBudget, got, "the declared budget must be the caller's budget, not its interval")
+		assert.NotEqual(t, interval, got)
+	default:
+		t.Fatal("no cycle was ever reported, so nothing was proven about the budget it declared")
+	}
 }
