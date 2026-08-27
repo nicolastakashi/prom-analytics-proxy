@@ -50,7 +50,7 @@
     "wouter": "^3.10.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.7",
+    "@babel/core": "^8.0.1",
     "@eslint/js": "^10.0.1",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tanstack/react-query-devtools": "^5.101.4",
@@ -70,9 +70,9 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.4",
     "globals": "^17.11.0",
-    "jsdom": "29.1.1",
+    "jsdom": "30.0.1",
     "prettier": "3.9.6",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.67.0",
     "vite": "^8.2.1",
     "vitest": "4.1.10"
