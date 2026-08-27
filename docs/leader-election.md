@@ -49,8 +49,23 @@ Each acquired lease also carries a `fence_token`, drawn from a dedicated sequenc
 | Schema footprint | none | one table, created on first use |
 | Configuration | none | `-leader-election-lease-ttl`, `-leader-election-renew-interval` |
 | Recovery from an ungraceful holder death | depends on the OS/driver eventually closing the dead connection | bounded by the TTL, always |
+| Recovery from a live process whose job is stuck | no — only a dead process/connection recovers | yes, for a job that reports its cycles — see [Reporting job cycles](#reporting-job-cycles) |
 
 `-leader-election-lease-ttl` (default `15s`) and `-leader-election-renew-interval` (default `5s`, must be strictly less than the TTL — `New` rejects a config where it isn't) control how quickly a lease strategy notices and recovers from a dead holder versus how much renewal traffic it generates. A renew interval close to the TTL risks a healthy holder losing its own lease to a slow renewal round-trip; the default 3:1 ratio leaves comfortable margin.
+
+## Reporting job cycles
+
+Renewal answers one question: is this replica's process still alive. It says nothing about whether the elected job running under that leadership is actually making progress, since renewal and the job are separate goroutines with no connection between them.
+
+`CycleReporter` is the seam for closing that gap: `Elector.Run`'s `fn` receives one alongside its context, and can call `CycleStarted(cancel, budget)` to hand over one unit of work's own cancel func and declared maximum duration. `PeriodicJob(interval, budget, cycle)` builds an `fn` of this shape from a plain `func(context.Context)` - a job's per-cycle logic - so a job never needs to know `CycleReporter` exists at all; it just exposes one function and its own budget, the same as it would for any other periodic caller.
+
+A reporter is only useful to a strategy that acts on it. Advisory-lock hands it straight through unused - it has no equivalent renewal-vs-job gap to close in the first place. The lease strategy's watchdog checks it on every tick, before ever touching the renewal round trip: once a cycle that is *still running* has been going longer than its declared budget, it cancels that cycle's own context and steps down exactly as if the lease had been lost to another holder - the same graceful-release path an ordinary lost lease already takes, not a new one. A cycle that already returned is never a violation, however long ago it started: a job whose interval is longer than its budget is idle past that budget on every cycle, and the reported cycle's own context - canceled by `PeriodicJob` as soon as the cycle returns - is what tells the two apart. A job that never reports a cycle at all - a raw `fn` bypassing `PeriodicJob` - is simply unaffected, the same as under advisory-lock: the watchdog has nothing to compare against.
+
+Stepping down this way means the *same* replica usually wins the next acquisition immediately - it isn't backed off the way every other follower is, so in practice this recovers a stuck cycle on its own process. If the same replica is itself the actual problem, it will keep hitting the same budget and keep stepping down and retrying rather than staying stuck forever.
+
+**What this doesn't cover:** a cycle that hangs on something that never touches its context at all - a genuine Go-level deadlock, not a slow or cancelable operation - can't be reached by any context-cancellation-based mechanism, this one included; canceling a context only affects code that's actually watching for it.
+
+Both of `cmd/api`'s elected jobs are wired through `PeriodicJob` on the PostgreSQL path: `internal/inventory.Syncer.RunOnce` and `internal/retention.Worker.RunOnce` are each a plain `func(context.Context)` - one sync/cleanup cycle, no looping, no knowledge of leader election. The budget `PeriodicJob` reports is each job's own `run_timeout`, read straight from the config: startup settles that value first (see docs/jobs.md), so it already is the bound the job's cycles run under, and this package derives nothing of its own. Were it read before settling, the watchdog could enforce a bound tighter than the cycle it is watching. Neither `internal/inventory` nor `internal/retention` imports this one; `cmd/api` is the only place that connects a job's plain per-cycle function to `PeriodicJob`.
 
 ## Metrics
 
@@ -58,6 +73,8 @@ Each acquired lease also carries a `fence_token`, drawn from a dedicated sequenc
 - `leaderelection_transitions_total` (counter, labels `lease_name`, `to` ∈ `{leader, follower}`) — incremented on every leadership transition.
 
 Both are emitted generically by the `Elector` wrapper — the lease strategy gets this instrumentation for free, identically to the advisory-lock strategy, and so will any strategy added after it.
+
+A cycle canceled for exceeding its declared budget logs `"job cycle exceeded its declared budget; canceling and stepping down"` (`slog.Warn`, with `lease_name`) and counts as an ordinary leader→follower transition in `leaderelection_transitions_total`.
 
 Example: find any lease with no current leader (a healthy fleet should always show exactly one leader per lease name). Every replica exports `0` for a lease it isn't leading, not just `1` for the one that is, so a leaderless lease still has series to query against — `max` across them is `0`:
 ```

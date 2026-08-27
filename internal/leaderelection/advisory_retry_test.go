@@ -50,7 +50,7 @@ func TestAdvisoryElector_RetriesAfterTransientConnError_DoesNotReturnSilently(t 
 	var runErr error
 	go func() {
 		defer wg.Done()
-		runErr = elector.Run(ctx, "retry-test", func(fnCtx context.Context) {
+		runErr = elector.Run(ctx, "retry-test", func(fnCtx context.Context, _ CycleReporter) {
 			fnCalled.Store(true)
 			<-fnCtx.Done()
 		})

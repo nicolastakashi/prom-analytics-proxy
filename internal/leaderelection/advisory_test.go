@@ -19,7 +19,7 @@ func TestAdvisoryElector_ReturnsWhenContextAlreadyCanceled(t *testing.T) {
 	cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- elector.Run(ctx, "already-canceled-test", func(context.Context) {}) }()
+	go func() { done <- elector.Run(ctx, "already-canceled-test", func(context.Context, CycleReporter) {}) }()
 
 	select {
 	case err := <-done:
