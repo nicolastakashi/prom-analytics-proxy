@@ -8,9 +8,11 @@ What those two jobs actually do, how they're scheduled, and the time budget each
 
 Both the inventory syncer (`internal/inventory`) and the retention worker (`internal/retention`) periodically read and write shared state in PostgreSQL — the metrics catalog, usage summaries, and old-data cleanup. Running them from every replica simultaneously would mean duplicate work at best and races against shared rows at worst. Leader election picks exactly one replica to run each job; every other replica polls in the background, ready to take over.
 
-## Why PostgreSQL only
+## Why coordination is PostgreSQL only
 
-This package is only used when `-database-provider=postgresql`. When running with SQLite, `cmd/api`'s wiring skips leader election entirely and runs the inventory syncer and retention worker directly on every replica. This isn't a gap — SQLite mode in this project is single-instance-per-file by deployment convention (each replica has its own local database file; there is no shared file for multiple processes to coordinate access to), so there's nothing for a leader-election mechanism to arbitrate.
+Both coordinating strategies below need shared state, and they only exist for `-database-provider=postgresql`: advisory locks are a PostgreSQL feature, and the `leader_leases` table is created only by the PostgreSQL migrations. That isn't a gap for SQLite — SQLite mode in this project is single-instance-per-file by deployment convention (each replica has its own local database file; there is no shared file for multiple processes to coordinate access to), so there is nothing for a leader-election mechanism to arbitrate.
+
+What SQLite gets instead is `NewSoleInstance`: an `Elector` that holds leadership unconditionally, touching no lock, no lease row and no table — which is why it needs no `*sql.DB` and works on a database whose schema has neither. Every provider therefore has an elector, so `cmd/api` wires a job exactly one way rather than scheduling it itself wherever nothing coordinates it, and the leadership metrics below exist in every deployment: a fleet-wide "no leader for this lease" panel would otherwise silently exclude every replica not using PostgreSQL.
 
 ## Strategy: advisory-lock (default)
 
