@@ -39,6 +39,17 @@ type Syncer struct {
 	catalogSummaryMismatch prometheus.Counter
 }
 
+// SettleConfig fixes cfg's inventory timeouts at the values a cycle will
+// actually run under, and is what makes run_timeout mean the same thing to
+// every reader: startup calls it once, before anything reads the config, so
+// whatever declares this job's cycle budget can read the config rather than
+// asking separately. Idempotent, which is what lets NewSyncer settle again
+// for callers that never went through startup.
+func SettleConfig(cfg *config.Config) {
+	cfg.Inventory.JobIndexTimeout = settledJobIndexTimeout(cfg.Inventory)
+	cfg.Inventory.RunTimeout = settledRunTimeout(cfg.Inventory)
+}
+
 // A cycle's enabled steps are independent, non-overlapping budgets, so its
 // worst case is all of them in full and RunTimeout has to cover that sum;
 // the same holds one level down, where JobIndexTimeout has to cover its own
@@ -48,7 +59,7 @@ type Syncer struct {
 // for those step budgets, and running with them is closer to their intent
 // than not running at all.
 // settledRunTimeout reads JobIndexTimeout as given, so a caller wanting both
-// settled has to settle that one first - as NewSyncer does.
+// settled has to settle that one first - as SettleConfig does.
 func settledRunTimeout(cfg config.InventoryConfig) time.Duration {
 	stepSum := cfg.SummaryStepTimeout
 	if cfg.MetadataSyncEnabled {

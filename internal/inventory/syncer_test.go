@@ -370,3 +370,52 @@ func TestNewSyncer_RejectsNilConfig(t *testing.T) {
 	assert.Nil(t, s)
 	assert.Contains(t, err.Error(), "config is required")
 }
+
+// TestSettleConfig_WritesTheBoundCyclesRunUnder proves settling is what makes
+// run_timeout mean one thing to every reader: it rewrites the config in
+// place, and a syncer built from the settled config runs on exactly those
+// values.
+func TestSettleConfig_WritesTheBoundCyclesRunUnder(t *testing.T) {
+	cfg := baseInventoryConfig()
+	cfg.Inventory.JobIndexTimeout = cfg.Inventory.JobIndexLabelTimeout // too short for a single job
+	cfg.Inventory.RunTimeout = time.Millisecond                        // too short for the steps
+
+	SettleConfig(cfg)
+
+	wantJobIndex := cfg.Inventory.JobIndexLabelTimeout + cfg.Inventory.JobIndexPerJobTimeout
+	assert.Equal(t, wantJobIndex, cfg.Inventory.JobIndexTimeout, "the inner budget must be widened first")
+	assert.Equal(t, cfg.Inventory.MetadataStepTimeout+cfg.Inventory.SummaryStepTimeout+wantJobIndex, cfg.Inventory.RunTimeout,
+		"the cycle must be widened to cover the steps, including the step just widened")
+
+	s, err := NewSyncer(&fakeProvider{}, "http://upstream", cfg, prometheus.NewRegistry())
+	require.NoError(t, err)
+	assert.Equal(t, cfg.Inventory.RunTimeout, s.runTimeout, "a syncer built from a settled config must run on the settled values")
+	assert.Equal(t, cfg.Inventory.JobIndexTimeout, s.jobIndexTimeout)
+}
+
+// TestSettleConfig_IsIdempotent proves settling twice is settling once - what
+// lets NewSyncer settle again for a caller that never went through startup,
+// without changing anything startup already decided.
+func TestSettleConfig_IsIdempotent(t *testing.T) {
+	cfg := baseInventoryConfig()
+	cfg.Inventory.RunTimeout = time.Millisecond
+
+	SettleConfig(cfg)
+	once := cfg.Inventory
+	SettleConfig(cfg)
+
+	assert.Equal(t, once, cfg.Inventory, "a settled config must survive settling unchanged")
+}
+
+// TestSettleConfig_LeavesAFittingConfigAlone proves settling only ever widens
+// what cannot fit: a config an operator sized correctly must come back
+// exactly as written.
+func TestSettleConfig_LeavesAFittingConfigAlone(t *testing.T) {
+	cfg := baseInventoryConfig()
+	cfg.Inventory.RunTimeout = time.Hour // generous: covers every step several times over
+	before := cfg.Inventory
+
+	SettleConfig(cfg)
+
+	assert.Equal(t, before, cfg.Inventory)
+}
