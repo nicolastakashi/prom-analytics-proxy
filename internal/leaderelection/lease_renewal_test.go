@@ -40,7 +40,7 @@ func TestElector_Run_HoldsLeadershipAcrossMultipleRenewalTicks(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		_ = elector.Run(ctx, "sustained-renewal-test", func(fnCtx context.Context) {
+		_ = elector.Run(ctx, "sustained-renewal-test", func(fnCtx context.Context, _ CycleReporter) {
 			fnCtxCh <- fnCtx
 			<-fnCtx.Done()
 		})

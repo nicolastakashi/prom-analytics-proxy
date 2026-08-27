@@ -41,7 +41,7 @@ func newElector(strat strategy, backoff backoffConfig, reg prometheus.Registerer
 	return &elector{strat: strat, backoff: backoff.orDefault(), m: newMetrics(reg)}
 }
 
-func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)) error {
+func (e *elector) Run(ctx context.Context, name string, fn func(context.Context, CycleReporter)) error {
 	// Set even though this replica has never won: a GaugeVec only creates
 	// this series on first WithLabelValues, so without this a follower
 	// that never wins exports no series at all — indistinguishable from
@@ -104,7 +104,7 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 // panic is logged and re-raised, not swallowed — deferred calls still run
 // to completion during that re-panic's unwind, so release() executes
 // before it escapes this function.
-func runAndRelease(acq acquisition, fn func(context.Context), name string) {
+func runAndRelease(acq acquisition, fn func(context.Context, CycleReporter), name string) {
 	defer acq.release()
 	defer func() {
 		if r := recover(); r != nil {
@@ -112,7 +112,7 @@ func runAndRelease(acq acquisition, fn func(context.Context), name string) {
 			panic(r)
 		}
 	}()
-	fn(acq.leaderCtx)
+	fn(acq.leaderCtx, acq.reporter)
 }
 
 // sleep waits for d or ctx cancellation, whichever comes first, reporting

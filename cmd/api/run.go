@@ -204,7 +204,9 @@ func Run(uiFS fs.FS) error {
 		if err != nil {
 			return fmt.Errorf("create inventory syncer: %w", err)
 		}
-		addPeriodicJob(&g, elector, "metric-analytics-inventory", config.DefaultConfig.Inventory.SyncInterval, inv)
+		addPeriodicJob(&g, elector, "metric-analytics-inventory",
+			config.DefaultConfig.Inventory.SyncInterval,
+			config.DefaultConfig.Inventory.RunTimeout, inv)
 	}
 
 	if config.DefaultConfig.Retention.Enabled {
@@ -212,7 +214,9 @@ func Run(uiFS fs.FS) error {
 		if err != nil {
 			return fmt.Errorf("create retention worker: %w", err)
 		}
-		addPeriodicJob(&g, elector, "metric-analytics-retention", config.DefaultConfig.Retention.Interval, retWorker)
+		addPeriodicJob(&g, elector, "metric-analytics-retention",
+			config.DefaultConfig.Retention.Interval,
+			config.DefaultConfig.Retention.RunTimeout, retWorker)
 	}
 
 	{
