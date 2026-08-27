@@ -23,7 +23,8 @@ type soleInstanceStrategy struct{}
 
 func (soleInstanceStrategy) acquireOrHold(ctx context.Context, _ string) (acquisition, bool, error) {
 	// release is the cancel alone: no lock to hand back, and canceling is
-	// what ends leaderCtx when leadership ends.
+	// what ends leaderCtx when leadership ends. No reporter either - with a
+	// single instance there is no leadership to lose mid-cycle.
 	leaderCtx, cancel := context.WithCancel(ctx)
 	return acquisition{leaderCtx: leaderCtx, release: cancel}, true, nil
 }

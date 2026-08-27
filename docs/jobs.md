@@ -20,7 +20,7 @@ One caveat worth knowing when tuning these values: that validation bounds the *c
 
 This is why `job_index_timeout` exists as its own flag distinct from `job_index_label_timeout`/`job_index_per_job_timeout`: those two bound individual calls, not the step's total duration, which otherwise scales with however many Prometheus jobs are discovered at run time — something no per-call timeout alone can cap. Without a step-level cap of its own, job index would have no accurate contribution to declare toward the overall budget, the same problem already fixed for the summary step (see `TestSyncer_SlowMetadataStepDoesNotPermanentlyStarveSummaryRefresh`).
 
-Settled this way, `run_timeout` is a true bound on one whole cycle rather than on part of one — which is what makes it usable as this job's declared cycle budget, with no separate computation needed anywhere else. The syncer settles those values at construction, so its cycles run under the settled ones — see [Running these jobs](#running-these-jobs).
+Settled this way, `run_timeout` is a true bound on one whole cycle rather than on part of one — which is what makes it usable as this job's declared cycle budget, with no separate computation needed anywhere else. `inventory.SettleConfig` is what makes that true for every reader rather than only for the syncer: startup calls it once, before anything reads the config, so a widened `run_timeout` is simply the value in the config from then on, and nothing has to ask separately what a cycle really runs under — see [Reporting job cycles](leader-election.md#reporting-job-cycles) for who reads it, and [Running these jobs](#running-these-jobs).
 
 ### Config
 
