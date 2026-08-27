@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -11,16 +12,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/leaderelection"
 )
 
 // fakePeriodicJob is periodicJob's test double: counts the cycles it was
-// asked to run.
+// asked to run, and closes ran on the first of them when a test needs to
+// wait for one rather than race it.
 type fakePeriodicJob struct {
 	runs int
+	once sync.Once
+	ran  chan struct{}
 }
 
-func (f *fakePeriodicJob) RunOnce(context.Context) { f.runs++ }
+func (f *fakePeriodicJob) RunOnce(context.Context) {
+	f.runs++
+	if f.ran != nil {
+		f.once.Do(func() { close(f.ran) })
+	}
+}
 
 // fakeElector is leaderelection.Elector's test double. It records the lease
 // name it was called with, then invokes fn itself so a test can observe
@@ -40,18 +51,12 @@ func (f *fakeElector) Run(ctx context.Context, name string, fn func(context.Cont
 	return f.err
 }
 
-// stopGroup returns an actor that ends g as soon as it runs, so every other
-// actor's interrupt fires and the scheduling loops under test return.
-func stopGroup() (func() error, func(error)) {
-	return func() error { return errors.New("stop") }, func(error) {}
-}
-
-func TestAddPeriodicJob_PostgreSQL_SchedulesCyclesThroughElectorUnderTheGivenLeaseName(t *testing.T) {
+func TestAddPeriodicJob_SchedulesCyclesThroughTheElectorUnderTheGivenLeaseName(t *testing.T) {
 	var g run.Group
 	job := &fakePeriodicJob{}
 	elector := &fakeElector{err: context.Canceled}
 
-	addPeriodicJob(&g, db.PostGreSQL, elector, "test-lease", time.Hour, job)
+	addPeriodicJob(&g, elector, "test-lease", time.Hour, job)
 
 	err := g.Run()
 	require.ErrorIs(t, err, context.Canceled)
@@ -59,17 +64,21 @@ func TestAddPeriodicJob_PostgreSQL_SchedulesCyclesThroughElectorUnderTheGivenLea
 	assert.GreaterOrEqual(t, job.runs, 1, "leadership must schedule the job's cycles, not merely be acquired")
 }
 
-func TestAddPeriodicJob_NonPostgreSQL_SchedulesCyclesWithoutTouchingTheElector(t *testing.T) {
+// TestAddPeriodicJob_SoleInstanceElectorSchedulesCyclesToo covers the
+// deployment that used to be wired a second way: a sole instance holds
+// leadership outright, so the same single path schedules its cycles.
+func TestAddPeriodicJob_SoleInstanceElectorSchedulesCyclesToo(t *testing.T) {
 	var g run.Group
-	job := &fakePeriodicJob{}
+	job := &fakePeriodicJob{ran: make(chan struct{})}
 
-	// A nil elector would panic if addPeriodicJob ever called a method on
-	// it on this path - proving the leaderless path never touches it.
-	addPeriodicJob(&g, db.SQLite, nil, "unused-lease", time.Hour, job)
-	g.Add(stopGroup())
+	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "sole-lease", time.Hour, job)
+	// End the group only once a cycle has actually run: an elector hands
+	// leadership to nobody if its context is already canceled, so racing
+	// cancellation against the first cycle would prove nothing either way.
+	g.Add(func() error { <-job.ran; return errors.New("stop") }, func(error) {})
 
 	require.Error(t, g.Run())
-	assert.GreaterOrEqual(t, job.runs, 1, "a non-PostgreSQL provider must still get its cycles scheduled")
+	assert.GreaterOrEqual(t, job.runs, 1, "a sole instance must get its cycles scheduled like any other leader")
 }
 
 // blockingPeriodicJob's RunOnce blocks until its context ends, recording
@@ -77,10 +86,12 @@ func TestAddPeriodicJob_NonPostgreSQL_SchedulesCyclesWithoutTouchingTheElector(t
 // interrupt function reaches the context the job's cycle was handed, not
 // just that run.Group's execute eventually returns some way or other.
 type blockingPeriodicJob struct {
+	started  chan struct{}
 	canceled chan struct{}
 }
 
 func (b *blockingPeriodicJob) RunOnce(ctx context.Context) {
+	close(b.started)
 	<-ctx.Done()
 	close(b.canceled)
 }
@@ -94,11 +105,13 @@ func (b *blockingPeriodicJob) RunOnce(ctx context.Context) {
 func TestAddPeriodicJob_InterruptCancelsTheContextPassedToTheJob(t *testing.T) {
 	var g run.Group
 
-	failing := &fakePeriodicJob{}
-	addPeriodicJob(&g, db.PostGreSQL, &fakeElector{err: errors.New("boom")}, "failing-lease", time.Hour, failing)
+	blocking := &blockingPeriodicJob{started: make(chan struct{}), canceled: make(chan struct{})}
+	addPeriodicJob(&g, leaderelection.NewSoleInstance(prometheus.NewRegistry()), "blocking-lease", time.Hour, blocking)
 
-	blocking := &blockingPeriodicJob{canceled: make(chan struct{})}
-	addPeriodicJob(&g, db.SQLite, nil, "unused-lease", time.Hour, blocking)
+	// A sibling actor that fails once the job is genuinely mid-cycle: that
+	// failure is what makes g invoke every other actor's interrupt, and
+	// waiting for the cycle first keeps the two from racing.
+	g.Add(func() error { <-blocking.started; return errors.New("sibling actor failed") }, func(error) {})
 
 	// g.Run() itself blocks until every actor's execute function returns -
 	// if the interrupt below never reaches blocking, g.Run() never
