@@ -2,6 +2,8 @@
 
 `internal/leaderelection` coordinates single-leader execution of the inventory syncer and the retention worker across multiple replicas of `prom-analytics-proxy` sharing one PostgreSQL database. Only one replica runs each of these jobs at a time; the rest wait, and one of them takes over automatically if the current leader disappears. Two strategies are available, selected by `-leader-election-strategy`: `advisory-lock` (the default) and `lease`.
 
+What those two jobs actually do, how they're scheduled, and the time budget each cycle runs under is [docs/jobs.md](jobs.md)'s concern — this doc covers only who gets to run them.
+
 ## Why this exists
 
 Both the inventory syncer (`internal/inventory`) and the retention worker (`internal/retention`) periodically read and write shared state in PostgreSQL — the metrics catalog, usage summaries, and old-data cleanup. Running them from every replica simultaneously would mean duplicate work at best and races against shared rows at worst. Leader election picks exactly one replica to run each job; every other replica polls in the background, ready to take over.
