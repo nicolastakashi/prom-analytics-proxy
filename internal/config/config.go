@@ -130,7 +130,15 @@ type InventoryConfig struct {
 	SummaryStepTimeout      time.Duration `yaml:"summary_step_timeout,omitempty"`
 	// JobSyncEnabled controls whether the syncer fetches job metadata from
 	// Prometheus and populates job_index. Set to false when you want to avoid heavy job queries.
-	JobSyncEnabled        bool          `yaml:"job_sync_enabled,omitempty"`
+	JobSyncEnabled bool `yaml:"job_sync_enabled,omitempty"`
+	// JobIndexTimeout bounds the job-index step as a whole (fetching job
+	// label values and processing every job found) - JobIndexLabelTimeout
+	// and JobIndexPerJobTimeout bound individual calls within it, not the
+	// step's total duration, which otherwise scales with however many
+	// Prometheus jobs are discovered at run time. Nested inside RunTimeout,
+	// the same relationship MetadataStepTimeout has to it - see
+	// docs/jobs.md.
+	JobIndexTimeout       time.Duration `yaml:"job_index_timeout,omitempty"`
 	JobIndexLabelTimeout  time.Duration `yaml:"job_index_label_timeout,omitempty"`
 	JobIndexPerJobTimeout time.Duration `yaml:"job_index_per_job_timeout,omitempty"`
 	JobIndexWorkers       int           `yaml:"job_index_workers,omitempty"`
@@ -186,9 +194,14 @@ var DefaultConfig = &Config{
 		RunTimeout:              300 * time.Second,
 		MetadataStepTimeout:     30 * time.Second,
 		SummaryStepTimeout:      30 * time.Second,
-		JobIndexLabelTimeout:    30 * time.Second,
-		JobIndexPerJobTimeout:   30 * time.Second,
-		JobIndexWorkers:         10,
+		// With JobSyncEnabled these three step timeouts sum to RunTimeout
+		// exactly, the least it can be: raising one of them without raising
+		// RunTimeout too leaves the default config relying on NewSyncer to
+		// widen it back, warning on every startup.
+		JobIndexTimeout:       240 * time.Second,
+		JobIndexLabelTimeout:  30 * time.Second,
+		JobIndexPerJobTimeout: 30 * time.Second,
+		JobIndexWorkers:       10,
 	},
 	QueryProcessing: QueryProcessing{
 		ExtractHTTPHeaders: []string{"user-agent"},
@@ -428,6 +441,7 @@ func (c InventoryConfig) Validate() error {
 	}
 	if c.JobSyncEnabled {
 		positive = append(positive,
+			field{"job_index_timeout", c.JobIndexTimeout},
 			field{"job_index_label_timeout", c.JobIndexLabelTimeout},
 			field{"job_index_per_job_timeout", c.JobIndexPerJobTimeout})
 	}
@@ -502,6 +516,7 @@ func RegisterInventoryFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&DefaultConfig.Inventory.RunTimeout, "inventory-run-timeout", DefaultConfig.Inventory.RunTimeout, "Timeout for the entire inventory sync run")
 	flagSet.DurationVar(&DefaultConfig.Inventory.MetadataStepTimeout, "inventory-metadata-timeout", DefaultConfig.Inventory.MetadataStepTimeout, "Timeout for metadata collection step")
 	flagSet.DurationVar(&DefaultConfig.Inventory.SummaryStepTimeout, "inventory-summary-timeout", DefaultConfig.Inventory.SummaryStepTimeout, "Timeout for summary refresh step")
+	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexTimeout, "inventory-job-index-timeout", DefaultConfig.Inventory.JobIndexTimeout, "Timeout for the job index step as a whole (job label fetch plus every job processed)")
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexLabelTimeout, "inventory-job-index-label-timeout", DefaultConfig.Inventory.JobIndexLabelTimeout, "Timeout for job label values collection")
 	flagSet.DurationVar(&DefaultConfig.Inventory.JobIndexPerJobTimeout, "inventory-job-index-per-job-timeout", DefaultConfig.Inventory.JobIndexPerJobTimeout, "Timeout for processing each individual job")
 	flagSet.IntVar(&DefaultConfig.Inventory.JobIndexWorkers, "inventory-job-index-workers", DefaultConfig.Inventory.JobIndexWorkers, "Number of worker goroutines for job index processing")
@@ -629,6 +644,7 @@ func logInventoryConfig(cfg *Config) {
 		"Inventory.MetadataStepTimeout", cfg.Inventory.MetadataStepTimeout,
 		"Inventory.SummaryStepTimeout", cfg.Inventory.SummaryStepTimeout,
 		"Inventory.JobSyncEnabled", cfg.Inventory.JobSyncEnabled,
+		"Inventory.JobIndexTimeout", cfg.Inventory.JobIndexTimeout,
 		"Inventory.JobIndexLabelTimeout", cfg.Inventory.JobIndexLabelTimeout,
 		"Inventory.JobIndexPerJobTimeout", cfg.Inventory.JobIndexPerJobTimeout,
 		"Inventory.JobIndexWorkers", cfg.Inventory.JobIndexWorkers,
