@@ -88,7 +88,7 @@ func jobIndexOnlySyncer(provider db.Provider, promAPI v1.API) *Syncer {
 // TestSyncer_CatalogRunningCloseToItsOwnBudgetDoesNotStarveJobIndex proves
 // job index gets its own full jobIndexTimeout window regardless of how much
 // of its own metadataStepTimeout the catalog step actually used - the same
-// non-starvation guarantee every independently-budgeted step of a cycle gets.
+// non-starvation guarantee every independently-budgeted RunOnce step gets.
 func TestSyncer_CatalogRunningCloseToItsOwnBudgetDoesNotStarveJobIndex(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		provider := &fakeProvider{}
@@ -96,7 +96,7 @@ func TestSyncer_CatalogRunningCloseToItsOwnBudgetDoesNotStarveJobIndex(t *testin
 		api.metadataDelay = nearItsCap
 
 		s := defaultBudgetSyncer(provider, api)
-		s.runOnce(context.Background())
+		s.RunOnce(context.Background())
 
 		provider.mu.Lock()
 		defer provider.mu.Unlock()
@@ -118,7 +118,7 @@ func TestSyncer_SlowSummaryRefreshDoesNotStarveJobIndex(t *testing.T) {
 		provider := &fakeProvider{summaryDelay: nearItsCap}
 
 		s := defaultBudgetSyncer(provider, oneJobAPI())
-		s.runOnce(context.Background())
+		s.RunOnce(context.Background())
 
 		provider.mu.Lock()
 		defer provider.mu.Unlock()
@@ -140,7 +140,7 @@ func TestSyncer_AllPrecedingStepsNearTheirOwnCapsStillLeaveJobIndexItsFullWindow
 		api.metadataDelay = nearItsCap
 
 		s := defaultBudgetSyncer(provider, api)
-		s.runOnce(context.Background())
+		s.RunOnce(context.Background())
 
 		provider.mu.Lock()
 		defer provider.mu.Unlock()
@@ -399,7 +399,7 @@ func TestSyncer_JobIndexFailureCountsAgainstItsOwnMetricNotTheCycle(t *testing.T
 
 	s := defaultBudgetSyncer(provider, api)
 
-	s.runOnce(context.Background())
+	s.RunOnce(context.Background())
 
 	provider.mu.Lock()
 	defer provider.mu.Unlock()

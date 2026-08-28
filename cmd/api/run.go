@@ -171,11 +171,13 @@ func Run(uiFS fs.FS) error {
 		})
 	}
 
+	provider := db.DatabaseProvider(config.DefaultConfig.Database.Provider)
+
 	// Both leader-elected jobs below share one Elector instance: constructing
 	// leaderelection.New twice against the same reg would panic on
 	// duplicate metric registration.
 	var pgElector leaderelection.Elector
-	if db.DatabaseProvider(config.DefaultConfig.Database.Provider) == db.PostGreSQL &&
+	if provider == db.PostGreSQL &&
 		(config.DefaultConfig.Inventory.Enabled || config.DefaultConfig.Retention.Enabled) {
 		var leErr error
 		dbProvider.WithDB(func(d *sql.DB) {
@@ -184,47 +186,28 @@ func Run(uiFS fs.FS) error {
 		if leErr != nil {
 			// Fail fast: a misconfiguration here (bad strategy, TTL/renew
 			// interval) would otherwise leave the inventory syncer and
-			// retention worker silently never running on any replica,
-			// with only this log line to explain it.
-			slog.Error("unable to construct leader elector", "err", leErr)
+			// retention worker silently never running on any replica.
 			return fmt.Errorf("construct leader elector: %w", leErr)
 		}
 	}
 
+	// Both jobs below fail fast, as the elector above does: a job an
+	// operator explicitly enabled that silently never runs is
+	// indistinguishable from one that runs and finds nothing to do.
 	if config.DefaultConfig.Inventory.Enabled {
 		inv, err := inventory.NewSyncer(dbProvider, config.DefaultConfig.Upstream.URL, config.DefaultConfig, reg)
 		if err != nil {
-			slog.Error("unable to create inventory syncer", "err", err)
-		} else {
-			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
-			case db.PostGreSQL:
-				ctx, cancel := context.WithCancel(context.Background())
-				g.Add(func() error {
-					return pgElector.Run(ctx, "metric-analytics-inventory", inv.RunLeaderless)
-				}, func(err error) { cancel() })
-			default:
-				ctx, cancel := context.WithCancel(context.Background())
-				g.Add(func() error { inv.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
-			}
+			return fmt.Errorf("create inventory syncer: %w", err)
 		}
+		addPeriodicJob(&g, provider, pgElector, "metric-analytics-inventory", config.DefaultConfig.Inventory.SyncInterval, inv)
 	}
 
 	if config.DefaultConfig.Retention.Enabled {
 		retWorker, err := retention.NewWorker(dbProvider, config.DefaultConfig, reg)
 		if err != nil {
-			slog.Error("unable to create retention worker", "err", err)
-		} else {
-			switch db.DatabaseProvider(config.DefaultConfig.Database.Provider) {
-			case db.PostGreSQL:
-				ctx, cancel := context.WithCancel(context.Background())
-				g.Add(func() error {
-					return pgElector.Run(ctx, "metric-analytics-retention", retWorker.RunLeaderless)
-				}, func(err error) { cancel() })
-			default:
-				ctx, cancel := context.WithCancel(context.Background())
-				g.Add(func() error { retWorker.RunLeaderless(ctx); return nil }, func(err error) { cancel() })
-			}
+			return fmt.Errorf("create retention worker: %w", err)
 		}
+		addPeriodicJob(&g, provider, pgElector, "metric-analytics-retention", config.DefaultConfig.Retention.Interval, retWorker)
 	}
 
 	{
