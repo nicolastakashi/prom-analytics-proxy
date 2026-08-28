@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
@@ -15,7 +14,6 @@ import (
 
 type Worker struct {
 	dbProvider    db.Provider
-	interval      time.Duration
 	runTimeout    time.Duration
 	queriesMaxAge time.Duration
 
@@ -27,16 +25,11 @@ func NewWorker(store db.Provider, cfg *config.Config, reg prometheus.Registerer)
 		return nil, fmt.Errorf("config is required")
 	}
 
-	if cfg.Retention.Interval <= 0 {
-		return nil, fmt.Errorf("retention.interval must be positive (got: %v)", cfg.Retention.Interval)
-	}
-
-	if cfg.Retention.RunTimeout <= 0 {
-		return nil, fmt.Errorf("retention.run_timeout must be positive (got: %v)", cfg.Retention.RunTimeout)
-	}
-
-	if cfg.Retention.QueriesMaxAge <= 0 {
-		return nil, fmt.Errorf("retention.queries_max_age must be positive (got: %v)", cfg.Retention.QueriesMaxAge)
+	// Range checks live with the schema (see config.RetentionConfig.Validate);
+	// startup runs them before anything acts on the config, and calling them
+	// again here is what holds for a caller that never went through startup.
+	if err := cfg.Retention.Validate(); err != nil {
+		return nil, err
 	}
 
 	if reg == nil {
@@ -45,7 +38,6 @@ func NewWorker(store db.Provider, cfg *config.Config, reg prometheus.Registerer)
 
 	w := &Worker{
 		dbProvider:    store,
-		interval:      cfg.Retention.Interval,
 		runTimeout:    cfg.Retention.RunTimeout,
 		queriesMaxAge: cfg.Retention.QueriesMaxAge,
 	}
@@ -59,33 +51,10 @@ func NewWorker(store db.Provider, cfg *config.Config, reg prometheus.Registerer)
 	return w, nil
 }
 
-func (w *Worker) RunLeaderless(ctx context.Context) {
-	w.runLoop(ctx)
-}
-
-func (w *Worker) runLoop(ctx context.Context) {
-	// Calculate jitter as 20% of interval, with a minimum of 1 nanosecond to avoid panic
-	jitterBase := w.interval / 5
-	if jitterBase == 0 {
-		jitterBase = 1
-	}
-	jitter := time.Duration(rand.Int63n(int64(jitterBase)))
-	ticker := time.NewTicker(w.interval + jitter)
-	defer ticker.Stop()
-
-	w.runOnce(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			w.runOnce(ctx)
-		}
-	}
-}
-
-func (w *Worker) runOnce(ctx context.Context) {
+// RunOnce runs exactly one cleanup cycle, bounded by whatever ctx it's
+// given - scheduling and leadership are entirely the caller's concern;
+// RunOnce itself doesn't loop or know who's calling it.
+func (w *Worker) RunOnce(ctx context.Context) {
 	start := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, w.runTimeout)
 	defer cancel()
