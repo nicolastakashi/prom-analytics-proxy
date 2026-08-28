@@ -92,6 +92,11 @@ func TestInventoryConfig_Validate(t *testing.T) {
 			wantErr: "inventory.job_index_per_job_timeout must be positive",
 		},
 		{
+			name:    "job_index_timeout zero while its step is enabled",
+			tweak:   func(c *InventoryConfig) { c.JobIndexTimeout = 0 },
+			wantErr: "inventory.job_index_timeout must be positive",
+		},
+		{
 			name:    "job_index_workers zero while its step is enabled",
 			tweak:   func(c *InventoryConfig) { c.JobIndexWorkers = 0 },
 			wantErr: "inventory.job_index_workers must be positive",
@@ -100,7 +105,7 @@ func TestInventoryConfig_Validate(t *testing.T) {
 			name: "every job-index value unusable while its step is disabled",
 			tweak: func(c *InventoryConfig) {
 				c.JobSyncEnabled = false
-				c.JobIndexLabelTimeout, c.JobIndexPerJobTimeout = 0, -time.Second
+				c.JobIndexTimeout, c.JobIndexLabelTimeout, c.JobIndexPerJobTimeout = 0, 0, -time.Second
 				c.JobIndexWorkers = 0
 			},
 		},
