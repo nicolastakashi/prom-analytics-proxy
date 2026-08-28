@@ -273,6 +273,8 @@ Flags (api):
     	Timeout for job label values collection (default 30s)
   -inventory-job-index-per-job-timeout duration
     	Timeout for processing each individual job (default 30s)
+  -inventory-job-index-timeout duration
+    	Timeout for the job index step as a whole (job label fetch plus every job processed) (default 4m0s)
   -inventory-job-index-workers int
     	Number of worker goroutines for job index processing (default 10)
   -inventory-metadata-sync-enabled
@@ -519,18 +521,25 @@ inventory:
                              # Set to false when using the OTLP ingester to populate the catalog instead.
   sync_interval: 10m         # How often to sync inventory (default: 10m)
   time_window: 720h          # Time window for usage analysis (default: 30 days)
-  run_timeout: 30s           # Timeout for entire sync run (default: 30s)
-  metadata_step_timeout: 15s # Timeout for metadata fetch (default: 15s)
-  summary_step_timeout: 10s  # Timeout for usage summary refresh (default: 10s)
-  job_index_label_timeout: 10s  # Timeout for job label fetch (default: 10s)
-  job_index_per_job_timeout: 5s # Timeout per job for series fetch (default: 5s)
+  run_timeout: 300s          # Timeout for an entire sync run (default: 300s)
+                             # Must be at least the sum of every enabled step timeout below;
+                             # a smaller value is raised to that sum at startup, with a warning.
+  metadata_step_timeout: 30s # Timeout for metadata fetch (default: 30s)
+  summary_step_timeout: 30s  # Timeout for usage summary refresh (default: 30s)
+  job_sync_enabled: false    # Build the per-job metric index (default: false)
+                             # When true, job_index_timeout counts toward run_timeout's minimum.
+  job_index_timeout: 240s    # Timeout for the job index step as a whole (default: 240s)
+  job_index_label_timeout: 30s   # Timeout for job label fetch (default: 30s)
+  job_index_per_job_timeout: 30s # Timeout per job for series fetch (default: 30s)
   job_index_workers: 10      # Number of concurrent workers for job processing (default: 10)
 ```
+
+**📖 See the [Background Jobs guide](docs/jobs.md) for what each step does, how the time budget fits together, and the same reference for the retention worker.**
 
 **Performance Notes:**
 
 - For environments with hundreds of jobs (500+), increase `job_index_workers` to 20-50 for faster processing
-- Increase `run_timeout` proportionally when processing many jobs (e.g., 300s for 1000+ jobs)
+- When processing many jobs, raise `job_index_timeout` — it, not `job_index_per_job_timeout`, is what bounds the step as a whole — and raise `run_timeout` by at least as much, since it has to stay above the sum of every enabled step
 - Each worker processes one job at a time, so more workers = faster job index building
 
 ### Ingester & Deployment Modes
