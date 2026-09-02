@@ -114,6 +114,14 @@ func main() {
 		}
 	}
 	config.LogConfig(cmd)
+	// Before anything acts on the config: a value no consumer could use is
+	// an operator's typo, and this is the last point at which saying so
+	// costs nothing - past here, startup opens the database and runs
+	// migrations.
+	if err := config.DefaultConfig.Validate(); err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
 	configureGoMemLimit(logger, config.DefaultConfig.MemoryLimit)
 	var shutdown func()
 	if config.DefaultConfig.IsTracingEnabled() {

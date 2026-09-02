@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -376,6 +377,87 @@ func LoadConfig(path string) error {
 	}
 
 	return nil
+}
+
+// Validate reports config values no consumer could act on. Range checks
+// only: whether each value is one its field can mean anything as. How
+// values relate to one another - a job's cycle budget covering the steps it
+// runs, say - depends on what that job does with them, so it belongs to the
+// package that owns the job, not here.
+//
+// Called at startup before anything acts on the config, so a value that
+// would only surface as odd runtime behaviour surfaces as a startup error
+// instead - and only for the sections this process will run, since a
+// disabled job never reads its own values and no command reads both.
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("config is required")
+	}
+
+	// Only what this process will actually run: a job that is switched off
+	// never reads its own section, and the ingester command reads neither.
+	// Reporting all of it at once means an operator with two typos fixes
+	// both before restarting, rather than discovering the second one then.
+	var errs []error
+	if c.Inventory.Enabled {
+		errs = append(errs, c.Inventory.Validate())
+	}
+	if c.Retention.Enabled {
+		errs = append(errs, c.Retention.Validate())
+	}
+	return errors.Join(errs...)
+}
+
+// Validate range-checks the inventory syncer's own values. A step's values
+// are checked only when that step is enabled: a disabled step never reads
+// them, so a leftover value there can't affect anything.
+func (c InventoryConfig) Validate() error {
+	type field struct {
+		name  string
+		value time.Duration
+	}
+	positive := []field{
+		{"sync_interval", c.SyncInterval},
+		{"time_window", c.TimeWindow},
+		{"run_timeout", c.RunTimeout},
+		// Never gated by a flag, so it always has to be usable.
+		{"summary_step_timeout", c.SummaryStepTimeout},
+	}
+	if c.MetadataSyncEnabled {
+		positive = append(positive, field{"metadata_step_timeout", c.MetadataStepTimeout})
+	}
+	if c.JobSyncEnabled {
+		positive = append(positive,
+			field{"job_index_label_timeout", c.JobIndexLabelTimeout},
+			field{"job_index_per_job_timeout", c.JobIndexPerJobTimeout})
+	}
+	var errs []error
+	for _, f := range positive {
+		if f.value <= 0 {
+			errs = append(errs, fmt.Errorf("inventory.%s must be positive (got: %s)", f.name, f.value))
+		}
+	}
+	// Without a worker there's nothing to pull jobs off the fan-out channel,
+	// and the step reports success having indexed nothing.
+	if c.JobSyncEnabled && c.JobIndexWorkers <= 0 {
+		errs = append(errs, fmt.Errorf("inventory.job_index_workers must be positive (got: %d)", c.JobIndexWorkers))
+	}
+	return errors.Join(errs...)
+}
+
+// Validate range-checks the retention worker's own values.
+func (c RetentionConfig) Validate() error {
+	var errs []error
+	if c.Interval <= 0 {
+		errs = append(errs, fmt.Errorf("retention.interval must be positive (got: %v)", c.Interval))
+	}
+	if c.RunTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("retention.run_timeout must be positive (got: %v)", c.RunTimeout))
+	}
+	if c.QueriesMaxAge <= 0 {
+		errs = append(errs, fmt.Errorf("retention.queries_max_age must be positive (got: %v)", c.QueriesMaxAge))
+	}
+	return errors.Join(errs...)
 }
 
 func (c *Config) IsTracingEnabled() bool {
