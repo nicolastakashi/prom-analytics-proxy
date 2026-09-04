@@ -89,26 +89,26 @@ func newAdvisoryLockStrategy(db connGetter) *advisoryLockStrategy {
 	return &advisoryLockStrategy{db: db, livenessInterval: defaultLivenessInterval}
 }
 
-func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
+func (s *advisoryLockStrategy) acquireOrHold(ctx context.Context, name string) (acquisition, bool, error) {
 	key := lockKeyFor(name)
 
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return nil, nil, false, err
+		return acquisition{}, false, err
 	}
 
 	var got bool
 	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&got); err != nil {
 		_ = conn.Close()
-		return nil, nil, false, err
+		return acquisition{}, false, err
 	}
 	if !got {
 		_ = conn.Close()
-		return nil, nil, false, nil
+		return acquisition{}, false, nil
 	}
 
 	leaderCtx, release := newHeldLease(ctx, &pqAdvisoryConn{c: conn}, key, name, s.livenessInterval)
-	return leaderCtx, release, true, nil
+	return acquisition{leaderCtx: leaderCtx, release: release}, true, nil
 }
 
 // newHeldLease builds the leaderCtx/release pair for a lock already held on

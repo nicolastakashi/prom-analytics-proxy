@@ -23,7 +23,8 @@ func TestAdvisoryStrategy_ReleasesLockExplicitly_NotJustViaConnClose(t *testing.
 	strat := newAdvisoryLockStrategy(db)
 
 	ctx := context.Background()
-	_, release, ok, err := strat.acquireOrHold(ctx, "release-test")
+	acq, ok, err := strat.acquireOrHold(ctx, "release-test")
+	release := acq.release
 	require.NoError(t, err) // release() below would nil-panic on failure to acquire
 	require.True(t, ok)
 

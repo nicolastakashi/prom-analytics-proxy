@@ -54,7 +54,7 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 			return nil
 		}
 
-		leaderCtx, release, ok, err := e.strat.acquireOrHold(ctx, name)
+		acq, ok, err := e.strat.acquireOrHold(ctx, name)
 		if err != nil {
 			// Must never cause a silent, permanent return — the only event
 			// allowed to stop this loop is ctx being canceled — but must
@@ -86,7 +86,7 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 		e.m.isLeader.WithLabelValues(name).Set(1)
 		e.m.transitions.WithLabelValues(name, "leader").Inc()
 
-		runAndRelease(leaderCtx, fn, release, name)
+		runAndRelease(acq, fn, name)
 
 		e.m.isLeader.WithLabelValues(name).Set(0)
 		e.m.transitions.WithLabelValues(name, "follower").Inc()
@@ -104,15 +104,15 @@ func (e *elector) Run(ctx context.Context, name string, fn func(context.Context)
 // panic is logged and re-raised, not swallowed — deferred calls still run
 // to completion during that re-panic's unwind, so release() executes
 // before it escapes this function.
-func runAndRelease(leaderCtx context.Context, fn func(context.Context), release func(), name string) {
-	defer release()
+func runAndRelease(acq acquisition, fn func(context.Context), name string) {
+	defer acq.release()
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("leader-elected fn panicked; releasing lock before repanicking", "lease", name, "panic", r)
 			panic(r)
 		}
 	}()
-	fn(leaderCtx)
+	fn(acq.leaderCtx)
 }
 
 // sleep waits for d or ctx cancellation, whichever comes first, reporting
