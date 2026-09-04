@@ -2,19 +2,22 @@ package retention
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 )
 
+// fakeProvider is a minimal db.Provider stand-in. Embedding the (nil)
+// interface means any method this worker doesn't use panics if called -
+// which is what a test wants, rather than a silent zero value.
 type fakeProvider struct {
+	db.Provider
+
 	deleteCalls   []time.Time
 	deleteResults []int64
 	deleteErrors  []error
@@ -40,73 +43,10 @@ func (f *fakeProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Time
 	return result, nil
 }
 
-func (f *fakeProvider) WithDB(func(*sql.DB))                                            {}
-func (f *fakeProvider) Insert(context.Context, []db.Query) error                        { return nil }
-func (f *fakeProvider) InsertRulesUsage(context.Context, []db.RulesUsage) error         { return nil }
-func (f *fakeProvider) InsertDashboardUsage(context.Context, []db.DashboardUsage) error { return nil }
-func (f *fakeProvider) GetSeriesMetadata(context.Context, db.SeriesMetadataParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) UpsertMetricsCatalog(context.Context, []db.MetricCatalogItem) error {
-	return nil
-}
-func (f *fakeProvider) RefreshMetricsUsageSummary(context.Context, db.TimeRange) error { return nil }
-func (f *fakeProvider) UpsertMetricsJobIndex(context.Context, []db.MetricJobIndexItem) error {
-	return nil
-}
-func (f *fakeProvider) ListJobs(context.Context) ([]string, error) { return nil, nil }
-func (f *fakeProvider) GetQueryTypes(context.Context, db.TimeRange, string) (*db.QueryTypesResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetAverageDuration(context.Context, db.TimeRange, string) (*db.AverageDurationResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryRate(context.Context, db.TimeRange, string, string) (*db.QueryRateResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueriesBySerieName(context.Context, db.QueriesBySerieNameParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) GetQueryStatusDistribution(context.Context, db.TimeRange, string) ([]db.QueryStatusDistributionResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryLatencyTrends(context.Context, db.TimeRange, string, string) ([]db.QueryLatencyTrendsResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryThroughputAnalysis(context.Context, db.TimeRange) ([]db.QueryThroughputAnalysisResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryErrorAnalysis(context.Context, db.TimeRange, string) ([]db.QueryErrorAnalysisResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryTimeRangeDistribution(context.Context, db.TimeRange, string) ([]db.QueryTimeRangeDistributionResult, error) {
-	return nil, nil
-}
-func (f *fakeProvider) GetQueryExpressions(context.Context, db.QueryExpressionsParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) GetQueryExecutions(context.Context, db.QueryExecutionsParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) GetMetricStatistics(context.Context, string, db.TimeRange) (db.MetricUsageStatics, error) {
-	return db.MetricUsageStatics{}, nil
-}
-func (f *fakeProvider) GetMetricQueryPerformanceStatistics(context.Context, string, db.TimeRange) (db.MetricQueryPerformanceStatistics, error) {
-	return db.MetricQueryPerformanceStatistics{}, nil
-}
-func (f *fakeProvider) GetRulesUsage(context.Context, db.RulesUsageParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) GetDashboardUsage(context.Context, db.DashboardUsageParams) (db.PagedResult, error) {
-	return db.PagedResult{}, nil
-}
-func (f *fakeProvider) GetSeriesMetadataByNames(context.Context, []string, string) ([]models.MetricMetadata, error) {
-	return nil, nil
-}
-func (f *fakeProvider) Close() error { return nil }
-
-func TestNewWorker(t *testing.T) {
-	cfg := &config.Config{
+// baseRetentionConfig is a valid config every constructor test starts from,
+// so each one only has to state the single field it's about.
+func baseRetentionConfig() *config.Config {
+	return &config.Config{
 		Retention: config.RetentionConfig{
 			Enabled:       true,
 			Interval:      1 * time.Hour,
@@ -114,152 +54,91 @@ func TestNewWorker(t *testing.T) {
 			QueriesMaxAge: 30 * 24 * time.Hour,
 		},
 	}
+}
+
+func TestNewWorker(t *testing.T) {
+	cfg := baseRetentionConfig()
 
 	fakeProv := &fakeProvider{}
 
 	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
 	assert.NoError(t, err)
 	assert.NotNil(t, w)
-	assert.Equal(t, cfg.Retention.Interval, w.interval)
 	assert.Equal(t, cfg.Retention.RunTimeout, w.runTimeout)
 	assert.Equal(t, cfg.Retention.QueriesMaxAge, w.queriesMaxAge)
 }
 
-func TestNewWorker_RejectsZeroQueriesMaxAge(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      1 * time.Hour,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: 0,
+// TestNewWorker_ConfigValidation covers the mechanical half of NewWorker's
+// construction gate: every value it requires to be positive. The two cases
+// whose reasoning needs explaining stay separate tests below.
+func TestNewWorker_ConfigValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		tweak   func(*config.RetentionConfig)
+		wantErr string
+	}{
+		{
+			name:    "interval zero",
+			tweak:   func(c *config.RetentionConfig) { c.Interval = 0 },
+			wantErr: "interval must be positive",
 		},
+		{
+			name:    "interval negative",
+			tweak:   func(c *config.RetentionConfig) { c.Interval = -time.Hour },
+			wantErr: "interval must be positive",
+		},
+		{
+			name:    "run_timeout zero",
+			tweak:   func(c *config.RetentionConfig) { c.RunTimeout = 0 },
+			wantErr: "run_timeout must be positive",
+		},
+		{
+			name:    "run_timeout negative",
+			tweak:   func(c *config.RetentionConfig) { c.RunTimeout = -time.Minute },
+			wantErr: "run_timeout must be positive",
+		},
+		{
+			name:    "queries_max_age zero",
+			tweak:   func(c *config.RetentionConfig) { c.QueriesMaxAge = 0 },
+			wantErr: "queries_max_age must be positive",
+		},
+		{
+			name:    "queries_max_age negative",
+			tweak:   func(c *config.RetentionConfig) { c.QueriesMaxAge = -time.Hour },
+			wantErr: "queries_max_age must be positive",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := baseRetentionConfig()
+			tc.tweak(&cfg.Retention)
+
+			w, err := NewWorker(&fakeProvider{}, cfg, prometheus.NewRegistry())
+
+			assert.Error(t, err)
+			assert.Nil(t, w)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
 	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "queries_max_age must be positive")
 }
 
-func TestNewWorker_RejectsNegativeQueriesMaxAge(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      1 * time.Hour,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: -1 * time.Hour,
-		},
-	}
+func TestNewWorker_AcceptsIntervalTooSmallToJitter(t *testing.T) {
+	cfg := baseRetentionConfig()
+	cfg.Retention.Interval = 4 * time.Nanosecond
 
 	fakeProv := &fakeProvider{}
 
 	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "queries_max_age must be positive")
-}
-
-func TestNewWorker_RejectsZeroInterval(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      0,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: 30 * 24 * time.Hour,
-		},
-	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "interval must be positive")
-}
-
-func TestNewWorker_RejectsNegativeInterval(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      -1 * time.Hour,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: 30 * 24 * time.Hour,
-		},
-	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "interval must be positive")
-}
-
-func TestNewWorker_RejectsZeroRunTimeout(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      1 * time.Hour,
-			RunTimeout:    0,
-			QueriesMaxAge: 30 * 24 * time.Hour,
-		},
-	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "run_timeout must be positive")
-}
-
-func TestNewWorker_RejectsNegativeRunTimeout(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      1 * time.Hour,
-			RunTimeout:    -1 * time.Minute,
-			QueriesMaxAge: 30 * 24 * time.Hour,
-		},
-	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	assert.Error(t, err)
-	assert.Nil(t, w)
-	assert.Contains(t, err.Error(), "run_timeout must be positive")
-}
-
-func TestNewWorker_RejectsIntervalLessThan5Nanoseconds(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       true,
-			Interval:      4 * time.Nanosecond,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: 30 * 24 * time.Hour,
-		},
-	}
-
-	fakeProv := &fakeProvider{}
-
-	w, err := NewWorker(fakeProv, cfg, prometheus.NewRegistry())
-	// This should still pass validation since interval > 0, but runLoop should handle it defensively
+	// Positive is all this validation guarantees: coping with an interval
+	// too small for 20% of it to be a whole nanosecond is the scheduler's
+	// job, not a reason to reject the config.
 	assert.NoError(t, err)
 	assert.NotNil(t, w)
 }
 
 func TestNewWorker_RejectsZeroQueriesMaxAgeEvenWhenDisabled(t *testing.T) {
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			Enabled:       false,
-			Interval:      1 * time.Hour,
-			RunTimeout:    5 * time.Minute,
-			QueriesMaxAge: 0,
-		},
-	}
+	cfg := baseRetentionConfig()
+	cfg.Retention.Enabled = false
+	cfg.Retention.QueriesMaxAge = 0
 
 	fakeProv := &fakeProvider{}
 
@@ -269,7 +148,7 @@ func TestNewWorker_RejectsZeroQueriesMaxAgeEvenWhenDisabled(t *testing.T) {
 	assert.Contains(t, err.Error(), "queries_max_age must be positive")
 }
 
-func TestWorker_runOnce(t *testing.T) {
+func TestWorker_RunOnce(t *testing.T) {
 	fakeProv := &fakeProvider{
 		deleteResults: []int64{42},
 		deleteErrors:  []error{nil},
@@ -277,7 +156,6 @@ func TestWorker_runOnce(t *testing.T) {
 
 	w := &Worker{
 		dbProvider:    fakeProv,
-		interval:      1 * time.Hour,
 		runTimeout:    5 * time.Minute,
 		queriesMaxAge: 30 * 24 * time.Hour,
 		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
@@ -286,7 +164,7 @@ func TestWorker_runOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
-	w.runOnce(ctx)
+	w.RunOnce(ctx)
 
 	assert.Len(t, fakeProv.deleteCalls, 1, "DeleteQueriesBefore should be called once")
 
@@ -299,7 +177,7 @@ func TestWorker_runOnce(t *testing.T) {
 	assert.Less(t, diff, 1*time.Second, "cutoff should be approximately now - queriesMaxAge")
 }
 
-func TestWorker_runOnce_Error(t *testing.T) {
+func TestWorker_RunOnce_Error(t *testing.T) {
 	fakeProv := &fakeProvider{
 		deleteResults: []int64{0},
 		deleteErrors:  []error{errors.New("database error")},
@@ -307,7 +185,6 @@ func TestWorker_runOnce_Error(t *testing.T) {
 
 	w := &Worker{
 		dbProvider:    fakeProv,
-		interval:      1 * time.Hour,
 		runTimeout:    5 * time.Minute,
 		queriesMaxAge: 30 * 24 * time.Hour,
 		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
@@ -316,17 +193,16 @@ func TestWorker_runOnce_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
-	w.runOnce(ctx)
+	w.RunOnce(ctx)
 
 	assert.Len(t, fakeProv.deleteCalls, 1, "DeleteQueriesBefore should be called once")
 }
 
-func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsZero(t *testing.T) {
+func TestWorker_RunOnce_SkipsDeletionWhenQueriesMaxAgeIsZero(t *testing.T) {
 	fakeProv := &fakeProvider{}
 
 	w := &Worker{
 		dbProvider:    fakeProv,
-		interval:      1 * time.Hour,
 		runTimeout:    5 * time.Minute,
 		queriesMaxAge: 0,
 		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
@@ -335,17 +211,16 @@ func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsZero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
-	w.runOnce(ctx)
+	w.RunOnce(ctx)
 
 	assert.Len(t, fakeProv.deleteCalls, 0, "DeleteQueriesBefore should not be called when queriesMaxAge is zero")
 }
 
-func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsNegative(t *testing.T) {
+func TestWorker_RunOnce_SkipsDeletionWhenQueriesMaxAgeIsNegative(t *testing.T) {
 	fakeProv := &fakeProvider{}
 
 	w := &Worker{
 		dbProvider:    fakeProv,
-		interval:      1 * time.Hour,
 		runTimeout:    5 * time.Minute,
 		queriesMaxAge: -1 * time.Hour,
 		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
@@ -354,42 +229,7 @@ func TestWorker_runOnce_SkipsDeletionWhenQueriesMaxAgeIsNegative(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
-	w.runOnce(ctx)
+	w.RunOnce(ctx)
 
 	assert.Len(t, fakeProv.deleteCalls, 0, "DeleteQueriesBefore should not be called when queriesMaxAge is negative")
-}
-
-func TestWorker_runLoop_HandlesSmallInterval(t *testing.T) {
-	fakeProv := &fakeProvider{
-		deleteResults: []int64{0},
-		deleteErrors:  []error{nil},
-	}
-
-	w := &Worker{
-		dbProvider:    fakeProv,
-		interval:      4 * time.Nanosecond, // Less than 5ns, which would cause w.interval/5 to be 0
-		runTimeout:    5 * time.Minute,
-		queriesMaxAge: 30 * 24 * time.Hour,
-		runDuration:   prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_duration"}, []string{"status"}),
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	// This should not panic even with a very small interval
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		w.runLoop(ctx)
-	}()
-
-	select {
-	case <-done:
-		// runLoop exited normally (due to context cancellation)
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("runLoop should have exited within timeout")
-	}
-
-	// Verify that runOnce was called at least once
-	assert.GreaterOrEqual(t, len(fakeProv.deleteCalls), 1, "runOnce should have been called at least once")
 }

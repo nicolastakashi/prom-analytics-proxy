@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"strconv"
 	"time"
 
@@ -20,7 +19,6 @@ type Syncer struct {
 	dbProvider              db.Provider
 	promAPI                 v1.API
 	timeWindow              time.Duration
-	interval                time.Duration
 	metadataLim             string
 	metadataSyncEnabled     bool
 	metadataMetricsNameOnly bool
@@ -130,7 +128,6 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 		dbProvider:              dbp,
 		promAPI:                 v1.NewAPI(client),
 		timeWindow:              cfg.Inventory.TimeWindow,
-		interval:                cfg.Inventory.SyncInterval,
 		metadataLim:             lim,
 		metadataSyncEnabled:     cfg.Inventory.MetadataSyncEnabled,
 		metadataMetricsNameOnly: cfg.Inventory.MetadataMetricsNameOnly,
@@ -168,31 +165,15 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 	return s, nil
 }
 
-func (s *Syncer) RunLeaderless(ctx context.Context) {
-	s.runLoop(ctx)
-}
-
-func (s *Syncer) runLoop(ctx context.Context) {
-	ticker := time.NewTicker(s.interval + time.Duration(rand.Int63n(int64(s.interval/5))))
-	defer ticker.Stop()
-
-	s.runOnce(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.runOnce(ctx)
-		}
-	}
-}
-
-// runOnce runs exactly one sync cycle. cycleCtx is the single deadline every
-// step below derives from, bounded by runTimeout. Each step still nests its
-// own context.WithTimeout inside it and gets that window in full; the
-// settled sum is what makes that safe.
-func (s *Syncer) runOnce(ctx context.Context) {
+// RunOnce runs exactly one sync cycle, bounded by whatever ctx it's given -
+// scheduling and leadership are entirely the caller's concern; RunOnce
+// itself doesn't loop or know who's calling it.
+//
+// cycleCtx is the single deadline every step below derives from, bounded
+// by runTimeout. Each step still nests its own context.WithTimeout inside
+// it and gets that window in full; NewSyncer's validation of runTimeout
+// against the step sum is what makes that safe.
+func (s *Syncer) RunOnce(ctx context.Context) {
 	start := time.Now()
 	cycleCtx, cancel := context.WithTimeout(ctx, s.runTimeout)
 	defer cancel()
