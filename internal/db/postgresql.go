@@ -545,25 +545,14 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 
 func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
 	ValidatePagination(&params.Page, &params.PageSize, 10)
-	if params.SortOrder == "" {
-		params.SortOrder = "desc"
-	}
-	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
-	}
-	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now().UTC()
-	}
-
 	validSortFields := map[string]bool{
 		"name":       true,
 		"group_name": true,
 		"expression": true,
 		"created_at": true,
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "created_at"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
+	SetDefaultTimeRange(&params.TimeRange)
 
 	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
 
@@ -749,33 +738,14 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 }
 
 func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error) {
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 10
-	}
-	if params.SortBy == "" {
-		params.SortBy = "created_at"
-	}
-	if params.SortOrder == "" {
-		params.SortOrder = "desc"
-	}
-	if params.TimeRange.From.IsZero() {
-		params.TimeRange.From = time.Now().UTC().Add(-30 * 24 * time.Hour)
-	}
-	if params.TimeRange.To.IsZero() {
-		params.TimeRange.To = time.Now().UTC()
-	}
-
+	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSortFields := map[string]bool{
 		"name":       true,
 		"url":        true,
 		"created_at": true,
 	}
-	if !validSortFields[params.SortBy] {
-		params.SortBy = "created_at"
-	}
+	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
+	SetDefaultTimeRange(&params.TimeRange)
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
