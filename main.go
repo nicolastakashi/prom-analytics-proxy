@@ -18,6 +18,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/cmd/api"
 	"github.com/nicolastakashi/prom-analytics-proxy/cmd/ingester"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/inventory"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/log"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/tracing"
 )
@@ -122,6 +123,8 @@ func main() {
 		slog.Error("invalid configuration", "err", err)
 		os.Exit(1)
 	}
+	// Last step of composing the config; everything past here only reads it.
+	inventory.SettleConfig(config.DefaultConfig)
 	configureGoMemLimit(logger, config.DefaultConfig.MemoryLimit)
 	var shutdown func()
 	if config.DefaultConfig.IsTracingEnabled() {
