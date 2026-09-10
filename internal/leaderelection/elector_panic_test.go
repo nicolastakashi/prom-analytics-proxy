@@ -27,7 +27,7 @@ func TestElector_Run_ReleasesLock_WhenFnPanics(t *testing.T) {
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
-		_ = elector.Run(ctx, "panic-test", func(context.Context) {
+		_ = elector.Run(ctx, "panic-test", func(context.Context, CycleReporter) {
 			panic("simulated fn panic")
 		})
 		t.Fatal("Run must not return normally when fn panics")

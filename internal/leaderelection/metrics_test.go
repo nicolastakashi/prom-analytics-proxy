@@ -22,7 +22,7 @@ func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- elector.Run(ctx, "metrics-test", func(fnCtx context.Context) {
+		done <- elector.Run(ctx, "metrics-test", func(fnCtx context.Context, _ CycleReporter) {
 			close(fnRunning)
 			<-fnCtx.Done()
 		})
@@ -92,7 +92,7 @@ func TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader(t *
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	_ = elector.Run(ctx, "zero-init-test", func(context.Context) {
+	_ = elector.Run(ctx, "zero-init-test", func(context.Context, CycleReporter) {
 		t.Fatal("fn must never run: this strategy never grants leadership")
 	})
 

@@ -30,7 +30,7 @@ func TestElector_Run_CancelsFnContextPromptlyWhenLeaseLost(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		_ = elector.Run(ctx, "cancel-test", func(fnCtx context.Context) {
+		_ = elector.Run(ctx, "cancel-test", func(fnCtx context.Context, _ CycleReporter) {
 			fnCtxCh <- fnCtx
 			<-fnCtx.Done() // fn must exit once fnCtx is canceled
 		})
