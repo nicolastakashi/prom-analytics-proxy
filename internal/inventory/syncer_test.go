@@ -68,7 +68,7 @@ func TestSyncer_SlowMetadataStepDoesNotPermanentlyStarveSummaryRefresh(t *testin
 			provider.summarySucceeded = false
 			provider.mu.Unlock()
 
-			s.runOnce(context.Background())
+			s.RunOnce(context.Background())
 
 			provider.mu.Lock()
 			commits, calls, succeeded := provider.catalogCommits, provider.summaryCalls, provider.summarySucceeded
@@ -154,7 +154,7 @@ func TestSyncer_EachBudgetBoundsItsOwnScope(t *testing.T) {
 				}
 
 				start := time.Now()
-				s.runOnce(context.Background())
+				s.RunOnce(context.Background())
 
 				assert.Equal(t, tc.wantElapsed, time.Since(start),
 					"the tightest budget in scope must be what ends the work")
@@ -208,7 +208,7 @@ func TestSyncer_SummaryFailureAfterCatalogCommitEmitsMismatchMetric(t *testing.T
 		catalogSummaryMismatch: newCounter(),
 	}
 
-	s.runOnce(context.Background())
+	s.RunOnce(context.Background())
 
 	assert.Equal(t, 1, provider.catalogCommits, "catalog step should have committed")
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.syncFailure), "generic failure counter should still increment")
@@ -238,7 +238,7 @@ func TestSyncer_MetadataFailureDoesNotEmitMismatchMetric(t *testing.T) {
 		catalogSummaryMismatch: newCounter(),
 	}
 
-	s.runOnce(context.Background())
+	s.RunOnce(context.Background())
 
 	assert.Equal(t, 0, provider.catalogCommits, "catalog step should not have committed")
 	assert.Equal(t, 0, provider.summaryCalls, "summary refresh should not even be attempted")
@@ -268,7 +268,7 @@ func TestSyncer_DisabledMetadataSyncStillRefreshesTheSummary(t *testing.T) {
 		catalogSummaryMismatch: newCounter(),
 	}
 
-	s.runOnce(context.Background())
+	s.RunOnce(context.Background())
 
 	assert.Equal(t, 0, provider.catalogCommits, "the catalog step is skipped entirely in this mode")
 	assert.Equal(t, 1, provider.summaryCalls, "the summary refresh is never gated by metadata_sync_enabled")
@@ -302,7 +302,7 @@ func TestSyncer_SummaryFailureWithMetadataSyncDisabledStillEmitsMismatchMetric(t
 		catalogSummaryMismatch: newCounter(),
 	}
 
-	s.runOnce(context.Background())
+	s.RunOnce(context.Background())
 
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.syncFailure))
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.catalogSummaryMismatch))
