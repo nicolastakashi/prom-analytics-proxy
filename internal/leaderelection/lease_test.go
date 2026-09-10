@@ -22,7 +22,9 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 	t.Run("AcquireWhenFree_Succeeds", func(t *testing.T) {
 		strat := newLeaseStrategy(db, time.Second, noRenewal)
 
-		_, release, ok, err := strat.acquireOrHold(context.Background(), "lifecycle-test")
+		acq, ok, err := strat.acquireOrHold(context.Background(), "lifecycle-test")
+
+		release := acq.release
 		require.NoError(t, err)
 		require.True(t, ok)
 		defer release()
@@ -41,7 +43,9 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		leaderCtx, release, ok, err := strat.acquireOrHold(ctx, "canceled-ctx-test")
+		acq, ok, err := strat.acquireOrHold(ctx, "canceled-ctx-test")
+
+		leaderCtx, release := acq.leaderCtx, acq.release
 		assert.Error(t, err)
 		assert.False(t, ok)
 		assert.Nil(t, leaderCtx)
@@ -52,12 +56,14 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		holderA := newLeaseStrategy(db, time.Second, noRenewal)
 		holderB := newLeaseStrategy(db, time.Second, noRenewal)
 
-		_, release, ok, err := holderA.acquireOrHold(context.Background(), "contended-test")
+		acq, ok, err := holderA.acquireOrHold(context.Background(), "contended-test")
+
+		release := acq.release
 		require.NoError(t, err)
 		require.True(t, ok)
 		defer release()
 
-		_, _, ok, err = holderB.acquireOrHold(context.Background(), "contended-test")
+		_, ok, err = holderB.acquireOrHold(context.Background(), "contended-test")
 		assert.NoError(t, err)
 		assert.False(t, ok, "a second holder must not acquire a lease still held by someone else")
 	})
@@ -66,7 +72,7 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		holderA := newLeaseStrategy(db, 50*time.Millisecond, noRenewal)
 		holderB := newLeaseStrategy(db, time.Second, noRenewal)
 
-		_, _, ok, err := holderA.acquireOrHold(context.Background(), "expiry-test")
+		_, ok, err := holderA.acquireOrHold(context.Background(), "expiry-test")
 		assert.NoError(t, err)
 		assert.True(t, ok)
 		// holderA never renews again, and noRenewal keeps its watchdog
@@ -75,7 +81,9 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 
 		time.Sleep(100 * time.Millisecond)
 
-		_, release, ok, err := holderB.acquireOrHold(context.Background(), "expiry-test")
+		acq, ok, err := holderB.acquireOrHold(context.Background(), "expiry-test")
+
+		release := acq.release
 		require.NoError(t, err)
 		require.True(t, ok, "a lease must become acquirable again once it has expired")
 		defer release()
@@ -85,7 +93,8 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		holderA := newLeaseStrategy(db, time.Second, noRenewal)
 
 		ctx := context.Background()
-		_, release, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		acq, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		release := acq.release
 		require.NoError(t, err)
 		require.True(t, ok)
 		defer release()
@@ -93,7 +102,8 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		tokenAfterAcquire, expiresAfterAcquire := queryLease(t, db, "renew-test")
 
 		time.Sleep(10 * time.Millisecond)
-		_, release2, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		acq2, ok, err := holderA.acquireOrHold(ctx, "renew-test")
+		release2 := acq2.release
 		require.NoError(t, err)
 		require.True(t, ok)
 		defer release2()
@@ -115,13 +125,15 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 		holderA := newLeaseStrategy(db, time.Minute, noRenewal)
 		holderB := newLeaseStrategy(db, time.Minute, noRenewal)
 
-		_, release, ok, err := holderA.acquireOrHold(context.Background(), "handoff-test")
+		acq, ok, err := holderA.acquireOrHold(context.Background(), "handoff-test")
+
+		release := acq.release
 		require.NoError(t, err)
 		require.True(t, ok)
 
 		release()
 
-		_, _, ok, err = holderB.acquireOrHold(context.Background(), "handoff-test")
+		_, ok, err = holderB.acquireOrHold(context.Background(), "handoff-test")
 		assert.NoError(t, err)
 		assert.True(t, ok, "a graceful release must let another holder acquire immediately, without waiting out the TTL")
 	})
@@ -146,7 +158,9 @@ func TestLeaseStrategy_Release_LogsWarningWhenExpiryUpdateFails(t *testing.T) {
 	db := newTestPostgresDB(t)
 	strat := newLeaseStrategy(db, time.Second, noRenewal)
 
-	_, release, ok, err := strat.acquireOrHold(context.Background(), "release-error-test")
+	acq, ok, err := strat.acquireOrHold(context.Background(), "release-error-test")
+
+	release := acq.release
 	require.NoError(t, err)
 	require.True(t, ok)
 

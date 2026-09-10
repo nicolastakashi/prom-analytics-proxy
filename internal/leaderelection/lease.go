@@ -79,13 +79,13 @@ func newLeaseStrategy(db *sql.DB, ttl, renewInterval time.Duration) *leaseStrate
 	return &leaseStrategy{db: db, ttl: ttl, renewInterval: renewInterval, holderID: uuid.NewString()}
 }
 
-func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (context.Context, func(), bool, error) {
+func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (acquisition, bool, error) {
 	_, ok, err := s.tryAcquireOrRenew(ctx, name)
 	if err != nil {
-		return nil, nil, false, err
+		return acquisition{}, false, err
 	}
 	if !ok {
-		return nil, nil, false, nil
+		return acquisition{}, false, nil
 	}
 
 	// Leadership acquired. A background watchdog renews on renewInterval
@@ -108,7 +108,7 @@ func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (context
 			slog.Warn("releasing lease failed; next holder will wait out the TTL", "lease", name, "err", err)
 		}
 	}
-	return leaderCtx, release, true, nil
+	return acquisition{leaderCtx: leaderCtx, release: release}, true, nil
 }
 
 // leaseRenewer is the seam watchdog needs to attempt a renewal — a

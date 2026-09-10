@@ -28,14 +28,15 @@ func TestAdvisoryStrategy_RepeatedOperations_DoNotLeakConnections(t *testing.T) 
 		loser := newAdvisoryLockStrategy(db)
 
 		ctx := context.Background()
-		_, release, ok, err := winner.acquireOrHold(ctx, "leak-contention-test")
+		acq, ok, err := winner.acquireOrHold(ctx, "leak-contention-test")
+		release := acq.release
 		require.NoError(t, err) // release() below would nil-panic on failure to acquire
 		require.True(t, ok)
 		defer release()
 
 		const attempts = 50
 		for i := 0; i < attempts; i++ {
-			_, _, ok, err := loser.acquireOrHold(ctx, "leak-contention-test")
+			_, ok, err := loser.acquireOrHold(ctx, "leak-contention-test")
 			assert.NoError(t, err)
 			assert.False(t, ok, "still held by winner")
 		}
@@ -56,7 +57,8 @@ func TestAdvisoryStrategy_RepeatedOperations_DoNotLeakConnections(t *testing.T) 
 
 		const cycles = 50
 		for i := 0; i < cycles; i++ {
-			_, release, ok, err := strat.acquireOrHold(ctx, "leak-cycle-test")
+			acq, ok, err := strat.acquireOrHold(ctx, "leak-cycle-test")
+			release := acq.release
 			require.NoError(t, err) // release() below would nil-panic on failure to acquire
 			require.True(t, ok)
 			release()
