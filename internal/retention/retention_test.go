@@ -103,6 +103,24 @@ func (f *fakeProvider) GetDashboardUsage(context.Context, db.DashboardUsageParam
 func (f *fakeProvider) GetSeriesMetadataByNames(context.Context, []string, string) ([]models.MetricMetadata, error) {
 	return nil, nil
 }
+func (f *fakeProvider) GetSeriesMetadataCount(context.Context, db.SeriesMetadataParams) (int, error) {
+	return 0, nil
+}
+func (f *fakeProvider) GetQueryExpressionsCount(context.Context, db.QueryExpressionsParams) (int, error) {
+	return 0, nil
+}
+func (f *fakeProvider) GetQueryExecutionsCount(context.Context, db.QueryExecutionsParams) (int, error) {
+	return 0, nil
+}
+func (f *fakeProvider) GetQueriesBySerieNameCount(context.Context, db.QueriesBySerieNameParams) (int, error) {
+	return 0, nil
+}
+func (f *fakeProvider) GetRulesUsageCount(context.Context, db.RulesUsageParams) (int, error) {
+	return 0, nil
+}
+func (f *fakeProvider) GetDashboardUsageCount(context.Context, db.DashboardUsageParams) (int, error) {
+	return 0, nil
+}
 func (f *fakeProvider) Close() error { return nil }
 
 func TestNewWorker(t *testing.T) {
