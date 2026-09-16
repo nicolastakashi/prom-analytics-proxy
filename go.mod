@@ -7,7 +7,7 @@ go 1.26.6
 replace github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.6.1
 
 require (
-	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/KimMachineGun/automemlimit v1.0.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
 	github.com/oklog/run v1.2.0
