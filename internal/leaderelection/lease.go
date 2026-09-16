@@ -79,6 +79,9 @@ func newLeaseStrategy(db *sql.DB, ttl, renewInterval time.Duration) *leaseStrate
 	return &leaseStrategy{db: db, ttl: ttl, renewInterval: renewInterval, holderID: uuid.NewString()}
 }
 
+// acquireOrHold's acquisition carries a cycleTracker as its CycleReporter,
+// scoped to this one term (see docs/leader-election.md, "Reporting job
+// cycles").
 func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (acquisition, bool, error) {
 	_, ok, err := s.tryAcquireOrRenew(ctx, name)
 	if err != nil {
@@ -90,9 +93,15 @@ func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (acquisi
 
 	// Leadership acquired. A background watchdog renews on renewInterval
 	// for as long as leaderCtx is alive — see watchdog for how it decides
-	// when a renewal failure actually means leadership is gone.
+	// when a renewal failure actually means leadership is gone. tracker is
+	// this acquisition's own CycleReporter — scoped to this one Run call,
+	// never shared across concurrent acquisitions of other lease names —
+	// and the same watchdog tick that renews also checks it, so a cycle
+	// exceeding its declared budget is treated exactly like losing the
+	// lease outright (see watchdog).
 	leaderCtx, cancel := context.WithCancel(ctx)
-	watchdogDone := watchdog(leaderCtx, cancel, s, name, s.renewInterval, s.ttl)
+	tracker := &cycleTracker{}
+	watchdogDone := watchdog(leaderCtx, cancel, s, name, s.renewInterval, s.ttl, tracker)
 
 	release := func() {
 		cancel()
@@ -108,7 +117,7 @@ func (s *leaseStrategy) acquireOrHold(ctx context.Context, name string) (acquisi
 			slog.Warn("releasing lease failed; next holder will wait out the TTL", "lease", name, "err", err)
 		}
 	}
-	return acquisition{leaderCtx: leaderCtx, release: release}, true, nil
+	return acquisition{leaderCtx: leaderCtx, release: release, reporter: tracker}, true, nil
 }
 
 // leaseRenewer is the seam watchdog needs to attempt a renewal — a
@@ -123,15 +132,32 @@ type leaseRenewer interface {
 // watchdog renews the lease via r every renewInterval for as long as
 // leaderCtx is alive (via runCancelWatchdog), canceling it the moment
 // leadership can no longer be trusted:
+//   - a reported cycle (via tracker) has run longer than its own declared
+//     budget — checked first, before ever touching the renewal round trip
+//     at all: cancels that cycle's own context (the job may be blocked on
+//     something that would otherwise never notice) and steps down exactly
+//     as if the lease had been lost to another holder, since a job this
+//     far past its own declared budget can no longer be trusted either
+//     way (see docs/leader-election.md, "Reporting job cycles"). tracker
+//     may be nil, or may simply have never received a report — nothing
+//     to check yet, not a violation.
 //   - !stillOK (err == nil): the lease is confirmed held by another
 //     holder — authoritative, cancels immediately.
 //   - err != nil: transient (e.g. a dropped connection); retried on the
 //     next tick. Cancels only once time since the last successful renewal
 //     reaches ttl, since by then the lease may genuinely have expired
 //     server-side.
-func watchdog(leaderCtx context.Context, cancel context.CancelFunc, r leaseRenewer, name string, renewInterval, ttl time.Duration) chan struct{} {
+func watchdog(leaderCtx context.Context, cancel context.CancelFunc, r leaseRenewer, name string, renewInterval, ttl time.Duration, tracker *cycleTracker) chan struct{} {
 	lastSuccess := time.Now()
 	return runCancelWatchdog(leaderCtx, cancel, renewInterval, func(renewCtx context.Context) bool {
+		if tracker != nil {
+			if cycleCancel, over := tracker.overBudget(); over {
+				slog.Warn("job cycle exceeded its declared budget; canceling and stepping down", "lease", name)
+				cycleCancel()
+				return false
+			}
+		}
+
 		_, stillOK, err := r.tryAcquireOrRenew(renewCtx, name)
 		switch {
 		case err == nil && stillOK:

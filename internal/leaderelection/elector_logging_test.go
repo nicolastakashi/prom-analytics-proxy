@@ -29,7 +29,7 @@ func TestElector_Run_LogsErrorsFromAcquireOrHold(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_ = elector.Run(ctx, "log-test", func(context.Context) {})
+	_ = elector.Run(ctx, "log-test", func(context.Context, CycleReporter) {})
 
 	var found bool
 	for _, r := range handler.snapshot() {

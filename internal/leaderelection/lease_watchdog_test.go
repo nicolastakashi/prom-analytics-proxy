@@ -64,7 +64,7 @@ func TestWatchdog_TransientRenewalError_DoesNotCancelLeaderCtx(t *testing.T) {
 	}}
 	leaderCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := watchdog(leaderCtx, cancel, renewer, "transient-test", renewInterval, ttl)
+	done := watchdog(leaderCtx, cancel, renewer, "transient-test", renewInterval, ttl, nil)
 
 	time.Sleep(renewInterval * 8)
 
@@ -97,7 +97,7 @@ func TestWatchdog_FlappingErrors_NeverCancelWhenEachRecoveryResetsWithinTTL(t *t
 	renewer := &fakeLeaseRenewer{script: script}
 	leaderCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := watchdog(leaderCtx, cancel, renewer, "flapping-test", renewInterval, ttl)
+	done := watchdog(leaderCtx, cancel, renewer, "flapping-test", renewInterval, ttl, nil)
 
 	deadline := time.Now().Add(renewInterval * time.Duration(len(script)))
 	for time.Now().Before(deadline) {
@@ -124,7 +124,7 @@ func TestWatchdog_SustainedRenewalErrors_CancelsOncePastTTLMargin(t *testing.T) 
 	leaderCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	start := time.Now()
-	done := watchdog(leaderCtx, cancel, renewer, "sustained-failure-test", renewInterval, ttl)
+	done := watchdog(leaderCtx, cancel, renewer, "sustained-failure-test", renewInterval, ttl, nil)
 
 	select {
 	case <-leaderCtx.Done():
@@ -149,7 +149,7 @@ func TestWatchdog_LostToAnotherHolder_CancelsImmediatelyEvenWithMarginRemaining(
 	renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: false, err: nil}}}
 	leaderCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := watchdog(leaderCtx, cancel, renewer, "lost-lease-test", renewInterval, ttl)
+	done := watchdog(leaderCtx, cancel, renewer, "lost-lease-test", renewInterval, ttl, nil)
 
 	select {
 	case <-leaderCtx.Done():
@@ -168,7 +168,7 @@ func TestWatchdog_StopsCleanly_WhenLeaderCtxCanceledExternally(t *testing.T) {
 	const renewInterval = 5 * time.Millisecond
 	renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
 	leaderCtx, cancel := context.WithCancel(context.Background())
-	done := watchdog(leaderCtx, cancel, renewer, "external-cancel-test", renewInterval, time.Hour)
+	done := watchdog(leaderCtx, cancel, renewer, "external-cancel-test", renewInterval, time.Hour, nil)
 
 	time.Sleep(renewInterval * 4)
 	cancel()
@@ -200,7 +200,7 @@ func TestWatchdog_LogsDistinguishTransientRetryFromTTLStepDown(t *testing.T) {
 	renewer := &fakeLeaseRenewer{script: []renewOutcome{{err: errSimulatedTransient}}}
 	leaderCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := watchdog(leaderCtx, cancel, renewer, "log-test", renewInterval, ttl)
+	done := watchdog(leaderCtx, cancel, renewer, "log-test", renewInterval, ttl, nil)
 	<-leaderCtx.Done()
 	<-done
 
