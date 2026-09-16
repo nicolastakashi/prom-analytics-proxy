@@ -1,11 +1,16 @@
-// Package leaderelection provides single-leader coordination across multiple
-// replicas of this process sharing a PostgreSQL database. It exists as its
-// own package (rather than living inside internal/inventory, which is where
-// this logic used to live) because leader election is infrastructure shared
-// by the inventory syncer and the retention worker — neither owns it.
+// Package leaderelection decides which replica of this process may run a
+// given periodic job. It exists as its own package (rather than living
+// inside internal/inventory, which is where this logic used to live) because
+// leader election is infrastructure shared by the inventory syncer and the
+// retention worker — neither owns it.
 //
-// See docs/leader-election.md for why this exists, why it's PostgreSQL-only,
-// and the design rationale behind the advisory-lock strategy.
+// Coordination between replicas needs shared state, and both strategies that
+// provide it are PostgreSQL-only. Where there is nothing to coordinate —
+// SQLite, one database file per replica — NewSoleInstance holds leadership
+// outright, so every caller gets an Elector and none has to special-case the
+// provider it runs on.
+//
+// See docs/leader-election.md for the design rationale behind each strategy.
 package leaderelection
 
 import "context"
