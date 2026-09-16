@@ -55,7 +55,8 @@ func TestAdvisoryStrategy_MutualExclusion_ConcurrentGoroutines(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for ctx.Err() == nil {
-				_, release, ok, err := strat.acquireOrHold(ctx, "mutex-test")
+				acq, ok, err := strat.acquireOrHold(ctx, "mutex-test")
+				release := acq.release
 				if err != nil {
 					// ctx expiring mid-attempt right at the test's own
 					// deadline is expected shutdown noise, not a failure of

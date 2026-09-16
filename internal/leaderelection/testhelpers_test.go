@@ -106,13 +106,13 @@ type releaseTrackingStrategy struct {
 	released atomic.Bool
 }
 
-func (s *releaseTrackingStrategy) acquireOrHold(ctx context.Context, _ string) (context.Context, func(), bool, error) {
+func (s *releaseTrackingStrategy) acquireOrHold(ctx context.Context, _ string) (acquisition, bool, error) {
 	leaderCtx, cancel := context.WithCancel(ctx)
 	release := func() {
 		cancel()
 		s.released.Store(true)
 	}
-	return leaderCtx, release, true, nil
+	return acquisition{leaderCtx: leaderCtx, release: release}, true, nil
 }
 
 // recordingHandler is a hand-written slog.Handler fake that records every
