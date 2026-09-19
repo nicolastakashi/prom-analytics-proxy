@@ -3,56 +3,7 @@
   "extends": [
     "config:recommended"
   ],
-  "packageRules": [
-    {
-      "matchManagers": ["gomod"],
-      "groupName": "Go dependencies",
-      "groupSlug": "go-deps",
-      "schedule": ["before 3am on monday"],
-      "labels": ["dependencies", "go"],
-      "commitMessagePrefix": "chore(deps):",
-      "commitMessageAction": "update",
-      "commitMessageTopic": "Go dependencies"
-    },
-    {
-      "matchManagers": ["npm"],
-      "matchPaths": ["ui/package.json"],
-      "groupName": "UI dependencies",
-      "groupSlug": "ui-deps",
-      "schedule": ["before 3am on monday"],
-      "labels": ["dependencies", "ui"],
-      "commitMessagePrefix": "chore(deps):",
-      "commitMessageAction": "update",
-      "commitMessageTopic": "UI dependencies"
-    },
-    {
-      "matchManagers": ["npm"],
-      "matchPaths": ["ui/package.json"],
-      "matchDepTypes": ["devDependencies"],
-      "groupName": "UI dev dependencies",
-      "groupSlug": "ui-dev-deps",
-      "schedule": ["before 3am on monday"],
-      "labels": ["dependencies", "ui", "dev"],
-      "commitMessagePrefix": "chore(deps):",
-      "commitMessageAction": "update",
-      "commitMessageTopic": "UI dev dependencies",
-      "automerge": true,
-      "automergeType": "branch"
-    },
-    {
-      "matchManagers": ["npm"],
-      "matchPaths": ["ui/package.json"],
-      "matchPackagePatterns": ["^@types/", "^eslint", "^prettier", "^typescript", "^vite", "^vitest"],
-      "automerge": true,
-      "automergeType": "branch"
-    },
-    {
-      "matchManagers": ["gomod"],
-      "matchPackagePatterns": ["^golang.org/x/", "^github.com/stretchr/testify"],
-      "automerge": true,
-      "automergeType": "branch"
-    }
-  ],
+  "dependencyDashboard": true,
   "rangeStrategy": "bump",
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
@@ -65,9 +16,98 @@
   "requireConfig": "ignored",
   "enabledManagers": ["gomod", "npm"],
   "ignoreDeps": [],
+  "platformAutomerge": true,
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major", "needs-review"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "Go dependencies",
+      "groupSlug": "go-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "go"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "Go dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["ui/package.json"],
+      "groupName": "UI dependencies",
+      "groupSlug": "ui-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "ui"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "UI dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["ui/package.json"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchPackageNames": [
+        "!typescript",
+        "!vite",
+        "!@vitejs/plugin-react",
+        "!@tailwindcss/vite",
+        "!babel-plugin-react-compiler"
+      ],
+      "groupName": "UI dev dependencies",
+      "groupSlug": "ui-dev-deps",
+      "schedule": ["before 3am on monday"],
+      "labels": ["dependencies", "ui", "dev", "automerge"],
+      "commitMessagePrefix": "chore(deps):",
+      "commitMessageAction": "update",
+      "commitMessageTopic": "UI dev dependencies",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["ui/package.json"],
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["patch"],
+      "matchPackageNames": [
+        "!react",
+        "!react-dom",
+        "!@tanstack/react-query",
+        "!@tanstack/react-table"
+      ],
+      "labels": ["dependencies", "ui", "patch", "automerge"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["ui/package.json"],
+      "matchPackageNames": ["@types/**", "eslint", "@eslint/js", "eslint-plugin-*", "prettier", "vitest", "@vitest/**"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "labels": ["dependencies", "ui", "tooling", "automerge"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["patch"],
+      "matchPackageNames": [
+        "!github.com/prometheus/{/,}**",
+        "!github.com/thanos-io/{/,}**",
+        "!go.opentelemetry.io/{/,}**",
+        "!google.golang.org/grpc{/,}**"
+      ],
+      "labels": ["dependencies", "go", "patch", "automerge"],
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ],
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security"],
+    "labels": ["security", "needs-review"],
+    "automerge": false,
     "commitMessagePrefix": "fix(security):",
     "commitMessageAction": "update",
     "commitMessageTopic": "vulnerable dependencies"
@@ -75,7 +115,8 @@
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true,
-    "automergeType": "branch",
+    "automergeType": "pr",
+    "labels": ["dependencies", "lockfile", "automerge"],
     "schedule": ["before 3am on monday"]
   },
   "postUpdateOptions": [
