@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
@@ -15,7 +14,6 @@ import (
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prometheus/common/model"
 )
 
 type Syncer struct {
@@ -31,6 +29,7 @@ type Syncer struct {
 	metadataStepTimeout   time.Duration
 	summaryStepTimeout    time.Duration
 	jobSyncEnabled        bool
+	jobIndexTimeout       time.Duration
 	jobIndexLabelTimeout  time.Duration
 	jobIndexPerJobTimeout time.Duration
 
@@ -40,32 +39,138 @@ type Syncer struct {
 	syncSuccess            prometheus.Counter
 	syncFailure            prometheus.Counter
 	catalogSummaryMismatch prometheus.Counter
+	jobIndexFailure        prometheus.Counter
 }
 
+// stepOverrunAllowance is what a cycle budget has to carry, per enabled
+// step, on top of the step budgets themselves. A step reaching its own
+// deadline still has to notice the cancellation and unwind, and cancelling
+// an in-flight Prometheus or Postgres round trip costs a round trip of its
+// own, so a step's wall-clock duration runs over the budget it was given by
+// a little. Cover that here and the overrun is spent out of the cycle's own
+// allowance; leave it uncovered and it is spent out of the next step's
+// window, which is the truncation independent step budgets exist to prevent.
+// An allowance rather than a measurement, and deliberately well above what
+// abandoning a round trip should cost: over-provisioning it only raises the
+// floor RunTimeout has to clear, where under-provisioning it puts the
+// truncation back.
+const stepOverrunAllowance = 10 * time.Second
+
+// A cycle's enabled steps are independent, non-overlapping budgets, so its
+// worst case is all of them in full plus their overrun allowance, and
+// RunTimeout has to cover that floor; the same holds one level down, where
+// JobIndexTimeout has to cover its own label fetch plus at least one job's
+// query. Where a container is too small for what it must hold, the two
+// settled* functions below widen it to its floor and warn naming the value
+// to fix, rather than refusing to start: the operator asked for those step
+// budgets, and running with them is closer to their intent than not running
+// at all.
+// settledRunTimeout reads JobIndexTimeout as given, so a caller wanting both
+// settled has to settle that one first - as NewSyncer does.
+func settledRunTimeout(cfg config.InventoryConfig) time.Duration {
+	// The summary step is never gated by a flag, so it always counts.
+	stepSum, steps := cfg.SummaryStepTimeout, 1
+	if cfg.MetadataSyncEnabled {
+		stepSum += cfg.MetadataStepTimeout
+		steps++
+	}
+	if cfg.JobSyncEnabled {
+		stepSum += cfg.JobIndexTimeout
+		steps++
+	}
+	allowance := time.Duration(steps) * stepOverrunAllowance
+	floor := stepSum + allowance
+	if floor <= cfg.RunTimeout {
+		return cfg.RunTimeout
+	}
+	slog.Warn("inventory: run_timeout is shorter than the steps one cycle must run plus their overrun allowance; raising it - set it to at least this floor in your config to silence this",
+		"configured", cfg.RunTimeout,
+		"using", floor,
+		"step_sum", stepSum,
+		"overrun_allowance", allowance,
+		"metadata_step_timeout", cfg.MetadataStepTimeout,
+		"metadata_sync_enabled", cfg.MetadataSyncEnabled,
+		"summary_step_timeout", cfg.SummaryStepTimeout,
+		"job_index_timeout", cfg.JobIndexTimeout,
+		"job_sync_enabled", cfg.JobSyncEnabled)
+	return floor
+}
+
+// settledJobIndexTimeout's widening feeds the step sum above, so it can
+// widen the cycle that has to contain it.
+func settledJobIndexTimeout(cfg config.InventoryConfig) time.Duration {
+	floor := cfg.JobIndexLabelTimeout + cfg.JobIndexPerJobTimeout
+	if !cfg.JobSyncEnabled || cfg.JobIndexTimeout >= floor {
+		return cfg.JobIndexTimeout
+	}
+	slog.Warn("inventory: job_index_timeout is too short to fetch job labels and process a single job; raising it - set it to at least this sum in your config to silence this",
+		"configured", cfg.JobIndexTimeout,
+		"using", floor,
+		"job_index_label_timeout", cfg.JobIndexLabelTimeout,
+		"job_index_per_job_timeout", cfg.JobIndexPerJobTimeout)
+	return floor
+}
+
+// NewSyncer builds a Syncer whose cycles run under settled timeouts (see
+// above) and rejects the config values nothing could settle - a non-positive
+// interval, no workers to fan out to. Settling is what lets runOnce nest
+// every step under one context bounded by RunTimeout while each step still
+// gets its own window in full - see docs/jobs.md, and
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/572 for the
+// starvation this generalizes away.
 func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometheus.Registerer) (*Syncer, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+
 	client, err := api.NewClient(api.Config{Address: upstream})
 	if err != nil {
 		return nil, err
 	}
+
+	// Range checks live with the schema (see config.InventoryConfig.Validate);
+	// startup runs them before anything acts on the config, and calling them
+	// again here is what holds for a caller that never went through startup.
+	if err := cfg.Inventory.Validate(); err != nil {
+		return nil, err
+	}
+
+	// A copy, not cfg itself: a constructor that rewrote its caller's config
+	// would surprise anyone sharing one. Every field below reads from this
+	// copy rather than cfg.Inventory, so a field that gains a settling rule
+	// later gets it whether or not whoever adds it notices the two sources.
+	inv := cfg.Inventory
+	inv.JobIndexTimeout = settledJobIndexTimeout(inv)
+	inv.RunTimeout = settledRunTimeout(inv)
+
+	// What cycles actually run on, where the startup config dump prints what
+	// was configured - the two differ whenever settling had to widen one.
+	// Only the values settling can change, so nothing here reads as a second
+	// source for the rest.
+	slog.Info("inventory: settled cycle budget",
+		"run_timeout", inv.RunTimeout,
+		"job_index_timeout", inv.JobIndexTimeout)
+
 	lim := ""
-	if cfg != nil && cfg.MetadataLimit > 0 {
+	if cfg.MetadataLimit > 0 {
 		lim = strconv.FormatUint(cfg.MetadataLimit, 10)
 	}
 	s := &Syncer{
 		dbProvider:              dbp,
 		promAPI:                 v1.NewAPI(client),
-		timeWindow:              cfg.Inventory.TimeWindow,
-		interval:                cfg.Inventory.SyncInterval,
+		timeWindow:              inv.TimeWindow,
+		interval:                inv.SyncInterval,
 		metadataLim:             lim,
-		metadataSyncEnabled:     cfg.Inventory.MetadataSyncEnabled,
-		metadataMetricsNameOnly: cfg.Inventory.MetadataMetricsNameOnly,
-		runTimeout:              cfg.Inventory.RunTimeout,
-		metadataStepTimeout:     cfg.Inventory.MetadataStepTimeout,
-		summaryStepTimeout:      cfg.Inventory.SummaryStepTimeout,
-		jobSyncEnabled:          cfg.Inventory.JobSyncEnabled,
-		jobIndexLabelTimeout:    cfg.Inventory.JobIndexLabelTimeout,
-		jobIndexPerJobTimeout:   cfg.Inventory.JobIndexPerJobTimeout,
-		jobIndexWorkers:         cfg.Inventory.JobIndexWorkers,
+		metadataSyncEnabled:     inv.MetadataSyncEnabled,
+		metadataMetricsNameOnly: inv.MetadataMetricsNameOnly,
+		runTimeout:              inv.RunTimeout,
+		metadataStepTimeout:     inv.MetadataStepTimeout,
+		summaryStepTimeout:      inv.SummaryStepTimeout,
+		jobSyncEnabled:          inv.JobSyncEnabled,
+		jobIndexTimeout:         inv.JobIndexTimeout,
+		jobIndexLabelTimeout:    inv.JobIndexLabelTimeout,
+		jobIndexPerJobTimeout:   inv.JobIndexPerJobTimeout,
+		jobIndexWorkers:         inv.JobIndexWorkers,
 	}
 
 	if reg == nil {
@@ -87,6 +192,10 @@ func NewSyncer(dbp db.Provider, upstream string, cfg *config.Config, reg prometh
 	s.catalogSummaryMismatch = promauto.With(reg).NewCounter(prometheus.CounterOpts{
 		Name: "inventory_catalog_summary_mismatch_total",
 		Help: "Total number of runs where the metadata catalog was committed but the usage-summary refresh failed, stranding the affected metrics at placeholder values",
+	})
+	s.jobIndexFailure = promauto.With(reg).NewCounter(prometheus.CounterOpts{
+		Name: "inventory_job_index_failure_total",
+		Help: "Total number of runs where the job-index step failed, leaving the index stale for the jobs it could not reach while the run itself still counted as a success",
 	})
 
 	return s, nil
@@ -112,12 +221,16 @@ func (s *Syncer) runLoop(ctx context.Context) {
 	}
 }
 
+// runOnce runs exactly one sync cycle. cycleCtx is the single deadline every
+// step below derives from, bounded by runTimeout. Each step still nests its
+// own context.WithTimeout inside it and gets that window in full; the
+// settled sum is what makes that safe.
 func (s *Syncer) runOnce(ctx context.Context) {
 	start := time.Now()
-	runCtx, cancel := context.WithTimeout(ctx, s.runTimeout)
+	cycleCtx, cancel := context.WithTimeout(ctx, s.runTimeout)
 	defer cancel()
 
-	catalogCommitted, err := s.syncCatalogAndSummary(ctx, runCtx)
+	catalogCommitted, err := s.syncCatalogAndSummary(cycleCtx)
 	if err != nil {
 		s.syncFailure.Inc()
 		if catalogCommitted {
@@ -137,7 +250,13 @@ func (s *Syncer) runOnce(ctx context.Context) {
 
 	if s.jobSyncEnabled {
 		tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
-		if err := s.syncJobIndex(runCtx, tr); err != nil {
+		if err := s.syncJobIndex(cycleCtx, tr); err != nil {
+			// The run still counts as a success: the catalog and the summary
+			// both landed, and this step's outcome is separable from theirs
+			// (see docs/jobs.md). Counted on its own so an index left stale
+			// for most of the jobs is queryable, rather than a log line
+			// nothing alerts on.
+			s.jobIndexFailure.Inc()
 			slog.Error("inventory: job index", "err", err)
 		}
 	}
@@ -152,25 +271,14 @@ func (s *Syncer) runOnce(ctx context.Context) {
 // was intentionally skipped) so the caller can tell an ordinary failure
 // apart from the partial-failure case where the catalog moved forward but
 // the summary refresh didn't.
-//
-// The two steps deliberately do NOT share a single deadline: the catalog
-// step is bounded by runCtx (itself bounded by runTimeout), while the
-// summary step gets its own context.WithTimeout(baseCtx, summaryStepTimeout)
-// built directly from baseCtx. Deriving the summary step's deadline from
-// runCtx instead would let a slow-but-successful catalog step eat into
-// runCtx's remaining budget and hand the refresh less than its configured
-// timeout - or none at all - on every single run, permanently starving it
-// (see #572). Giving the refresh its own independent budget guarantees it
-// always gets a full, fair shot regardless of how long the catalog step
-// took.
-func (s *Syncer) syncCatalogAndSummary(baseCtx, runCtx context.Context) (catalogCommitted bool, err error) {
+func (s *Syncer) syncCatalogAndSummary(cycleCtx context.Context) (catalogCommitted bool, err error) {
 	if s.metadataSyncEnabled {
 		if s.metadataMetricsNameOnly {
-			if err := s.syncMetadataCatalogFromMetricNames(runCtx); err != nil {
+			if err := s.syncMetadataCatalogFromMetricNames(cycleCtx); err != nil {
 				return false, err
 			}
 		} else {
-			if err := s.syncMetadataCatalog(runCtx); err != nil {
+			if err := s.syncMetadataCatalog(cycleCtx); err != nil {
 				return false, err
 			}
 		}
@@ -178,7 +286,7 @@ func (s *Syncer) syncCatalogAndSummary(baseCtx, runCtx context.Context) (catalog
 		slog.Info("inventory: metadata sync disabled, skipping catalog population")
 	}
 
-	sumCtx, cancelSum := context.WithTimeout(baseCtx, s.summaryStepTimeout)
+	sumCtx, cancelSum := context.WithTimeout(cycleCtx, s.summaryStepTimeout)
 	defer cancelSum()
 	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
 	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, tr); err != nil {
@@ -251,114 +359,5 @@ func (s *Syncer) syncMetadataCatalogFromMetricNames(ctx context.Context) error {
 		slog.Error("inventory: upsert catalog", "err", err)
 		return err
 	}
-	return nil
-}
-
-func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
-	labelCtx, cancelLabels := context.WithTimeout(ctx, s.jobIndexLabelTimeout)
-	defer cancelLabels()
-	jobs, _, err := s.promAPI.LabelValues(labelCtx, "job", []string{}, tr.From, tr.To)
-	if err != nil {
-		// Handle 404 gracefully - it means no series with job label exist or endpoint not supported
-		slog.Warn("failed to fetch job label values", "err", err, "msg", "job index will be empty - this is normal if no series have job labels")
-		return nil
-	}
-
-	if len(jobs) == 0 {
-		slog.Debug("no job labels found in time range", "from", tr.From, "to", tr.To)
-		return nil
-	}
-
-	slog.Info("syncing job index", "jobs_found", len(jobs), "workers", s.jobIndexWorkers, "time_range", tr)
-
-	jobChan := make(chan string, len(jobs))
-	errorChan := make(chan error, len(jobs))
-
-	var wg sync.WaitGroup
-	for i := 0; i < s.jobIndexWorkers; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			for job := range jobChan {
-				err := s.processJob(ctx, job, tr, workerID)
-				errorChan <- err
-			}
-		}(i)
-	}
-
-	jobsProcessed := 0
-	for _, jobLabel := range jobs {
-		job := string(jobLabel)
-		if job != "" {
-			jobChan <- job
-			jobsProcessed++
-		}
-	}
-	close(jobChan)
-
-	go func() {
-		wg.Wait()
-		close(errorChan)
-	}()
-
-	var successCount, failureCount int
-	for err := range errorChan {
-		if err != nil {
-			failureCount++
-		} else {
-			successCount++
-		}
-	}
-
-	slog.Info("job index sync complete",
-		"jobs_processed", jobsProcessed,
-		"successful", successCount,
-		"failed", failureCount)
-
-	if failureCount > 0 && failureCount > successCount/2 {
-		return fmt.Errorf("job index sync failed: %d failures out of %d jobs", failureCount, jobsProcessed)
-	}
-
-	return nil
-}
-
-func (s *Syncer) processJob(ctx context.Context, job string, tr db.TimeRange, workerID int) error {
-	jobCtx, cancelJob := context.WithTimeout(ctx, s.jobIndexPerJobTimeout)
-	defer cancelJob()
-
-	query := fmt.Sprintf(`group({job="%s", __name__=~".+"}) by (__name__)`, job)
-	result, _, err := s.promAPI.Query(jobCtx, query, tr.To)
-	if err != nil {
-		slog.Warn("failed to query metrics for job", "job", job, "worker", workerID, "query", query, "err", err)
-		return err
-	}
-
-	metricNames := make(map[string]struct{})
-
-	// Extract metric names from the query result
-	switch v := result.(type) {
-	case model.Vector:
-		for _, sample := range v {
-			if metricName, ok := sample.Metric["__name__"]; ok {
-				metricNames[string(metricName)] = struct{}{}
-			}
-		}
-	default:
-		slog.Debug("unexpected query result type", "job", job, "worker", workerID, "type", fmt.Sprintf("%T", result))
-	}
-
-	var items []db.MetricJobIndexItem
-	for name := range metricNames {
-		items = append(items, db.MetricJobIndexItem{Name: name, Job: job})
-	}
-
-	if len(items) > 0 {
-		if err := s.dbProvider.UpsertMetricsJobIndex(ctx, items); err != nil {
-			slog.Error("failed to upsert metrics for job", "job", job, "worker", workerID, "metrics", len(items), "err", err)
-			return fmt.Errorf("upsert job %s: %w", job, err)
-		}
-		slog.Debug("processed job", "job", job, "worker", workerID, "metrics", len(items))
-	}
-
 	return nil
 }
