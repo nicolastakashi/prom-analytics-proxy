@@ -268,21 +268,31 @@ func (p *PostGreSQLProvider) Close() error {
 	return p.db.Close()
 }
 
+// Insert bulk-loads queries via COPY FROM STDIN (lib/pq's copy protocol,
+// prepared directly per the pq docs rather than through the deprecated
+// pq.CopyIn helper) instead of one ExecContext per row. COPY collapses N row
+// inserts into a single streamed frame instead of N network round-trips
+// inside the transaction, which matters under load since the write path
+// otherwise contends with the read path for connection slots for the whole
+// duration of the batch.
 func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error {
 	if len(queries) == 0 {
 		return nil
 	}
 
-	// Use a prepared INSERT to batch rows within a single transaction
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return QueryError(err, "begin insert tx", "")
 	}
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO queries (
+	// pq.CopyIn is deprecated by staticcheck's own lint - the pq docs now
+	// say to just prepare the "COPY ... FROM STDIN" statement directly, so
+	// that's what this does. Column names are static literals, not
+	// user input.
+	stmt, err := tx.PrepareContext(ctx, `COPY queries (
 		ts, queryparam, timeparam, duration, statuscode, bodysize,
 		fingerprint, labelmatchers, type, step, start, "end",
 		totalqueryablesamples, peaksamples, httpheaders
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`)
+	) FROM STDIN`)
 	if err != nil {
 		_ = tx.Rollback()
 		return QueryError(err, "prepare insert", "")
@@ -323,6 +333,13 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 			_ = tx.Rollback()
 			return QueryError(err, "insert exec", "")
 		}
+	}
+
+	// A no-arg Exec flushes the buffered COPY data to postgres.
+	if _, err := stmt.ExecContext(ctx); err != nil {
+		_ = stmt.Close()
+		_ = tx.Rollback()
+		return QueryError(err, "insert flush", "")
 	}
 
 	if err := stmt.Close(); err != nil {
@@ -505,24 +522,33 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 		}
 	}()
 
-	// Upsert to avoid duplicates and track presence window
-	stmt, err := tx.PrepareContext(ctx, `
-        INSERT INTO RulesUsage (
-            serie, group_name, name, expression, kind, labels, created_at, first_seen_at, last_seen_at
-        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $7, $7)
-        ON CONFLICT (serie, kind, group_name, name, expression, labels)
-        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
-    `)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+	// pq.CopyIn only streams rows into a plain table - it has no ON CONFLICT
+	// support - so the batch is COPYed into a transaction-local staging
+	// table first, then folded into RulesUsage with a single
+	// INSERT ... SELECT ... ON CONFLICT. ON COMMIT DROP means the staging
+	// table needs no explicit cleanup on either commit or rollback.
+	if _, err = tx.ExecContext(ctx, `
+        CREATE TEMP TABLE rules_usage_staging (
+            serie TEXT, group_name TEXT, name TEXT, expression TEXT,
+            kind TEXT, labels JSONB, created_at TIMESTAMP
+        ) ON COMMIT DROP
+    `); err != nil {
+		return fmt.Errorf("failed to create staging table: %w", err)
 	}
-	defer CloseResource(stmt)
+
+	stmt, err := tx.PrepareContext(ctx,
+		`COPY rules_usage_staging (serie, group_name, name, expression, kind, labels, created_at) FROM STDIN`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare copy: %w", err)
+	}
 
 	now := time.Now().UTC()
 	for _, rule := range normalized {
-		labelsJSON, err := json.Marshal(rule.Labels)
-		if err != nil {
-			return fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		labelsJSON, mErr := json.Marshal(rule.Labels)
+		if mErr != nil {
+			_ = stmt.Close()
+			err = fmt.Errorf("failed to marshal labels to JSON: %w", mErr)
+			return err
 		}
 		if _, err = stmt.ExecContext(ctx,
 			rule.Serie,
@@ -533,11 +559,34 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 			string(labelsJSON),
 			now,
 		); err != nil {
-			return fmt.Errorf("failed to execute upsert: %w", err)
+			_ = stmt.Close()
+			return fmt.Errorf("failed to copy row: %w", err)
 		}
 	}
+	if _, err = stmt.ExecContext(ctx); err != nil {
+		_ = stmt.Close()
+		return fmt.Errorf("failed to flush copy: %w", err)
+	}
+	if err = stmt.Close(); err != nil {
+		return fmt.Errorf("failed to close copy statement: %w", err)
+	}
 
-	if err := tx.Commit(); err != nil {
+	// Upsert from staging into RulesUsage. The explicit ORDER BY matching
+	// the ON CONFLICT target means concurrent calls with overlapping rows
+	// lock them in the same relative order regardless of staging order -
+	// the same deadlock precondition as #592.
+	if _, err = tx.ExecContext(ctx, `
+        INSERT INTO RulesUsage (serie, group_name, name, expression, kind, labels, created_at, first_seen_at, last_seen_at)
+        SELECT serie, group_name, name, expression, kind, labels, created_at, created_at, created_at
+        FROM rules_usage_staging
+        ORDER BY serie, kind, group_name, name, expression, labels::text
+        ON CONFLICT (serie, kind, group_name, name, expression, labels)
+        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+    `); err != nil {
+		return fmt.Errorf("failed to upsert from staging: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
@@ -712,26 +761,54 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 		}
 	}()
 
-	stmt, err := tx.PrepareContext(ctx, `
-        INSERT INTO DashboardUsage (
-            id, serie, name, url, created_at, first_seen_at, last_seen_at
-        ) VALUES ($1, $2, $3, $4, $5, $5, $5)
-        ON CONFLICT (id, serie)
-        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at, name = EXCLUDED.name, url = EXCLUDED.url
-    `)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+	// See InsertRulesUsage for why this goes through a staging table:
+	// pq.CopyIn has no ON CONFLICT support, so the batch is COPYed in and
+	// then folded into DashboardUsage with a single
+	// INSERT ... SELECT ... ON CONFLICT.
+	if _, err = tx.ExecContext(ctx, `
+        CREATE TEMP TABLE dashboard_usage_staging (
+            id TEXT, serie TEXT, name TEXT, url TEXT, created_at TIMESTAMP
+        ) ON COMMIT DROP
+    `); err != nil {
+		return fmt.Errorf("failed to create staging table: %w", err)
 	}
-	defer CloseResource(stmt)
+
+	stmt, err := tx.PrepareContext(ctx,
+		`COPY dashboard_usage_staging (id, serie, name, url, created_at) FROM STDIN`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare copy: %w", err)
+	}
 
 	now := time.Now().UTC()
 	for _, d := range normalized {
-		if _, err := stmt.ExecContext(ctx, d.Id, d.Serie, d.Name, d.URL, now); err != nil {
-			return fmt.Errorf("failed to execute upsert: %w", err)
+		if _, err = stmt.ExecContext(ctx, d.Id, d.Serie, d.Name, d.URL, now); err != nil {
+			_ = stmt.Close()
+			return fmt.Errorf("failed to copy row: %w", err)
 		}
 	}
+	if _, err = stmt.ExecContext(ctx); err != nil {
+		_ = stmt.Close()
+		return fmt.Errorf("failed to flush copy: %w", err)
+	}
+	if err = stmt.Close(); err != nil {
+		return fmt.Errorf("failed to close copy statement: %w", err)
+	}
 
-	if err := tx.Commit(); err != nil {
+	// Upsert from staging into DashboardUsage. The ORDER BY matches the ON
+	// CONFLICT target (id, serie) so concurrent calls with overlapping rows
+	// lock them in a consistent order - same deadlock precondition as #592.
+	if _, err = tx.ExecContext(ctx, `
+        INSERT INTO DashboardUsage (id, serie, name, url, created_at, first_seen_at, last_seen_at)
+        SELECT id, serie, name, url, created_at, created_at, created_at
+        FROM dashboard_usage_staging
+        ORDER BY id, serie
+        ON CONFLICT (id, serie)
+        DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at, name = EXCLUDED.name, url = EXCLUDED.url
+    `); err != nil {
+		return fmt.Errorf("failed to upsert from staging: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
