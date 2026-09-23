@@ -122,13 +122,18 @@ func WithHandlers(uiFS fs.FS, registry *prometheus.Registry, isTracingEnabled bo
 		mux.Handle("/api/v1/query/errors", http.HandlerFunc(r.queryErrorAnalysis))
 		mux.Handle("/api/v1/query/time_range_distribution", http.HandlerFunc(r.queryTimeRangeDistribution))
 		mux.Handle("/api/v1/query/executions", http.HandlerFunc(r.queryExecutions))
+		mux.Handle("/api/v1/query/executions/count", http.HandlerFunc(r.queryExecutionsCount))
 		// recent queries endpoint removed; use /api/v1/query/expressions instead
 		mux.Handle("/api/v1/query/expressions", http.HandlerFunc(r.queryExpressions))
+		mux.Handle("/api/v1/query/expressions/count", http.HandlerFunc(r.queryExpressionsCount))
 		mux.Handle("/api/v1/seriesMetadata", http.HandlerFunc(r.seriesMetadata))
+		mux.Handle("/api/v1/seriesMetadata/count", http.HandlerFunc(r.seriesMetadataCount))
 		mux.Handle("/api/v1/metricStatistics/{name}", http.HandlerFunc(r.GetMetricStatistics))
 		mux.Handle("/api/v1/metricQueryPerformanceStatistics/{name}", http.HandlerFunc(r.GetMetricQueryPerformanceStatistics))
 		mux.Handle("/api/v1/serieExpressions/{name}", http.HandlerFunc(r.serieExpressions))
+		mux.Handle("/api/v1/serieExpressions/{name}/count", http.HandlerFunc(r.serieExpressionsCount))
 		mux.Handle("/api/v1/serieUsage/{name}", http.HandlerFunc(r.GetMetricUsage))
+		mux.Handle("/api/v1/serieUsage/{name}/count", http.HandlerFunc(r.metricUsageCount))
 		mux.Handle("/api/v1/jobs", http.HandlerFunc(r.listJobs))
 		mux.Handle("/api/v1/metrics/unused", http.HandlerFunc(r.metricsUnused))
 
@@ -1433,4 +1438,132 @@ func (r *routes) metricsUnused(w http.ResponseWriter, req *http.Request) {
 	writeJSONResponse(req, w, struct {
 		Data []models.UnusedMetric `json:"data"`
 	}{Data: items})
+}
+
+// writeCountResponse writes { "total": n } with Cache-Control headers suitable
+// for caching by browsers and reverse proxies.
+func writeCountResponse(req *http.Request, w http.ResponseWriter, total int) {
+	w.Header().Set("Cache-Control", "max-age=30, must-revalidate")
+	writeJSONResponse(req, w, struct {
+		Total int `json:"total"`
+	}{Total: total})
+}
+
+func (r *routes) seriesMetadataCount(w http.ResponseWriter, req *http.Request) {
+	params := db.SeriesMetadataParams{Usage: db.SeriesMetadataUsageAll, Type: "all"}
+	if filter := req.FormValue("filter"); filter != "" {
+		params.Filter = filter
+	}
+	if metricType := req.FormValue("type"); metricType != "" {
+		params.Type = metricType
+	}
+	if usage := req.FormValue("usage"); usage != "" {
+		if db.ValidSeriesMetadataUsageFilters[strings.ToLower(strings.TrimSpace(usage))] {
+			params.Usage = strings.ToLower(strings.TrimSpace(usage))
+		}
+	}
+	if job := req.FormValue("job"); job != "" {
+		params.Job = job
+	}
+	total, err := r.dbProvider.GetSeriesMetadataCount(req.Context(), params)
+	if err != nil {
+		slog.Error("series metadata count", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("series metadata count: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeCountResponse(req, w, total)
+}
+
+func (r *routes) queryExpressionsCount(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	params := db.QueryExpressionsParams{
+		Filter:    req.FormValue("filter"),
+		TimeRange: db.TimeRange{From: from, To: to},
+	}
+	total, err := r.dbProvider.GetQueryExpressionsCount(req.Context(), params)
+	if err != nil {
+		slog.Error("query expressions count", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("query expressions count: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeCountResponse(req, w, total)
+}
+
+func (r *routes) queryExecutionsCount(w http.ResponseWriter, req *http.Request) {
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	params := db.QueryExecutionsParams{
+		Fingerprint: req.FormValue("fingerprint"),
+		Type:        req.FormValue("type"),
+		TimeRange:   db.TimeRange{From: from, To: to},
+	}
+	total, err := r.dbProvider.GetQueryExecutionsCount(req.Context(), params)
+	if err != nil {
+		slog.Error("query executions count", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("query executions count: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeCountResponse(req, w, total)
+}
+
+func (r *routes) serieExpressionsCount(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	if name == "" {
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	params := db.QueriesBySerieNameParams{
+		SerieName: name,
+		Filter:    req.FormValue("filter"),
+		TimeRange: db.TimeRange{From: from, To: to},
+	}
+	total, err := r.dbProvider.GetQueriesBySerieNameCount(req.Context(), params)
+	if err != nil {
+		slog.Error("serie expressions count", "err", err)
+		writeErrorResponse(req, w, fmt.Errorf("serie expressions count: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeCountResponse(req, w, total)
+}
+
+func (r *routes) metricUsageCount(w http.ResponseWriter, req *http.Request) {
+	name := req.PathValue("name")
+	if name == "" {
+		writeErrorResponse(req, w, fmt.Errorf("missing name parameter"), http.StatusBadRequest)
+		return
+	}
+	kind := req.URL.Query().Get("kind")
+	if kind == "" {
+		writeErrorResponse(req, w, fmt.Errorf("missing kind parameter"), http.StatusBadRequest)
+		return
+	}
+	from := getTimeParam(req, "from")
+	to := getTimeParam(req, "to")
+	filter := req.URL.Query().Get("filter")
+
+	var total int
+	var err error
+	if kind == "dashboard" {
+		total, err = r.dbProvider.GetDashboardUsageCount(req.Context(), db.DashboardUsageParams{
+			Serie:     name,
+			Filter:    filter,
+			TimeRange: db.TimeRange{From: from, To: to},
+		})
+	} else {
+		total, err = r.dbProvider.GetRulesUsageCount(req.Context(), db.RulesUsageParams{
+			Serie:     name,
+			Kind:      kind,
+			Filter:    filter,
+			TimeRange: db.TimeRange{From: from, To: to},
+		})
+	}
+	if err != nil {
+		slog.Error("metric usage count", "err", err, "name", name, "kind", kind)
+		writeErrorResponse(req, w, fmt.Errorf("metric usage count: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeCountResponse(req, w, total)
 }
