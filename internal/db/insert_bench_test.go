@@ -96,7 +96,7 @@ func makeBenchQueries(n int) []Query {
 
 // BenchmarkPostgreSQLInsert measures PostGreSQLProvider.Insert (pq.CopyIn
 // bulk load) wall-clock cost for batch sizes matching the acceptance
-// criteria in #542 - 100 and 1000 rows.
+// criteria - 100 and 1000 rows.
 func BenchmarkPostgreSQLInsert(b *testing.B) {
 	prov, cleanup := startBenchPostgres(b)
 	defer cleanup()
@@ -105,7 +105,8 @@ func BenchmarkPostgreSQLInsert(b *testing.B) {
 		b.Run(fmt.Sprintf("batch%d", n), func(b *testing.B) {
 			queries := makeBenchQueries(n)
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+
+			for b.Loop() {
 				if err := prov.Insert(context.Background(), queries); err != nil {
 					b.Fatalf("Insert: %v", err)
 				}

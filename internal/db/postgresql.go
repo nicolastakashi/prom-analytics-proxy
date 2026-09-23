@@ -573,8 +573,7 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 
 	// Upsert from staging into RulesUsage. The explicit ORDER BY matching
 	// the ON CONFLICT target means concurrent calls with overlapping rows
-	// lock them in the same relative order regardless of staging order -
-	// the same deadlock precondition as #592.
+	// lock them in the same relative order regardless of staging order.
 	if _, err = tx.ExecContext(ctx, `
         INSERT INTO RulesUsage (serie, group_name, name, expression, kind, labels, created_at, first_seen_at, last_seen_at)
         SELECT serie, group_name, name, expression, kind, labels, created_at, created_at, created_at
@@ -796,7 +795,7 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 
 	// Upsert from staging into DashboardUsage. The ORDER BY matches the ON
 	// CONFLICT target (id, serie) so concurrent calls with overlapping rows
-	// lock them in a consistent order - same deadlock precondition as #592.
+	// lock them in a consistent order.
 	if _, err = tx.ExecContext(ctx, `
         INSERT INTO DashboardUsage (id, serie, name, url, created_at, first_seen_at, last_seen_at)
         SELECT id, serie, name, url, created_at, created_at, created_at
