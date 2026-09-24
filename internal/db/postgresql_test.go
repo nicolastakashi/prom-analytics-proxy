@@ -502,6 +502,19 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.
 	assert.Greater(t, res.Total, 0)
 }
 
+// mustSummaryRowPostgreSQL reads back one metrics_usage_summary row's four
+// usage counts plus is_unused. Callers assert on the whole row rather than a
+// single count: is_unused is derived from all four, so seeing the whole row
+// is what tells you which one is off if this ever fails again.
+func mustSummaryRowPostgreSQL(t *testing.T, rawDB *sql.DB, name string) summaryRow {
+	t.Helper()
+	var r summaryRow
+	row := rawDB.QueryRowContext(context.Background(),
+		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = $1`, name)
+	require.NoError(t, row.Scan(&r.Alert, &r.Record, &r.Dashboard, &r.Query, &r.Unused))
+	return r
+}
+
 // TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows is the
 // PostgreSQL counterpart of TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows:
 // see there for the full rationale.
@@ -538,23 +551,60 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testi
 	err = p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
 	assert.NoError(t, err, "RefreshMetricsUsageSummary")
 
-	// Select all four counts, not just query_count: is_unused is derived
-	// from all of them, so asserting on the whole row is what actually
-	// tells us WHICH count is off if this ever fails again, instead of
-	// leaving is_unused's false/true a mystery relative to a single count.
-	var fresh summaryRow
-	row := rawDB.QueryRowContext(context.Background(),
-		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = $1`, "fresh_metric")
-	require.NoError(t, row.Scan(&fresh.Alert, &fresh.Record, &fresh.Dashboard, &fresh.Query, &fresh.Unused))
+	fresh := mustSummaryRowPostgreSQL(t, rawDB, "fresh_metric")
 	assert.Greater(t, fresh.Query, 0, "fresh_metric should have been recomputed with real usage")
 	assert.False(t, fresh.Unused, "fresh_metric should be marked used")
 
-	var stale summaryRow
-	row = rawDB.QueryRowContext(context.Background(),
-		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = $1`, "stale_metric")
-	require.NoError(t, row.Scan(&stale.Alert, &stale.Record, &stale.Dashboard, &stale.Query, &stale.Unused))
+	stale := mustSummaryRowPostgreSQL(t, rawDB, "stale_metric")
 	assert.Equal(t, summaryRow{Alert: 0, Record: 0, Dashboard: 0, Query: 0, Unused: false}, stale,
 		"stale_metric's summary should remain untouched at its placeholder values - got %+v", stale)
+}
+
+// TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage guards
+// RulesUsage's own presence-window filter in RefreshMetricsUsageSummary: a rule
+// whose first_seen_at/last_seen_at fall outside the refresh's TimeRange must not
+// count toward alert_count/record_count. See
+// https://github.com/nicolastakashi/prom-analytics-proxy/issues/589.
+func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProvider(t)
+	defer cleanup()
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "in_window_metric", Type: "gauge", Help: "actively alerting"},
+		{Name: "out_of_window_metric", Type: "gauge", Help: "alert retired long ago"},
+	})
+	mustInsertRules(t, p, []RulesUsage{
+		{Serie: "in_window_metric", GroupName: "g", Name: "a1", Expression: "e", Kind: string(RuleUsageKindAlert), Labels: []string{"l"}},
+		{Serie: "out_of_window_metric", GroupName: "g", Name: "a2", Expression: "e", Kind: string(RuleUsageKindAlert), Labels: []string{"l"}},
+	})
+
+	var rawDB *sql.DB
+	p.WithDB(func(d *sql.DB) { rawDB = d })
+
+	// InsertRulesUsage always stamps first_seen_at/last_seen_at at call time,
+	// so there's no public way to seed a rule outside the presence window -
+	// push it out directly, simulating a rule retired long ago.
+	_, err := rawDB.ExecContext(context.Background(),
+		`UPDATE RulesUsage SET first_seen_at = NOW() - INTERVAL '100 days', last_seen_at = NOW() - INTERVAL '99 days' WHERE serie = $1`,
+		"out_of_window_metric")
+	assert.NoError(t, err, "backdate out_of_window_metric's rule presence")
+
+	// To is a minute past "now": time-range formatting truncates to whole
+	// seconds, and the rule just inserted carries sub-second precision - an
+	// unpadded "now" bound can land before the rule's own timestamp and
+	// spuriously exclude it.
+	now := time.Now().UTC()
+	err = p.RefreshMetricsUsageSummary(context.Background(),
+		TimeRange{From: now.Add(-30 * 24 * time.Hour), To: now.Add(time.Minute)})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	inWindow := mustSummaryRowPostgreSQL(t, rawDB, "in_window_metric")
+	assert.Equal(t, summaryRow{Alert: 1, Record: 0, Dashboard: 0, Query: 0, Unused: false}, inWindow,
+		"in_window_metric's alert rule falls inside the refresh window and must be counted - got %+v", inWindow)
+
+	outOfWindow := mustSummaryRowPostgreSQL(t, rawDB, "out_of_window_metric")
+	assert.Equal(t, summaryRow{Alert: 0, Record: 0, Dashboard: 0, Query: 0, Unused: true}, outOfWindow,
+		"out_of_window_metric's rule presence ended before the refresh window started, so it must not be counted as used - got %+v", outOfWindow)
 }
 
 // TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC guards last_synced_at
