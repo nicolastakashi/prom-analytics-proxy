@@ -23,7 +23,8 @@ func TestSoleInstance_HoldsLeadershipUntilItsContextEnds(t *testing.T) {
 	running := make(chan context.Context, 1)
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- el.Run(ctx, "sole-instance-test", func(fnCtx context.Context) {
+		runErr <- el.Run(ctx, "sole-instance-test", func(fnCtx context.Context, reporter CycleReporter) {
+			assert.Nil(t, reporter, "a sole instance has no leadership to lose mid-cycle, so it reports to nobody")
 			running <- fnCtx
 			<-fnCtx.Done()
 		})
@@ -62,7 +63,7 @@ func TestSoleInstance_ReportsLeadershipInMetrics(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = el.Run(ctx, "sole-metrics-test", func(fnCtx context.Context) {
+		_ = el.Run(ctx, "sole-metrics-test", func(fnCtx context.Context, _ CycleReporter) {
 			close(held)
 			<-fnCtx.Done()
 		})
@@ -90,7 +91,7 @@ func TestSoleInstance_ReacquiresWithoutBackoffUntilItsContextEnds(t *testing.T) 
 	defer cancel()
 
 	runs := 0
-	require.NoError(t, el.Run(ctx, "sole-reacquire-test", func(context.Context) {
+	require.NoError(t, el.Run(ctx, "sole-reacquire-test", func(context.Context, CycleReporter) {
 		runs++
 		if runs == 3 {
 			cancel()

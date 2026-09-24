@@ -53,7 +53,7 @@ func TestElector_Run_BacksOffThenCapsRetryRate_OnErrors(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
-	err := elector.Run(ctx, "backoff-pacing-test", func(context.Context) {
+	err := elector.Run(ctx, "backoff-pacing-test", func(context.Context, CycleReporter) {
 		t.Fatal("fn must never run: this strategy never grants leadership")
 	})
 	assert.NoError(t, err)
@@ -100,7 +100,7 @@ func TestElector_Run_ContentionPollsAtFixedIntervalWithoutBackoff(t *testing.T) 
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	err := elector.Run(ctx, "contention-fixed-interval-test", func(context.Context) {
+	err := elector.Run(ctx, "contention-fixed-interval-test", func(context.Context, CycleReporter) {
 		t.Fatal("fn must never run: this strategy never grants leadership")
 	})
 	assert.NoError(t, err)
@@ -170,7 +170,7 @@ func TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership(t *testin
 
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
 	defer cancel()
-	err := elector.Run(ctx, "backoff-reset-test", func(context.Context) {}) // fn returns immediately: release right away
+	err := elector.Run(ctx, "backoff-reset-test", func(context.Context, CycleReporter) {}) // fn returns immediately: release right away
 	assert.NoError(t, err)
 
 	times := strat.snapshot()
