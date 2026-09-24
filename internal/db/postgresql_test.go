@@ -1438,3 +1438,156 @@ func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
 	assert.Contains(t, err.Error(), "statement timeout",
 		"error should identify the server-side timeout source")
 }
+
+// newTestPostgreSQLProviderWithStatementTimeout is newTestPostgreSQLProvider
+// with a configurable StatementTimeout, for tests that need PostgreSQL to
+// abort a slow statement server-side.
+func newTestPostgreSQLProviderWithStatementTimeout(t *testing.T, timeout time.Duration) (Provider, func()) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	pgContainer, err := postgres.Run(ctx, "postgres:16",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
+	}
+
+	host, err := pgContainer.Host(ctx)
+	assert.NoError(t, err, "container host")
+	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
+	assert.NoError(t, err, "container port")
+	portNum, err := strconv.Atoi(port.Port())
+	assert.NoError(t, err, "container port number")
+
+	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
+		Addr:             host,
+		Port:             portNum,
+		User:             "testuser",
+		Password:         "testpass",
+		Database:         "testdb",
+		SSLMode:          "disable",
+		DialTimeout:      5 * time.Second,
+		StatementTimeout: timeout,
+	})
+	if err != nil {
+		_ = pgContainer.Terminate(ctx)
+		assert.NoError(t, err, "failed to init postgres provider")
+		return nil, func() {}
+	}
+
+	cleanup := func() {
+		if p != nil {
+			_ = p.Close()
+		}
+		_ = pgContainer.Terminate(ctx)
+	}
+	return p, cleanup
+}
+
+// assertStatementLevelTriggerAbortsAndRollsBack attaches a BEFORE INSERT ...
+// FOR EACH STATEMENT trigger to targetTable that sleeps for 1 second before
+// letting the statement proceed. A statement-level trigger fires exactly
+// once per statement regardless of how many rows it affects, so this holds
+// even for a single-row batch. With a StatementTimeout well under that
+// (configured by the caller via newTestPostgreSQLProviderWithStatementTimeout),
+// PostgreSQL aborts the statement with SQLSTATE 57014 before it can insert
+// anything - insertFn's transaction must then observe the error and roll
+// back cleanly, not commit whatever COPY data was already buffered or leave
+// the transaction open.
+func assertStatementLevelTriggerAbortsAndRollsBack(
+	t *testing.T,
+	p Provider,
+	targetTable string,
+	insertFn func(ctx context.Context) error,
+) {
+	t.Helper()
+
+	ctx := context.Background()
+	pg := p.(*PostGreSQLProvider)
+
+	triggerFn := fmt.Sprintf("test_sleep_trigger_%s", targetTable)
+	_, err := pg.db.ExecContext(ctx, fmt.Sprintf(`
+        CREATE OR REPLACE FUNCTION %s() RETURNS trigger AS $$
+        BEGIN
+            PERFORM pg_sleep(1);
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql
+    `, triggerFn))
+	require.NoError(t, err, "create trigger function")
+
+	_, err = pg.db.ExecContext(ctx, fmt.Sprintf(`
+        CREATE TRIGGER %s_trg
+        BEFORE INSERT ON %s
+        FOR EACH STATEMENT EXECUTE FUNCTION %s()
+    `, targetTable, targetTable, triggerFn))
+	require.NoError(t, err, "create trigger")
+
+	err = insertFn(ctx)
+	assert.Error(t, err, "insert must fail when the statement timeout aborts the statement mid-flight")
+
+	var count int
+	err = pg.db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", targetTable)).Scan(&count)
+	require.NoError(t, err, "count rows in %s", targetTable)
+	assert.Equal(t, 0, count, "no rows should be committed in %s - the transaction must have rolled back", targetTable)
+}
+
+// TestPostgreSQL_Insert_StatementTimeoutRollsBack guards the acceptance
+// criterion from #542 ("partial failures still roll back the transaction")
+// for the COPY-based Insert path added by this PR.
+func TestPostgreSQL_Insert_StatementTimeoutRollsBack(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "queries", func(ctx context.Context) error {
+		return p.Insert(ctx, []Query{{
+			TS:            now,
+			QueryParam:    "up",
+			TimeParam:     now,
+			Duration:      10 * time.Millisecond,
+			StatusCode:    200,
+			BodySize:      10,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}},
+			Type:          QueryTypeInstant,
+		}})
+	})
+}
+
+// TestPostgreSQL_InsertRulesUsage_StatementTimeoutRollsBack is
+// TestPostgreSQL_Insert_StatementTimeoutRollsBack's counterpart for
+// InsertRulesUsage, whose final INSERT ... SELECT ... ON CONFLICT lands on
+// RulesUsage.
+func TestPostgreSQL_InsertRulesUsage_StatementTimeoutRollsBack(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
+	defer cleanup()
+
+	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "rulesusage", func(ctx context.Context) error {
+		return p.InsertRulesUsage(ctx, []RulesUsage{{
+			Serie: "up", GroupName: "g1", Name: "r1", Expression: "expr1",
+			Kind: string(RuleUsageKindAlert), Labels: []string{"l1"},
+		}})
+	})
+}
+
+// TestPostgreSQL_InsertDashboardUsage_StatementTimeoutRollsBack is
+// TestPostgreSQL_Insert_StatementTimeoutRollsBack's counterpart for
+// InsertDashboardUsage, whose final INSERT ... SELECT ... ON CONFLICT lands
+// on DashboardUsage.
+func TestPostgreSQL_InsertDashboardUsage_StatementTimeoutRollsBack(t *testing.T) {
+	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
+	defer cleanup()
+
+	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "dashboardusage", func(ctx context.Context) error {
+		return p.InsertDashboardUsage(ctx, []DashboardUsage{{
+			Id: "d1", Serie: "m1", Name: "Dash 1", URL: "http://d/1",
+		}})
+	})
+}
