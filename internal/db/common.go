@@ -142,6 +142,19 @@ func ScanSingleRow(rows *sql.Rows, dest ...interface{}) error {
 	return nil
 }
 
+// countMatching runs a standalone COUNT query and returns the scalar result.
+// A paginated method must run this independently of its paged query - a
+// count read off a paged row is wrong once LIMIT/OFFSET selects zero rows
+// (a page past the last one), since there is then no row left to read it
+// from.
+func countMatching(ctx context.Context, db *sql.DB, countQuery string, args ...interface{}) (int, error) {
+	var n int
+	if err := db.QueryRowContext(ctx, countQuery, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // PrepareTimeRange formats time range parameters based on the database dialect
 func PrepareTimeRange(tr TimeRange, dialect string) (string, string) {
 	if dialect == "postgresql" {

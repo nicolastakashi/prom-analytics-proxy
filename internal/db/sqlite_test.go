@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
@@ -376,6 +377,74 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestSQLite_TotalCountCorrectPastLastPage verifies GetQueriesBySerieName,
+// GetQueryExpressions, and GetQueryExecutions report the true total row
+// count even when the requested page is past the last page, not just
+// whatever fits inside the LIMIT/OFFSET window.
+func TestSQLite_TotalCountCorrectPastLastPage(t *testing.T) {
+	p, cleanup := newTestSQLiteProvider(t)
+	defer cleanup()
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+
+	t.Run("GetQueriesBySerieName", func(t *testing.T) {
+		var qs []Query
+		for i := 1; i <= 3; i++ {
+			qs = append(qs, Query{
+				TS: now.Add(time.Duration(i) * time.Minute), QueryParam: fmt.Sprintf("qbsn_variant_%d", i),
+				TimeParam: now, Duration: time.Duration(i*10) * time.Millisecond, StatusCode: 200,
+				LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant,
+			})
+		}
+		mustInsertQueries(t, p, qs)
+
+		out, err := p.GetQueriesBySerieName(context.Background(), QueriesBySerieNameParams{
+			SerieName: "up", Filter: "qbsn_variant", TimeRange: tr, Page: 10, PageSize: 1, SortBy: "avgDuration", SortOrder: "desc",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, 3, out.Total, "Total must reflect all matching rows, not just what fits in this page's window")
+	})
+
+	t.Run("GetQueryExpressions", func(t *testing.T) {
+		var qs []Query
+		for i := 1; i <= 3; i++ {
+			qs = append(qs, Query{
+				TS: now.Add(time.Duration(i) * time.Minute), QueryParam: fmt.Sprintf("qe_expr_%d", i),
+				TimeParam: now, Duration: 10 * time.Millisecond, StatusCode: 200,
+				LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant,
+				Fingerprint: fmt.Sprintf("qe_fp_%d", i),
+			})
+		}
+		mustInsertQueries(t, p, qs)
+
+		out, err := p.GetQueryExpressions(context.Background(), QueryExpressionsParams{
+			Filter: "qe_expr", TimeRange: tr, Page: 10, PageSize: 1, SortBy: "executions", SortOrder: "desc",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, 3, out.Total, "Total must reflect all matching rows, not just what fits in this page's window")
+	})
+
+	t.Run("GetQueryExecutions", func(t *testing.T) {
+		var qs []Query
+		for i := 1; i <= 3; i++ {
+			qs = append(qs, Query{
+				TS: now.Add(time.Duration(i) * time.Minute), QueryParam: "up",
+				TimeParam: now, Duration: 10 * time.Millisecond, StatusCode: 200,
+				LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant,
+				Fingerprint: "qexec_fp",
+			})
+		}
+		mustInsertQueries(t, p, qs)
+
+		out, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
+			Fingerprint: "qexec_fp", TimeRange: tr, Page: 10, PageSize: 1, SortBy: "ts", SortOrder: "desc",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, 3, out.Total, "Total must reflect all matching rows, not just what fits in this page's window")
+	})
 }
 
 // -------------------- Metrics Inventory --------------------
