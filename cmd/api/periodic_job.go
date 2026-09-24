@@ -7,7 +7,6 @@ import (
 
 	"github.com/oklog/run"
 
-	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/leaderelection"
 )
 
@@ -18,22 +17,19 @@ type periodicJob interface {
 	RunOnce(ctx context.Context)
 }
 
-// addPeriodicJob wires job into g under leaseName: on PostgreSQL, through
-// pgElector so only the current leader runs its cycles; on any other
-// provider, scheduling them directly, since there's no leader to
-// coordinate. Both paths schedule the identical loop - leadership governs
-// who runs cycles, never how often they run.
-func addPeriodicJob(g *run.Group, provider db.DatabaseProvider, pgElector leaderelection.Elector, leaseName string, interval time.Duration, job periodicJob) {
+// addPeriodicJob wires job into g under leaseName, scheduling its cycles
+// for as long as elector says this replica holds that lease. Every provider
+// has an elector - a sole instance holds leadership unconditionally where
+// there's nothing to coordinate - so leadership governs who runs cycles and
+// never how often they run, and there is one path here rather than one per
+// provider.
+func addPeriodicJob(g *run.Group, elector leaderelection.Elector, leaseName string, interval time.Duration, job periodicJob) {
 	ctx, cancel := context.WithCancel(context.Background())
 	loop := func(loopCtx context.Context) { runPeriodically(loopCtx, interval, job.RunOnce) }
 
-	if provider == db.PostGreSQL {
-		g.Add(func() error {
-			return pgElector.Run(ctx, leaseName, loop)
-		}, func(err error) { cancel() })
-		return
-	}
-	g.Add(func() error { loop(ctx); return nil }, func(err error) { cancel() })
+	g.Add(func() error {
+		return elector.Run(ctx, leaseName, loop)
+	}, func(err error) { cancel() })
 }
 
 // runPeriodically calls runOnce once immediately, then once per interval
