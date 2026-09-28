@@ -585,7 +585,7 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *
 	// so there's no public way to seed a rule outside the presence window -
 	// push it out directly, simulating a rule retired long ago.
 	_, err := rawDB.ExecContext(context.Background(),
-		`UPDATE RulesUsage SET first_seen_at = NOW() - INTERVAL '100 days', last_seen_at = NOW() - INTERVAL '99 days' WHERE serie = $1`,
+		`UPDATE RulesUsage SET first_seen_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '100 days', last_seen_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '99 days' WHERE serie = $1`,
 		"out_of_window_metric")
 	assert.NoError(t, err, "backdate out_of_window_metric's rule presence")
 
