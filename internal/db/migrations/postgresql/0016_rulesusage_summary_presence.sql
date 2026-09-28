@@ -10,9 +10,8 @@
 -- index-only scan. See
 -- https://github.com/nicolastakashi/prom-analytics-proxy/issues/589.
 --
--- CREATE INDEX CONCURRENTLY (hence NO TRANSACTION, and no in-line ANALYZE -
--- see migration 0013's deadlock note) so the build doesn't block writes
--- from the inventory syncer.
+-- CREATE INDEX CONCURRENTLY (hence NO TRANSACTION) so the build doesn't
+-- block writes from the inventory syncer.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_rulesusage_summary_presence
     ON RulesUsage (last_seen_at, first_seen_at) INCLUDE (serie, kind);
 
