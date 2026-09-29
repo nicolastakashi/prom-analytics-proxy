@@ -2,7 +2,6 @@ package leaderelection
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -46,7 +45,12 @@ func TestAdvisoryStrategy_MutualExclusion_ConcurrentGoroutines(t *testing.T) {
 	var acquireErrs []error
 	var acquisitions int64
 
-	ctx, cancel := context.WithTimeout(context.Background(), testDuration)
+	// stop only ends the loop between attempts. It is deliberately NOT passed
+	// to acquireOrHold: canceling an in-flight query makes lib/pq surface
+	// "pq: canceling statement due to user request" or "driver: bad
+	// connection", neither of which matches context.DeadlineExceeded, so the
+	// test would flake on its own shutdown rather than on acquireOrHold.
+	stop, cancel := context.WithTimeout(context.Background(), testDuration)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -54,18 +58,13 @@ func TestAdvisoryStrategy_MutualExclusion_ConcurrentGoroutines(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for ctx.Err() == nil {
-				acq, ok, err := strat.acquireOrHold(ctx, "mutex-test")
+			for stop.Err() == nil {
+				acq, ok, err := strat.acquireOrHold(context.Background(), "mutex-test")
 				release := acq.release
 				if err != nil {
-					// ctx expiring mid-attempt right at the test's own
-					// deadline is expected shutdown noise, not a failure of
-					// acquireOrHold under contention.
-					if !errors.Is(err, context.DeadlineExceeded) {
-						mu.Lock()
-						acquireErrs = append(acquireErrs, err)
-						mu.Unlock()
-					}
+					mu.Lock()
+					acquireErrs = append(acquireErrs, err)
+					mu.Unlock()
 					continue
 				}
 				if !ok {
