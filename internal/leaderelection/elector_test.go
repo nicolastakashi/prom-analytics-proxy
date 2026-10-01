@@ -40,7 +40,7 @@ func TestElector_Run_ConcurrentGoroutines(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = elector.Run(ctx, "full-stack-mutex-test", func(fnCtx context.Context) {
+				_ = elector.Run(ctx, "full-stack-mutex-test", func(fnCtx context.Context, _ CycleReporter) {
 					if active.Add(1) > 1 {
 						violated.Store(true)
 					}
@@ -81,7 +81,7 @@ func TestElector_Run_ConcurrentGoroutines(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_ = elector.Run(ctx, "handoff-liveness-test", func(fnCtx context.Context) {
+				_ = elector.Run(ctx, "handoff-liveness-test", func(fnCtx context.Context, _ CycleReporter) {
 					totalEntries.Add(1)
 					select {
 					case <-fnCtx.Done():
