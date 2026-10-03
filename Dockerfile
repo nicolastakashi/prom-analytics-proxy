@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 COPY ui/ ./
 RUN NODE_ENV=production npm run build
 
-FROM golang:1.26 AS gobuild
+FROM golang:1.27 AS gobuild
 
 WORKDIR /app
 
