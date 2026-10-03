@@ -179,10 +179,10 @@ func configureGoMemLimit(logger *slog.Logger, cfg config.MemoryLimitConfig) {
 			memlimit.WithProvider(memlimit.ApplyFallback(memlimit.FromCgroup, memlimit.FromSystem)),
 		}
 		if cfg.RefreshInterval > 0 {
-			opts = append(opts, memlimit.WithRefreshInterval(cfg.RefreshInterval))
+			opts = append(opts, memlimit.WithRefreshInterval(context.Background(), cfg.RefreshInterval))
 		}
 
-		limit, err := memlimit.SetGoMemLimitWithOpts(opts...)
+		limit, err := memlimit.Set(opts...)
 		if err != nil {
 			logger.Error("failed to configure automatic Go memory limit", "err", err)
 			return
