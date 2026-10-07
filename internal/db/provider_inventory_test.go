@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -470,4 +472,143 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T
 // Serial: the scenario swaps the process-wide default logger.
 func TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
 	testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog(t, sqliteTestBackend)
+}
+
+// testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage verifies re-syncing a
+// stale catalog row makes later refreshes evaluate it again, without
+// resetting the usage its summary already holds.
+func testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m", Type: "gauge", Help: "m"}})
+	mustInsertQueries(t, p, []Query{instantQuery(now.Add(-5*time.Minute), "m")})
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+
+	b.markCatalogStale(t, p, "m")
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m", Type: "gauge", Help: "m"}})
+	assert.Equal(t, summaryRow{Query: 1}, mustSummaryRow(t, b, p, "m"), "re-sync keeps the evaluated usage")
+
+	// Usage that only a refresh treating m as fresh would count.
+	mustInsertRules(t, p, []RulesUsage{{Serie: "m", GroupName: "g", Name: "a", Expression: "m > 0", Kind: string(RuleUsageKindAlert), Labels: []string{}, CreatedAt: now}})
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	assert.Equal(t, summaryRow{Alert: 1, Query: 1}, mustSummaryRow(t, b, p, "m"), "the re-synced row is evaluated again")
+}
+
+func TestPostgreSQL_UpsertMetricsCatalog_ResyncMarksFreshAndKeepsUsage(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_UpsertMetricsCatalog_ResyncMarksFreshAndKeepsUsage(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage(t, sqliteTestBackend)
+}
+
+// testUsageReinsertExtendsPresence verifies re-inserting a rule or dashboard
+// seen long ago extends its presence, so a long-lived one keeps its metric
+// used.
+func testUsageReinsertExtendsPresence(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m_rule", Type: "gauge"}, {Name: "m_dash", Type: "gauge"}})
+	rule := RulesUsage{Serie: "m_rule", GroupName: "g", Name: "a", Expression: "m_rule > 0", Kind: string(RuleUsageKindAlert), Labels: []string{}, CreatedAt: now}
+	dash := DashboardUsage{Id: "d", Serie: "m_dash", Name: "D", URL: "http://d", CreatedAt: now}
+	mustInsertRules(t, p, []RulesUsage{rule})
+	mustInsertDashboards(t, p, []DashboardUsage{dash})
+
+	b.retireUsage(t, p, "RulesUsage", "serie", "m_rule")
+	b.retireUsage(t, p, "DashboardUsage", "serie", "m_dash")
+	mustInsertRules(t, p, []RulesUsage{rule})
+	mustInsertDashboards(t, p, []DashboardUsage{dash})
+
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.AddDate(0, 0, -30))))
+	assert.Equal(t, summaryRow{Alert: 1}, mustSummaryRow(t, b, p, "m_rule"))
+	assert.Equal(t, summaryRow{Dashboard: 1}, mustSummaryRow(t, b, p, "m_dash"))
+}
+
+func TestPostgreSQL_UsageReinsertExtendsPresence(t *testing.T) {
+	t.Parallel()
+	testUsageReinsertExtendsPresence(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_UsageReinsertExtendsPresence(t *testing.T) {
+	t.Parallel()
+	testUsageReinsertExtendsPresence(t, sqliteTestBackend)
+}
+
+// testRefreshMetricsUsageSummaryHonorsUsageWindows verifies only dashboards
+// present in the window and queries inside it count, and that dashboard
+// usage alone keeps a metric used.
+func testRefreshMetricsUsageSummaryHonorsUsageWindows(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m_dash"}, {Name: "m_old_dash"}, {Name: "m_late_query"}})
+	mustInsertDashboards(t, p, []DashboardUsage{
+		{Id: "d1", Serie: "m_dash", Name: "D1", URL: "http://d/1", CreatedAt: now},
+		{Id: "d2", Serie: "m_old_dash", Name: "D2", URL: "http://d/2", CreatedAt: now},
+	})
+	b.retireUsage(t, p, "DashboardUsage", "serie", "m_old_dash")
+	mustInsertQueries(t, p, []Query{instantQuery(now.Add(time.Hour), "m_late_query")})
+
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	assert.Equal(t, summaryRow{Dashboard: 1}, mustSummaryRow(t, b, p, "m_dash"), "dashboard usage alone is usage")
+	assert.Equal(t, summaryRow{Unused: true}, mustSummaryRow(t, b, p, "m_old_dash"), "dashboard gone before the window")
+	assert.Equal(t, summaryRow{Unused: true}, mustSummaryRow(t, b, p, "m_late_query"), "query after the window")
+}
+
+func TestPostgreSQL_RefreshMetricsUsageSummary_HonorsUsageWindows(t *testing.T) {
+	t.Parallel()
+	testRefreshMetricsUsageSummaryHonorsUsageWindows(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_RefreshMetricsUsageSummary_HonorsUsageWindows(t *testing.T) {
+	t.Parallel()
+	testRefreshMetricsUsageSummaryHonorsUsageWindows(t, sqliteTestBackend)
+}
+
+// testSeriesMetadataJobScope verifies the job filter scopes both the unused
+// listing and the by-name lookup, and that the lookup reports when a metric
+// was last queried.
+func testSeriesMetadataJobScope(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m1"}, {Name: "m2"}, {Name: "m3"}})
+	mustUpsertJobIndex(t, p, []MetricJobIndexItem{{Name: "m1", Job: "a"}, {Name: "m2", Job: "b"}, {Name: "m3", Job: "a"}})
+	queried := now.Add(-5 * time.Minute)
+	mustInsertQueries(t, p, []Query{instantQuery(queried, "m3")})
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+
+	res, err := p.GetSeriesMetadata(ctx, SeriesMetadataParams{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "all", Usage: SeriesMetadataUsageUnused, Job: "a"})
+	require.NoError(t, err)
+	unused := keysOf(rowsOf[models.MetricMetadata](t, res), func(m models.MetricMetadata) string { return m.Name })
+	assert.Equal(t, []string{"m1"}, unused, "unused metrics of job a")
+
+	byName, err := p.GetSeriesMetadataByNames(ctx, []string{"m1", "m2", "m3"}, "a")
+	require.NoError(t, err)
+	got := map[string]models.MetricMetadata{}
+	for _, m := range byName {
+		got[m.Name] = m
+	}
+	assert.ElementsMatch(t, []string{"m1", "m3"}, slices.Collect(maps.Keys(got)), "metrics of job a")
+	lastQueried, err := time.Parse(time.RFC3339, got["m3"].LastQueriedAt)
+	require.NoError(t, err, "LastQueriedAt %q", got["m3"].LastQueriedAt)
+	assert.WithinDuration(t, queried, lastQueried, time.Second)
+}
+
+func TestPostgreSQL_SeriesMetadata_JobScope(t *testing.T) {
+	t.Parallel()
+	testSeriesMetadataJobScope(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_SeriesMetadata_JobScope(t *testing.T) {
+	t.Parallel()
+	testSeriesMetadataJobScope(t, sqliteTestBackend)
 }
