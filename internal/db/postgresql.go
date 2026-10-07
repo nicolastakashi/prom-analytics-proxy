@@ -1534,6 +1534,14 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	return result, nil
 }
 
+// pgTimeBuckets is the time-series bucket starts: one row per $2 from
+// date_trunc('minute', $1) through $3. pgTimeBucket maps a row's ts to the
+// bucket containing it.
+const (
+	pgTimeBuckets = `SELECT generate_series(date_trunc('minute', $1::timestamp), date_trunc('minute', $3::timestamp), $2::interval) AS bucket`
+	pgTimeBucket  = `date_trunc('minute', $1::timestamp) + floor(extract(epoch FROM ts - date_trunc('minute', $1::timestamp)) / extract(epoch FROM $2::interval)) * $2::interval`
+)
+
 func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
 	SetDefaultTimeRange(&tr)
 	interval := GetInterval(tr.From, tr.To, "postgresql")
@@ -1541,16 +1549,10 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 
 	query := `
 	WITH
-	buckets AS (
-		SELECT generate_series(
-				date_trunc('minute', $1::timestamp),
-				date_trunc('minute', $3::timestamp),
-				$2::interval
-			) AS bucket
-	),
+	buckets AS (` + pgTimeBuckets + `),
 	agg AS (
 		SELECT
-			date_trunc('minute', ts)                                AS bucket,
+			` + pgTimeBucket + ` AS bucket,
 			COUNT(*) FILTER (WHERE statusCode BETWEEN 200 AND 299)  AS status2xx,
 			COUNT(*) FILTER (WHERE statusCode BETWEEN 400 AND 499)  AS status4xx,
 			COUNT(*) FILTER (WHERE statusCode BETWEEN 500 AND 599)  AS status5xx
@@ -1599,16 +1601,10 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 
 	query := `
 	WITH
-	buckets AS (
-		SELECT generate_series(
-				date_trunc('minute', $1::timestamp),
-				date_trunc('minute', $3::timestamp),
-				$2::interval
-			) AS bucket
-	),
+	buckets AS (` + pgTimeBuckets + `),
 	agg AS (
 		SELECT
-			date_trunc('minute', ts)                         AS bucket,
+			` + pgTimeBucket + ` AS bucket,
 			ROUND(AVG(duration)::numeric, 2)                 AS avg_duration,
 			ROUND(
 				percentile_cont(0.95) WITHIN GROUP (ORDER BY duration)
@@ -1661,16 +1657,10 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 
 	query := `
 	WITH
-	buckets AS (
-		SELECT generate_series(
-				date_trunc('minute', $1::timestamp),
-				date_trunc('minute', $3::timestamp),
-				$2::interval
-			) AS bucket
-	),
+	buckets AS (` + pgTimeBuckets + `),
 	agg AS (
 		SELECT
-			date_trunc('minute', ts) AS bucket,
+			` + pgTimeBucket + ` AS bucket,
 			COUNT(*)                 AS value
 		FROM   queries
 		WHERE  ts >= $1
@@ -1714,16 +1704,10 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 
 	query := `
 	WITH
-	buckets AS (
-		SELECT generate_series(
-				date_trunc('minute', $1::timestamp),
-				date_trunc('minute', $3::timestamp),
-				$2::interval
-			) AS bucket
-	),
+	buckets AS (` + pgTimeBuckets + `),
 	agg AS (
 		SELECT
-			date_trunc('minute', ts)                  AS bucket,
+			` + pgTimeBucket + ` AS bucket,
 			COUNT(*) FILTER (WHERE statusCode >= 400) AS value
 		FROM   queries
 		WHERE  ts >= $1
