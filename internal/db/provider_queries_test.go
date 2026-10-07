@@ -701,3 +701,63 @@ func fingerprints(t *testing.T, res PagedResult) []string {
 	t.Helper()
 	return keysOf(rowsOf[QueryExpression](t, res), func(e QueryExpression) string { return e.Fingerprint })
 }
+
+// testGetQueryTimeRangeDistributionDayBoundary verifies a range of exactly
+// 24h falls in the "24h" bucket, not "<24h".
+func testGetQueryTimeRangeDistributionDayBoundary(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	mustInsertQueries(t, p, []Query{{
+		TS: now.Add(-5 * time.Minute), QueryParam: "up", TimeParam: now, Duration: time.Millisecond, StatusCode: 200,
+		LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeRange, Start: now.Add(-24 * time.Hour), End: now, Step: 15,
+	}})
+
+	out, err := p.GetQueryTimeRangeDistribution(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}, "")
+	require.NoError(t, err)
+	got := map[string]int{}
+	for _, r := range out {
+		got[r.Label] = r.Count
+	}
+	assert.Equal(t, [2]int{0, 1}, [2]int{got["<24h"], got["24h"]}, "<24h, 24h")
+}
+
+func TestPostgreSQL_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
+	t.Parallel()
+	testGetQueryTimeRangeDistributionDayBoundary(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
+	t.Parallel()
+	testGetQueryTimeRangeDistributionDayBoundary(t, sqliteTestBackend)
+}
+
+// testInsertHTTPHeadersRoundTrip verifies a query's HTTP headers are stored
+// and returned with its executions.
+func testInsertHTTPHeadersRoundTrip(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	headers := map[string]string{"X-Grafana-User": "alice", "X-Dashboard-Uid": "d1"}
+	q := instantQuery(now.Add(-5*time.Minute), "up")
+	q.Fingerprint, q.HTTPHeaders = "fp", headers
+	mustInsertQueries(t, p, []Query{q})
+
+	res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
+		Fingerprint: "fp", TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now}, Page: 1, PageSize: 10,
+	})
+	require.NoError(t, err)
+	rows := rowsOf[QueryExecutionRow](t, res)
+	require.Len(t, rows, 1)
+	assert.Equal(t, headers, rows[0].HTTPHeaders)
+}
+
+func TestPostgreSQL_Insert_HTTPHeadersRoundTrip(t *testing.T) {
+	t.Parallel()
+	testInsertHTTPHeadersRoundTrip(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_Insert_HTTPHeadersRoundTrip(t *testing.T) {
+	t.Parallel()
+	testInsertHTTPHeadersRoundTrip(t, sqliteTestBackend)
+}

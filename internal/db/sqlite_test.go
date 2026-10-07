@@ -124,13 +124,10 @@ func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 	}
 
 	out, err := p.GetQueryTimeRangeDistribution(context.Background(), TimeRange{From: from, To: now}, "")
-	assert.NoError(t, err, "GetQueryTimeRangeDistribution")
-	assert.NotEmpty(t, out, "no buckets returned")
-
-	// Sum should be 3
+	require.NoError(t, err, "GetQueryTimeRangeDistribution")
 	sum := 0
 	for _, b := range out {
 		sum += b.Count
 	}
-	assert.Greater(t, sum, 0, "expected non-zero distribution")
+	assert.Equal(t, 3, sum, "every range query with ISO timestamps is counted")
 }
