@@ -3,105 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"time"
 )
-
-// QueryBuildingContext holds the context for building SQL queries
-type QueryBuildingContext struct {
-	Dialect       string
-	PlaceholderFn func(int) string
-}
-
-// NewPostgreSQLQueryContext creates a query context for PostgreSQL
-func NewPostgreSQLQueryContext() *QueryBuildingContext {
-	return &QueryBuildingContext{
-		Dialect: "postgresql",
-		PlaceholderFn: func(i int) string {
-			return fmt.Sprintf("$%d", i)
-		},
-	}
-}
-
-// NewSQLiteQueryContext creates a query context for SQLite
-func NewSQLiteQueryContext() *QueryBuildingContext {
-	return &QueryBuildingContext{
-		Dialect: "sqlite",
-		PlaceholderFn: func(i int) string {
-			return "?"
-		},
-	}
-}
-
-// CreateInsertPlaceholders builds the appropriate placeholders for an INSERT statement
-func (qc *QueryBuildingContext) CreateInsertPlaceholders(columns, rows int) (string, []interface{}, error) {
-	if qc.Dialect == "postgresql" {
-		return createPostgreSQLInsertPlaceholders(columns, rows)
-	}
-	return createSQLiteInsertPlaceholders(columns, rows)
-}
-
-// ParseJSONParams is a helper for handling JSON parameters
-func ParseJSONParams(params interface{}) (string, error) {
-	if params == nil {
-		return "", nil
-	}
-	jsonData, err := json.Marshal(params)
-	if err != nil {
-		return "", ErrorWithOperation(err, "marshaling JSON params")
-	}
-	return string(jsonData), nil
-}
-
-// Helper for SQLite insert placeholders
-func createSQLiteInsertPlaceholders(columns, rows int) (string, []interface{}, error) {
-	placeholders := ""
-	values := make([]interface{}, 0, columns*rows)
-
-	singleRowPlaceholders := "(" + "?, "
-	for i := 1; i < columns; i++ {
-		if i == columns-1 {
-			singleRowPlaceholders += "?)"
-		} else {
-			singleRowPlaceholders += "?, "
-		}
-	}
-
-	for i := 0; i < rows; i++ {
-		placeholders += singleRowPlaceholders
-		if i < rows-1 {
-			placeholders += ", "
-		}
-	}
-
-	return placeholders, values, nil
-}
-
-// Helper for PostgreSQL insert placeholders
-func createPostgreSQLInsertPlaceholders(columns, rows int) (string, []interface{}, error) {
-	placeholders := ""
-	values := make([]interface{}, 0, columns*rows)
-
-	for i := 0; i < rows; i++ {
-		placeholders += "("
-		for j := 0; j < columns; j++ {
-			placeholders += fmt.Sprintf("$%d", i*columns+j+1)
-			if j < columns-1 {
-				placeholders += ", "
-			}
-		}
-		placeholders += ")"
-
-		if i < rows-1 {
-			placeholders += ", "
-		}
-	}
-
-	return placeholders, values, nil
-}
 
 // ExecuteQuery is a helper function to execute a query with error handling
 func ExecuteQuery(ctx context.Context, db *sql.DB, query string, args ...interface{}) (*sql.Rows, error) {

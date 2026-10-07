@@ -208,10 +208,7 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 			ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples, httpHeaders
 		) VALUES `
 
-	// Get SQLite placeholder format
-	qc := NewSQLiteQueryContext()
-	placeholders, _, _ := qc.CreateInsertPlaceholders(15, len(queries))
-	query += placeholders
+	query += sqliteInsertPlaceholders(15, len(queries))
 
 	values := make([]interface{}, 0, len(queries)*15)
 	for _, q := range queries {
@@ -1997,4 +1994,11 @@ func (p *SQLiteProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Ti
 		return 0, ErrorWithOperation(err, "get rows affected")
 	}
 	return rowsAffected, nil
+}
+
+// sqliteInsertPlaceholders returns the VALUES list for a multi-row INSERT:
+// rows groups of columns "?" placeholders each.
+func sqliteInsertPlaceholders(columns, rows int) string {
+	row := "(" + strings.TrimSuffix(strings.Repeat("?, ", columns), ", ") + ")"
+	return strings.TrimSuffix(strings.Repeat(row+", ", rows), ", ")
 }

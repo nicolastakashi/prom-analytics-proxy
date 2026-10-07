@@ -131,41 +131,6 @@ func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, 
 	}
 }
 
-var deniedKeywords = []string{"DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "EXEC", "--", ";"}
-
-func containsDeniedKeyword(query string) bool {
-	upperQuery := strings.ToUpper(query)
-	for _, keyword := range deniedKeywords {
-		if strings.Contains(upperQuery, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-var deniedPatterns = []string{"--", ";"}
-
-func containsDeniedPattern(query string) bool {
-	for _, pattern := range deniedPatterns {
-		if strings.Contains(query, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func ValidateSQLQuery(query string) error {
-	if containsDeniedKeyword(query) {
-		return ValidationError("SQL", "query contains disallowed keyword")
-	}
-
-	if containsDeniedPattern(query) {
-		return ValidationError("SQL", "query contains dangerous pattern")
-	}
-
-	return nil
-}
-
 func SetDefaultTimeRange(tr *TimeRange) {
 	if tr.From.IsZero() {
 		tr.From = time.Now().UTC().Add(-ThirtyDays)
@@ -254,16 +219,6 @@ func resolveSafeSortOrder(sortOrder string) string {
 	return sortOrderDESC
 }
 
-// BuildSafeOrderByClause constructs a safe ORDER BY clause using validated parameters
-// tableAlias should be the table alias (e.g., "c") or empty string if not needed
-// sortAliases optionally maps field names to their full SQL expression (e.g., "alertCount" -> "COALESCE(s.alert_count, 0)")
-func BuildSafeOrderByClause(sortBy, sortOrder, tableAlias string, validSortFields map[string]bool, defaultSort string, sortAliases ...map[string]string) string {
-	ValidateSortField(&sortBy, &sortOrder, validSortFields, defaultSort)
-	return fmt.Sprintf(" ORDER BY %s %s NULLS LAST",
-		resolveSafeSortExpr(sortBy, tableAlias, defaultSort, sortAliases...),
-		resolveSafeSortOrder(sortOrder))
-}
-
 // BuildSafeQueryWithOrderBy constructs a complete query with validated ORDER BY clause
 // This function minimizes string concatenation for better static analysis compatibility
 // sortAliases optionally maps field names to their full SQL expression for mixed-table sorting
@@ -278,22 +233,6 @@ func BuildSafeQueryWithOrderBy(baseQuery, tableAlias, limitClause string, sortBy
 
 func CalculateTotalPages(totalCount, pageSize int) int {
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
-}
-
-func ProcessRows(rows *sql.Rows, scanFunc func(*sql.Rows) error) error {
-	defer CloseResource(rows)
-
-	for rows.Next() {
-		if err := scanFunc(rows); err != nil {
-			return ErrorWithOperation(err, "scanning row")
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return ErrorWithOperation(err, "row iteration")
-	}
-
-	return nil
 }
 
 // QueryExpressionsParams defines parameters for aggregated query expressions grouped by fingerprint
