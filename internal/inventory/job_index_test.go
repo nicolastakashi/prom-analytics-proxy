@@ -284,48 +284,27 @@ func TestSyncJobIndex_NoJobLabelsFound_CompletesWithoutUpserts(t *testing.T) {
 	assert.Empty(t, provider.jobIndexItems)
 }
 
-// TestSyncJobIndex_LabelValues404_TreatedAsEmptyIndexNotFailure proves a
-// client_error (4xx, e.g. a 404 on a Prometheus without a job-label
-// endpoint) from the label fetch is logged and treated as an empty index,
-// not returned as this cycle's failure.
-func TestSyncJobIndex_LabelValues404_TreatedAsEmptyIndexNotFailure(t *testing.T) {
-	provider := &fakeProvider{}
-	api := &fakePromAPI{labelErr: &v1.Error{Type: v1.ErrClient, Msg: "client error: 404"}}
-	s := jobIndexOnlySyncer(provider, api)
+// TestSyncJobIndex_LabelValuesError_ReturnsFailure proves every label-fetch
+// error is this cycle's failure, never an empty index - only a successful
+// empty response means no job labels exist.
+func TestSyncJobIndex_LabelValuesError_ReturnsFailure(t *testing.T) {
+	for name, labelErr := range map[string]error{
+		"transport error":  errors.New("upstream unavailable"),
+		"404 not found":    &v1.Error{Type: v1.ErrClient, Msg: "client error: 404"},
+		"401 unauthorized": &v1.Error{Type: v1.ErrClient, Msg: "client error: 401"},
+		"429 rate limited": &v1.Error{Type: v1.ErrClient, Msg: "client error: 429"},
+		"503 unavailable":  &v1.Error{Type: v1.ErrServer, Msg: "server error: 503"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			provider := &fakeProvider{}
+			s := jobIndexOnlySyncer(provider, &fakePromAPI{labelErr: labelErr})
 
-	err := s.syncJobIndex(context.Background(), lastHour())
+			err := s.syncJobIndex(context.Background(), lastHour())
 
-	require.NoError(t, err)
-	assert.Empty(t, provider.jobIndexItems)
-}
-
-// TestSyncJobIndex_LabelValuesUpstreamError_ReturnsFailure proves a
-// label-fetch error that isn't the client_error/404 shape - an upstream or
-// server error, distinct from "no job labels exist" - is reported as this
-// cycle's failure rather than swallowed into an empty index alongside it.
-func TestSyncJobIndex_LabelValuesUpstreamError_ReturnsFailure(t *testing.T) {
-	provider := &fakeProvider{}
-	api := &fakePromAPI{labelErr: errors.New("upstream unavailable")}
-	s := jobIndexOnlySyncer(provider, api)
-
-	err := s.syncJobIndex(context.Background(), lastHour())
-
-	require.Error(t, err, "an upstream error fetching job labels must not be indistinguishable from no job labels existing")
-	assert.Empty(t, provider.jobIndexItems)
-}
-
-// TestSyncJobIndex_LabelValuesServerError_ReturnsFailure proves a 5xx from
-// the label endpoint - the API client's server_error classification - is
-// also reported as a failure, not folded into the 404/no-labels case.
-func TestSyncJobIndex_LabelValuesServerError_ReturnsFailure(t *testing.T) {
-	provider := &fakeProvider{}
-	api := &fakePromAPI{labelErr: &v1.Error{Type: v1.ErrServer, Msg: "server error: 503"}}
-	s := jobIndexOnlySyncer(provider, api)
-
-	err := s.syncJobIndex(context.Background(), lastHour())
-
-	require.Error(t, err)
-	assert.Empty(t, provider.jobIndexItems)
+			require.ErrorIs(t, err, labelErr)
+			assert.Empty(t, provider.jobIndexItems)
+		})
+	}
 }
 
 // TestSyncJobIndex_MinorityOfJobFailures_StillReturnsNilAndCommitsTheRest

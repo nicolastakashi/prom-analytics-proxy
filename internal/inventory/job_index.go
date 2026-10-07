@@ -2,13 +2,11 @@ package inventory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
-	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 )
 
@@ -26,15 +24,9 @@ func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
 	defer cancelLabels()
 	jobs, _, err := s.promAPI.LabelValues(labelCtx, "job", []string{}, tr.From, tr.To)
 	if err != nil {
-		if !isJobLabelUnsupported(err) {
-			return fmt.Errorf("fetch job label values: %w", err)
-		}
-		// A 4xx from the label-values endpoint means no series with a job
-		// label exist, or the endpoint isn't supported by this Prometheus -
-		// an empty index, not a failure. Anything else (timeout,
-		// cancellation, 5xx) falls through to the error return above.
-		slog.Warn("failed to fetch job label values", "err", err, "msg", "job index will be empty - this is normal if no series have job labels")
-		return nil
+		// No series with a job label is a successful, empty response, so
+		// every error here - 4xx included - is a failure.
+		return fmt.Errorf("fetch job label values: %w", err)
 	}
 
 	if len(jobs) == 0 {
@@ -93,16 +85,6 @@ func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
 	}
 
 	return nil
-}
-
-// isJobLabelUnsupported reports whether err is the Prometheus API client's
-// 4xx client_error classification - the shape a 404 (no job label endpoint)
-// or similarly unsupported query takes. Timeouts, cancellation and 5xx
-// responses use other v1.Error types (or aren't a *v1.Error at all, as with
-// a context error from a lower-level transport), so they don't match here.
-func isJobLabelUnsupported(err error) bool {
-	var apiErr *v1.Error
-	return errors.As(err, &apiErr) && apiErr.Type == v1.ErrClient
 }
 
 // processJob queries one job's metric names and commits them. Both calls are
