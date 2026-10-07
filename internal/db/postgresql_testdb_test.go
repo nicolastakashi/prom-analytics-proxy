@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -132,4 +133,21 @@ func newTestPostgreSQLProviderWithConfig(t testing.TB, cfg config.PostgreSQLConf
 	require.NoError(t, err, "init postgres provider")
 	t.Cleanup(func() { _ = p.Close() })
 	return p
+}
+
+var postgreSQLTestBackend = testBackend{
+	newProvider: newTestPostgreSQLProvider,
+	rebind: func(query string) string {
+		var out strings.Builder
+		n := 0
+		for _, r := range query {
+			if r == '?' {
+				n++
+				fmt.Fprintf(&out, "$%d", n)
+				continue
+			}
+			out.WriteRune(r)
+		}
+		return out.String()
+	},
 }
