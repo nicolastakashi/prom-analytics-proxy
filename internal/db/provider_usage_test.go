@@ -244,3 +244,46 @@ func TestSQLite_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {
 	t.Parallel()
 	testGetMetricStatisticsAndQueryPerformanceStats(t, sqliteTestBackend)
 }
+
+// testGetRulesUsageWindowFilterAndLatest verifies GetRulesUsage lists each rule
+// once, as last seen, only when present in the range and matching the filter.
+func testGetRulesUsageWindowFilterAndLatest(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	rule := func(name, expr string, labels ...string) RulesUsage {
+		return RulesUsage{Serie: "up", GroupName: "g", Name: name, Expression: expr, Kind: string(RuleUsageKindAlert), Labels: labels, CreatedAt: now}
+	}
+	mustInsertRules(t, p, []RulesUsage{rule("cpu_high", "up > 1", "old")})
+	mustInsertRules(t, p, []RulesUsage{rule("cpu_high", "up > 1", "new"), rule("retired", "up > 2"), rule("mem_high", "up > 3")})
+	b.retireUsage(t, p, "RulesUsage", "name", "retired")
+
+	list := func(filter string) []RulesUsage {
+		res, err := p.GetRulesUsage(ctx, RulesUsageParams{Serie: "up", Kind: string(RuleUsageKindAlert), Filter: filter, TimeRange: presenceWindow(now.Add(-1 * time.Hour)), Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc"})
+		require.NoError(t, err)
+		rows := rowsOf[RulesUsage](t, res)
+		assert.Equal(t, len(rows), res.Total, "Total matches the listed rules")
+		return rows
+	}
+
+	rows := list("")
+	require.Len(t, rows, 2, "retired rule is outside the range")
+	assert.Equal(t, "cpu_high", rows[0].Name)
+	assert.Equal(t, []string{"new"}, rows[0].Labels, "a rule's latest version")
+	assert.Equal(t, "mem_high", rows[1].Name)
+
+	rows = list("cpu")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "cpu_high", rows[0].Name)
+}
+
+func TestPostgreSQL_GetRulesUsage_WindowFilterAndLatest(t *testing.T) {
+	t.Parallel()
+	testGetRulesUsageWindowFilterAndLatest(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetRulesUsage_WindowFilterAndLatest(t *testing.T) {
+	t.Parallel()
+	testGetRulesUsageWindowFilterAndLatest(t, sqliteTestBackend)
+}
