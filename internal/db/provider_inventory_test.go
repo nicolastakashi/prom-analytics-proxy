@@ -612,3 +612,40 @@ func TestSQLite_SeriesMetadata_JobScope(t *testing.T) {
 	t.Parallel()
 	testSeriesMetadataJobScope(t, sqliteTestBackend)
 }
+
+// testGetSeriesMetadataOrdering verifies the default order is most queried
+// first, and that the unused listing honors the requested sort order.
+func testGetSeriesMetadataOrdering(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "a_popular"}, {Name: "b_rare"}, {Name: "c_unused"}, {Name: "d_unused"}})
+	var qs []Query
+	for name, n := range map[string]int{"a_popular": 3, "b_rare": 1} {
+		for range n {
+			qs = append(qs, instantQuery(now.Add(-5*time.Minute), name))
+		}
+	}
+	mustInsertQueries(t, p, qs)
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+
+	names := func(params SeriesMetadataParams) []string {
+		params.Page, params.PageSize = 1, 10
+		res, err := p.GetSeriesMetadata(ctx, params)
+		require.NoError(t, err)
+		return keysOf(rowsOf[models.MetricMetadata](t, res), func(m models.MetricMetadata) string { return m.Name })
+	}
+	assert.Equal(t, []string{"a_popular", "b_rare"}, names(SeriesMetadataParams{Type: "all", Usage: SeriesMetadataUsageUsed}), "default order: most queried first, not by name")
+	assert.Equal(t, []string{"d_unused", "c_unused"}, names(SeriesMetadataParams{Type: "all", Usage: SeriesMetadataUsageUnused, SortBy: "name", SortOrder: "desc"}))
+}
+
+func TestPostgreSQL_GetSeriesMetadata_Ordering(t *testing.T) {
+	t.Parallel()
+	testGetSeriesMetadataOrdering(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetSeriesMetadata_Ordering(t *testing.T) {
+	t.Parallel()
+	testGetSeriesMetadataOrdering(t, sqliteTestBackend)
+}
