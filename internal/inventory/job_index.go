@@ -24,9 +24,9 @@ func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
 	defer cancelLabels()
 	jobs, _, err := s.promAPI.LabelValues(labelCtx, "job", []string{}, tr.From, tr.To)
 	if err != nil {
-		// Handle 404 gracefully - it means no series with job label exist or endpoint not supported
-		slog.Warn("failed to fetch job label values", "err", err, "msg", "job index will be empty - this is normal if no series have job labels")
-		return nil
+		// No series with a job label is a successful, empty response, so
+		// every error here - 4xx included - is a failure.
+		return fmt.Errorf("fetch job label values: %w", err)
 	}
 
 	if len(jobs) == 0 {
