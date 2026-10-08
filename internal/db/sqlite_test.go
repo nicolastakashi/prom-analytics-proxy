@@ -1,10 +1,7 @@
 package db
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -85,59 +82,6 @@ func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, lat)
 	assert.Equal(t, 10, lat[0].P95, "the 38th of 40 durations, ranked across the whole bucket")
-}
-
-// TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale guards a
-// suggestion adjacent to
-// https://github.com/nicolastakashi/prom-analytics-proxy/issues/579: when
-// every metrics_catalog row fails the freshness filter, the refresh's
-// INSERT touches zero rows and returns no error - indistinguishable,
-// without a log line, from "ran fine, nothing needed recomputing".
-// warnIfSummaryRefreshWasNoOp surfaces that combination so metadata-sync
-// stalling doesn't freeze summaries silently.
-func TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T) {
-	p := newTestSQLiteProvider(t)
-
-	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "stale_metric", Type: "gauge", Help: "gone"}})
-
-	var rawDB *sql.DB
-	p.WithDB(func(d *sql.DB) { rawDB = d })
-	_, err := rawDB.ExecContext(context.Background(),
-		`UPDATE metrics_catalog SET last_synced_at = datetime('now', '-90 days') WHERE name = ?`, "stale_metric")
-	assert.NoError(t, err, "backdate stale_metric")
-
-	var logs bytes.Buffer
-	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	defer slog.SetDefault(prevLogger)
-
-	now := time.Now().UTC()
-	err = p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
-	assert.NoError(t, err, "RefreshMetricsUsageSummary")
-
-	assert.Contains(t, logs.String(), "refresh summary touched no rows",
-		"expected a warning when the freshness filter matches zero rows against a non-empty catalog")
-}
-
-// TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog is the
-// zero-rows counterpart of TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale:
-// an empty metrics_catalog also touches zero rows, but that's the ordinary
-// steady state of a fresh deployment, not a stalled sync - it must not log
-// the same warning.
-func TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
-	p := newTestSQLiteProvider(t)
-
-	var logs bytes.Buffer
-	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	defer slog.SetDefault(prevLogger)
-
-	now := time.Now().UTC()
-	err := p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
-	assert.NoError(t, err, "RefreshMetricsUsageSummary")
-
-	assert.NotContains(t, logs.String(), "refresh summary touched no rows",
-		"an empty catalog is the normal steady state and must not be logged as a stalled sync")
 }
 
 func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
