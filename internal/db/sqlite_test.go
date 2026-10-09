@@ -1385,37 +1385,37 @@ func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 	assert.Greater(t, sum, 0, "expected non-zero distribution")
 }
 
+// TestSQLiteProvider_DeleteQueriesBefore verifies retention deletes exactly
+// the queries older than the cutoff; one at the cutoff stays. Seeds go through Insert, so ts has the
+// stored format, and old and new rows share a calendar day, so a date-only
+// comparison fails.
 func TestSQLiteProvider_DeleteQueriesBefore(t *testing.T) {
 	p, cleanup := newTestSQLiteProvider(t)
 	defer cleanup()
 
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	cutoff := now.Add(-1 * time.Hour)
 
-	insert := `INSERT INTO queries (ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	for i := 0; i < 3; i++ {
-		ts := cutoff.Add(-time.Duration(i+1) * time.Hour)
-		_, err := p.(*SQLiteProvider).db.ExecContext(ctx, insert,
-			ts.Format(time.RFC3339), "query1", now.Format(time.RFC3339), int64(100), 200, 0, "fp1", `[{"__name__":"up"}]`, "instant", 0.0, time.Time{}, time.Time{}, 0, 0,
-		)
-		assert.NoError(t, err, "insert old query")
+	query := func(ts time.Time, param string) Query {
+		return Query{
+			TS: ts, QueryParam: param, TimeParam: now, Duration: 100 * time.Millisecond, StatusCode: 200,
+			LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant,
+		}
 	}
-
-	for i := 0; i < 2; i++ {
-		ts := cutoff.Add(time.Duration(i+1) * time.Hour)
-		_, err := p.(*SQLiteProvider).db.ExecContext(ctx, insert,
-			ts.Format(time.RFC3339), "query2", now.Format(time.RFC3339), int64(100), 200, 0, "fp2", `[{"__name__":"up"}]`, "instant", 0.0, time.Time{}, time.Time{}, 0, 0,
-		)
-		assert.NoError(t, err, "insert new query")
+	var qs []Query
+	for i := range 3 {
+		qs = append(qs, query(cutoff.Add(-time.Duration(i+1)*time.Hour), "query1"))
 	}
+	for i := range 3 {
+		qs = append(qs, query(cutoff.Add(time.Duration(i)*time.Hour), "query2"))
+	}
+	mustInsertQueries(t, p, qs)
 
 	var count int
 	err := p.(*SQLiteProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries").Scan(&count)
 	assert.NoError(t, err, "count before deletion")
-	assert.Equal(t, 5, count, "should have 5 queries initially")
+	assert.Equal(t, 6, count, "should have 6 queries initially")
 
 	deleted, err := p.DeleteQueriesBefore(ctx, cutoff)
 	assert.NoError(t, err, "DeleteQueriesBefore")
@@ -1423,12 +1423,12 @@ func TestSQLiteProvider_DeleteQueriesBefore(t *testing.T) {
 
 	err = p.(*SQLiteProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries").Scan(&count)
 	assert.NoError(t, err, "count after deletion")
-	assert.Equal(t, 2, count, "should have 2 queries remaining")
+	assert.Equal(t, 3, count, "should have 3 queries remaining")
 
 	var remainingCount int
 	err = p.(*SQLiteProvider).db.QueryRowContext(ctx, "SELECT COUNT(*) FROM queries WHERE ts >= datetime(?)", cutoff.Format(time.RFC3339)).Scan(&remainingCount)
 	assert.NoError(t, err, "count queries after cutoff")
-	assert.Equal(t, 2, remainingCount, "all remaining queries should be after cutoff")
+	assert.Equal(t, 3, remainingCount, "all remaining queries should be at or after cutoff")
 
 	deleted2, err := p.DeleteQueriesBefore(ctx, cutoff)
 	assert.NoError(t, err, "DeleteQueriesBefore second call")
