@@ -1454,39 +1454,42 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
 		FROM time_buckets
 		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
+	),
+	-- Ranks each bucket's own durations; nearest-rank p95 is the row at
+	-- ceil(0.95 * n), in integer arithmetic.
+	bucketed AS (
+		SELECT
+			b.bucket_start,
+			t.duration,
+			ROW_NUMBER() OVER (PARTITION BY b.bucket_start ORDER BY t.duration) as row_num,
+			COUNT(t.duration) OVER (PARTITION BY b.bucket_start) as total_rows
+		FROM time_buckets b
+		LEFT JOIN (
+			SELECT ts, duration
+			FROM queries
+			WHERE CASE
+				WHEN ? != '' THEN
+					json_extract(labelMatchers, '$[0].__name__') = ?
+				ELSE
+					1=1
+				END
+			AND CASE
+				WHEN ? != '' THEN
+					fingerprint = ?
+				ELSE
+					1=1
+				END
+		) t ON
+			t.ts >= b.bucket_start AND
+			t.ts < b.bucket_end
 	)
 	SELECT
-		b.bucket_start as time,
-		COALESCE(ROUND(AVG(t.duration), 2), 0) as value,
-		COALESCE(MAX(CASE
-			WHEN row_num > CAST((total_rows * 0.95) AS INTEGER) THEN t.duration
-			ELSE 0
-		END), 0) as p95
-	FROM time_buckets b
-	LEFT JOIN (
-		SELECT
-			ts,
-			duration,
-			ROW_NUMBER() OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts) ORDER BY duration) as row_num,
-			COUNT(*) OVER (PARTITION BY strftime('%Y-%m-%d %H:%M:00', ts)) as total_rows
-		FROM queries
-		WHERE CASE
-			WHEN ? != '' THEN
-				json_extract(labelMatchers, '$[0].__name__') = ?
-			ELSE
-				1=1
-			END
-		AND CASE
-			WHEN ? != '' THEN
-				fingerprint = ?
-			ELSE
-				1=1
-			END
-	) t ON
-		t.ts >= b.bucket_start AND
-		t.ts < b.bucket_end
-	GROUP BY b.bucket_start
-	ORDER BY b.bucket_start;
+		bucket_start as time,
+		COALESCE(ROUND(AVG(duration), 2), 0) as value,
+		COALESCE(MAX(CASE WHEN row_num = (95 * total_rows + 99) / 100 THEN duration END), 0) as p95
+	FROM bucketed
+	GROUP BY bucket_start
+	ORDER BY bucket_start;
 	`
 
 	rows, err := ExecuteQuery(ctx, p.db, query, from, from, interval, interval, to, metricName, metricName, fingerprint, fingerprint)
