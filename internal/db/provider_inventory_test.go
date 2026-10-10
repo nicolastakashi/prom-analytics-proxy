@@ -1,7 +1,9 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -341,4 +343,131 @@ func TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
 func TestSQLite_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
 	t.Parallel()
 	testGetSeriesMetadataByNamesPopulatesIsUnused(t, sqliteTestBackend)
+}
+
+// testUpsertMetricsCatalogDuplicateNameInSameCallLastOccurrenceWins
+// verifies a name repeated within one call resolves to its last occurrence's
+// values instead of failing the call.
+func testUpsertMetricsCatalogDuplicateNameInSameCallLastOccurrenceWins(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{
+		{Name: "dup_metric", Type: "gauge", Help: "first"},
+		{Name: "other_metric", Type: "counter", Help: "unrelated"},
+		{Name: "dup_metric", Type: "counter", Help: "second"},
+	})
+
+	var gotType, gotHelp string
+	err := rawDB(p).QueryRowContext(context.Background(),
+		b.rebind(`SELECT type, help FROM metrics_catalog WHERE name = ?`), "dup_metric").Scan(&gotType, &gotHelp)
+	assert.NoError(t, err)
+	assert.Equal(t, "counter", gotType, "the later occurrence in the same call must win")
+	assert.Equal(t, "second", gotHelp)
+}
+
+func TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogDuplicateNameInSameCallLastOccurrenceWins(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogDuplicateNameInSameCallLastOccurrenceWins(t, sqliteTestBackend)
+}
+
+// testUpsertMetricsCatalogManyRowsEachRowGetsItsOwnValues verifies each row
+// in a multi-row call keeps its own field values: a bulk statement binding
+// columns positionally can swap them across rows without failing.
+func testUpsertMetricsCatalogManyRowsEachRowGetsItsOwnValues(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	items := []MetricCatalogItem{
+		{Name: "metric_alpha", Type: "gauge", Help: "help alpha", Unit: "bytes"},
+		{Name: "metric_beta", Type: "counter", Help: "help beta", Unit: "seconds"},
+		{Name: "metric_gamma", Type: "histogram", Help: "help gamma", Unit: "requests"},
+	}
+	mustUpsertCatalog(t, p, items)
+
+	for _, want := range items {
+		var gotType, gotHelp, gotUnit string
+		err := rawDB(p).QueryRowContext(context.Background(),
+			b.rebind(`SELECT type, help, unit FROM metrics_catalog WHERE name = ?`), want.Name).
+			Scan(&gotType, &gotHelp, &gotUnit)
+		assert.NoError(t, err, "row for %s", want.Name)
+		assert.Equal(t, want.Type, gotType, "%s: type", want.Name)
+		assert.Equal(t, want.Help, gotHelp, "%s: help", want.Name)
+		assert.Equal(t, want.Unit, gotUnit, "%s: unit", want.Name)
+	}
+}
+
+func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogManyRowsEachRowGetsItsOwnValues(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *testing.T) {
+	t.Parallel()
+	testUpsertMetricsCatalogManyRowsEachRowGetsItsOwnValues(t, sqliteTestBackend)
+}
+
+// testRefreshMetricsUsageSummaryWarnsWhenAllRowsAreStale verifies a refresh
+// logs a warning when every catalog row fails the freshness filter: it then
+// touches no rows and returns no error, so without the warning a stalled
+// metadata sync freezes summaries silently.
+func testRefreshMetricsUsageSummaryWarnsWhenAllRowsAreStale(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "stale_metric", Type: "gauge", Help: "gone"}})
+
+	b.markCatalogStale(t, p, "stale_metric")
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prevLogger)
+
+	now := time.Now().UTC()
+	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now}))
+
+	assert.Contains(t, logs.String(), "refresh summary touched no rows",
+		"expected a warning when the freshness filter matches zero rows against a non-empty catalog")
+}
+
+// Serial: the scenario swaps the process-wide default logger.
+func TestPostgreSQL_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T) {
+	testRefreshMetricsUsageSummaryWarnsWhenAllRowsAreStale(t, postgreSQLTestBackend)
+}
+
+// Serial: the scenario swaps the process-wide default logger.
+func TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T) {
+	testRefreshMetricsUsageSummaryWarnsWhenAllRowsAreStale(t, sqliteTestBackend)
+}
+
+// testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog verifies an empty
+// catalog, which also touches no rows, logs no warning: it is a fresh
+// deployment, not a stalled sync.
+func testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prevLogger)
+
+	now := time.Now().UTC()
+	err := p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	assert.NoError(t, err, "RefreshMetricsUsageSummary")
+
+	assert.NotContains(t, logs.String(), "refresh summary touched no rows",
+		"an empty catalog is the normal steady state and must not be logged as a stalled sync")
+}
+
+// Serial: the scenario swaps the process-wide default logger.
+func TestPostgreSQL_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
+	testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog(t, postgreSQLTestBackend)
+}
+
+// Serial: the scenario swaps the process-wide default logger.
+func TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
+	testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog(t, sqliteTestBackend)
 }

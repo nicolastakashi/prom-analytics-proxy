@@ -212,6 +212,60 @@ func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
 	testGetQueryLatencyTrendsAndThroughputAndErrors(t, sqliteTestBackend)
 }
 
+// testTimeSeriesWideRangeCountsEveryQuery verifies the bucketed
+// time series count every query in range when buckets span several minutes,
+// not only queries in a bucket's first minute, and step one bucket at a time.
+func testTimeSeriesWideRangeCountsEveryQuery(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
+	tr := TimeRange{From: from, To: from.Add(6 * time.Hour)} // 5-minute buckets
+	var qs []Query
+	for i, minute := range []int{1, 2, 3} {
+		q := instantQuery(from.Add(time.Duration(minute)*time.Minute), "up")
+		q.Duration, q.StatusCode, q.Fingerprint = time.Duration(10*(i+1))*time.Millisecond, 500, "fp"
+		qs = append(qs, q)
+	}
+	mustInsertQueries(t, p, qs)
+
+	thr, err := p.GetQueryThroughputAnalysis(ctx, tr)
+	require.NoError(t, err)
+	var throughput float64
+	for _, r := range thr {
+		throughput += r.Value
+	}
+	assert.Equal(t, 3.0, throughput, "throughput")
+	assert.Len(t, thr, 73, "one bucket every 5 minutes across 6 hours, both ends included")
+
+	errs, err := p.GetQueryErrorAnalysis(ctx, tr, "fp")
+	require.NoError(t, err)
+	var errCount float64
+	for _, r := range errs {
+		errCount += r.Value
+	}
+	assert.Equal(t, 3.0, errCount, "error analysis")
+
+	dist, err := p.GetQueryStatusDistribution(ctx, tr, "fp")
+	require.NoError(t, err)
+	assert.Equal(t, [3]int{0, 0, 3}, statusTotals(dist), "status distribution")
+
+	lat, err := p.GetQueryLatencyTrends(ctx, tr, "up", "fp")
+	require.NoError(t, err)
+	require.NotEmpty(t, lat)
+	assert.Equal(t, 20.0, lat[0].Value, "first bucket averages all three queries")
+}
+
+func TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
+	t.Parallel()
+	testTimeSeriesWideRangeCountsEveryQuery(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
+	t.Parallel()
+	testTimeSeriesWideRangeCountsEveryQuery(t, sqliteTestBackend)
+}
+
 func testGetQueriesBySerieName(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 

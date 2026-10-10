@@ -87,57 +87,6 @@ func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
 	}
 }
 
-// TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery verifies the bucketed
-// time series count every query in range when buckets span several minutes,
-// not only queries in a bucket's first minute, and step one bucket at a time.
-func TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
-	t.Parallel()
-	p := newTestPostgreSQLProvider(t)
-
-	ctx := context.Background()
-	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
-	tr := TimeRange{From: from, To: from.Add(6 * time.Hour)} // 5-minute buckets
-	var qs []Query
-	for i, minute := range []int{1, 2, 3} {
-		qs = append(qs, Query{
-			TS: from.Add(time.Duration(minute) * time.Minute), QueryParam: "up", TimeParam: from,
-			Duration: time.Duration(10*(i+1)) * time.Millisecond, StatusCode: 500,
-			LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, Fingerprint: "fp",
-		})
-	}
-	mustInsertQueries(t, p, qs)
-
-	thr, err := p.GetQueryThroughputAnalysis(ctx, tr)
-	require.NoError(t, err)
-	var throughput float64
-	for _, r := range thr {
-		throughput += r.Value
-	}
-	assert.Equal(t, 3.0, throughput, "throughput")
-	assert.Len(t, thr, 73, "one bucket every 5 minutes across 6 hours, both ends included")
-
-	errs, err := p.GetQueryErrorAnalysis(ctx, tr, "fp")
-	require.NoError(t, err)
-	var errCount float64
-	for _, r := range errs {
-		errCount += r.Value
-	}
-	assert.Equal(t, 3.0, errCount, "error analysis")
-
-	dist, err := p.GetQueryStatusDistribution(ctx, tr, "fp")
-	require.NoError(t, err)
-	var s5xx int
-	for _, r := range dist {
-		s5xx += r.Status5xx
-	}
-	assert.Equal(t, 3, s5xx, "status distribution")
-
-	lat, err := p.GetQueryLatencyTrends(ctx, tr, "up", "fp")
-	require.NoError(t, err)
-	require.NotEmpty(t, lat)
-	assert.Equal(t, 20.0, lat[0].Value, "first bucket averages all three queries")
-}
-
 // TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC guards last_synced_at
 // staying in the same clock domain as the $1 bound RefreshMetricsUsageSummary
 // compares it against (tr.From.UTC(), via PrepareTimeRange): last_synced_at is
@@ -220,67 +169,6 @@ func TestPostgreSQL_UpsertMetricsCatalog_ConcurrentOverlappingUpsertsDoNotDeadlo
 		},
 		p.UpsertMetricsCatalog,
 	)
-}
-
-// TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins
-// verifies a repeated name within one call resolves to its last
-// occurrence's values. This must keep holding with a bulk
-// INSERT ... ON CONFLICT DO UPDATE statement, which errors outright if
-// its own input contains the same conflict target twice ("ON CONFLICT DO
-// UPDATE command cannot affect row a second time"), so de-duplicating
-// before upserting is required independently of the deadlock fix itself.
-func TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins(t *testing.T) {
-	t.Parallel()
-	p := newTestPostgreSQLProvider(t)
-
-	mustUpsertCatalog(t, p, []MetricCatalogItem{
-		{Name: "dup_metric", Type: "gauge", Help: "first"},
-		{Name: "other_metric", Type: "counter", Help: "unrelated"},
-		{Name: "dup_metric", Type: "counter", Help: "second"},
-	})
-
-	var rawDB *sql.DB
-	p.WithDB(func(d *sql.DB) { rawDB = d })
-
-	var gotType, gotHelp string
-	err := rawDB.QueryRowContext(context.Background(),
-		`SELECT type, help FROM metrics_catalog WHERE name = $1`, "dup_metric").Scan(&gotType, &gotHelp)
-	assert.NoError(t, err)
-	assert.Equal(t, "counter", gotType, "the later occurrence in the same call must win")
-	assert.Equal(t, "second", gotHelp)
-}
-
-// TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues
-// verifies each row in a multi-row call gets its own field values, not
-// another row's. This guards against a risk specific to a bulk-unnest
-// statement: four parallel arrays (name/type/help/unit) are passed
-// positionally into unnest($1, $2, $3, $4), and a swap (e.g. passing
-// helps where types belongs) would compile fine and silently misfile
-// every row's fields.
-func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *testing.T) {
-	t.Parallel()
-	p := newTestPostgreSQLProvider(t)
-
-	items := []MetricCatalogItem{
-		{Name: "metric_alpha", Type: "gauge", Help: "help alpha", Unit: "bytes"},
-		{Name: "metric_beta", Type: "counter", Help: "help beta", Unit: "seconds"},
-		{Name: "metric_gamma", Type: "histogram", Help: "help gamma", Unit: "requests"},
-	}
-	mustUpsertCatalog(t, p, items)
-
-	var rawDB *sql.DB
-	p.WithDB(func(d *sql.DB) { rawDB = d })
-
-	for _, want := range items {
-		var gotType, gotHelp, gotUnit string
-		err := rawDB.QueryRowContext(context.Background(),
-			`SELECT type, help, unit FROM metrics_catalog WHERE name = $1`, want.Name).
-			Scan(&gotType, &gotHelp, &gotUnit)
-		assert.NoError(t, err, "row for %s", want.Name)
-		assert.Equal(t, want.Type, gotType, "%s: type", want.Name)
-		assert.Equal(t, want.Help, gotHelp, "%s: help", want.Name)
-		assert.Equal(t, want.Unit, gotUnit, "%s: unit", want.Name)
-	}
 }
 
 // TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadlock
