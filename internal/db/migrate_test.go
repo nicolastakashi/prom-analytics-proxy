@@ -12,6 +12,7 @@ import (
 // constructed concurrently, each migrating its own database; -race reports
 // any migration state shared between them.
 func TestRunMigrations_ConcurrentProvidersAreIsolated(t *testing.T) {
+	t.Parallel()
 	const n = 4
 	var wg sync.WaitGroup
 	errs := make([]error, n)

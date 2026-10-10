@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -14,61 +13,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-// newTestPostgreSQLProvider spins up a disposable PostgreSQL using Testcontainers
-// and returns a configured Provider and a cleanup function.
-func newTestPostgreSQLProvider(t *testing.T) (Provider, func()) {
-	t.Helper()
-
-	ctx := context.Background()
-
-	pgContainer, err := postgres.Run(ctx, "postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		// Docker not available in this environment; skip tests gracefully
-		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
-	}
-
-	host, err := pgContainer.Host(ctx)
-	assert.NoError(t, err, "container host")
-	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	assert.NoError(t, err, "container port")
-	portNum, err := strconv.Atoi(port.Port())
-	assert.NoError(t, err, "container port number")
-
-	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
-		Addr:        host,
-		Port:        portNum,
-		User:        "testuser",
-		Password:    "testpass",
-		Database:    "testdb",
-		SSLMode:     "disable",
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		_ = pgContainer.Terminate(ctx)
-		assert.NoError(t, err, "failed to init postgres provider")
-		return nil, func() {}
-	}
-
-	cleanup := func() {
-		if p != nil {
-			_ = p.Close()
-		}
-		_ = pgContainer.Terminate(ctx)
-	}
-	return p, cleanup
-}
 
 // assertConcurrentOverlappingUpsertsDoNotDeadlock races two concurrent
 // calls to upsert - each given the same itemsPerCall items, built by
@@ -129,8 +74,8 @@ func assertConcurrentOverlappingUpsertsDoNotDeadlock[T any](
 // NewPostgreSQLProvider uses only the supplied config and leaves
 // config.DefaultConfig untouched.
 func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
-	prov, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	prov := newTestPostgreSQLProvider(t)
 
 	before := config.DefaultConfig.Database
 	// Round-trip a trivial query to confirm the provider is functional.
@@ -144,8 +89,8 @@ func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
 }
 
 func TestPostgreSQL_GetQueryTypes(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 10)
@@ -194,8 +139,8 @@ func TestPostgreSQL_GetQueryTypes(t *testing.T) {
 }
 
 func TestPostgreSQL_GetAverageDuration(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	base := time.Date(2025, 8, 20, 12, 0, 0, 0, time.UTC)
 	prevFrom := base.Add(-20 * time.Minute)
@@ -240,8 +185,8 @@ func TestPostgreSQL_GetAverageDuration(t *testing.T) {
 }
 
 func TestPostgreSQL_GetQueryRate(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 5)
@@ -290,8 +235,8 @@ func TestPostgreSQL_GetQueryRate(t *testing.T) {
 // time series count every query in range when buckets span several minutes,
 // not only queries in a bucket's first minute, and step one bucket at a time.
 func TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	ctx := context.Background()
 	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
@@ -338,8 +283,8 @@ func TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
 }
 
 func TestPostgreSQL_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 13)
@@ -392,8 +337,8 @@ func TestPostgreSQL_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T
 // -------------------- Aggregations --------------------
 
 func TestPostgreSQL_GetQueriesBySerieName(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC()
 	qs := []Query{
@@ -419,8 +364,8 @@ func TestPostgreSQL_GetQueriesBySerieName(t *testing.T) {
 }
 
 func TestPostgreSQL_GetQueryExpressions_And_Executions(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 8)
@@ -496,8 +441,8 @@ func TestPostgreSQL_GetQueryExpressions_And_Executions(t *testing.T) {
 // -------------------- Metrics Inventory --------------------
 
 func TestPostgreSQL_MetricsJobIndex_And_ListJobs(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertJobIndex(t, p, []MetricJobIndexItem{
 		{Name: "up", Job: "prometheus"},
@@ -511,8 +456,8 @@ func TestPostgreSQL_MetricsJobIndex_And_ListJobs(t *testing.T) {
 }
 
 func TestPostgreSQL_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "up", Type: "gauge", Help: "up metric"}})
 	mustUpsertJobIndex(t, p, []MetricJobIndexItem{{Name: "up", Job: "prometheus"}})
@@ -570,8 +515,8 @@ func mustSummaryRowPostgreSQL(t *testing.T, rawDB *sql.DB, name string) summaryR
 // PostgreSQL counterpart of TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows:
 // see there for the full rationale.
 func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "fresh_metric", Type: "gauge", Help: "still scraped"},
@@ -617,8 +562,8 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testi
 // count toward alert_count/record_count. See
 // https://github.com/nicolastakashi/prom-analytics-proxy/issues/589.
 func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "in_window_metric", Type: "gauge", Help: "actively alerting"},
@@ -663,53 +608,22 @@ func TestPostgreSQL_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *
 // compares it against (tr.From.UTC(), via PrepareTimeRange): last_synced_at is
 // TIMESTAMP WITHOUT TIME ZONE, so a bare NOW() lands in the writing session's
 // TimeZone instead of UTC, silently turning the freshness filter into a
-// permanent no-op on any server whose TimeZone isn't UTC. This container's own
-// session already defaults to TimeZone=UTC - which would let the bug pass
-// vacuously - so the database default is pinned to a fixed, DST-free non-UTC
-// offset before the provider (and its connection pool) ever connects.
+// permanent no-op on any server whose TimeZone isn't UTC. The server's
+// sessions default to TimeZone=UTC - which would let the bug pass
+// vacuously - so the test database's default is pinned to a fixed, DST-free
+// non-UTC offset before the provider (and its connection pool) ever connects.
 func TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	pgContainer, err := postgres.Run(ctx, "postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
-	}
-	defer func() { _ = pgContainer.Terminate(ctx) }()
+	cfg := newTestPostgreSQLConfig(t)
 
-	host, err := pgContainer.Host(ctx)
-	require.NoError(t, err, "container host")
-	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	require.NoError(t, err, "container port")
-	portNum, err := strconv.Atoi(port.Port())
-	require.NoError(t, err, "container port number")
-
-	bootstrapDSN := fmt.Sprintf(
-		"host='%s' port=%d user='testuser' password='testpass' dbname='testdb' sslmode='disable'",
-		host, portNum,
-	)
-	bootstrap, err := sql.Open("postgres", bootstrapDSN)
+	bootstrap, err := sql.Open("postgres", postgreSQLTestDSN(cfg))
 	require.NoError(t, err, "open bootstrap connection")
-	_, err = bootstrap.ExecContext(ctx, `ALTER DATABASE testdb SET TIME ZONE 'Etc/GMT+5'`)
+	_, err = bootstrap.ExecContext(ctx, `ALTER DATABASE `+cfg.Database+` SET TIME ZONE 'Etc/GMT+5'`)
 	require.NoError(t, err, "pin database default TimeZone to a fixed non-UTC offset")
 	require.NoError(t, bootstrap.Close())
 
-	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
-		Addr:        host,
-		Port:        portNum,
-		User:        "testuser",
-		Password:    "testpass",
-		Database:    "testdb",
-		SSLMode:     "disable",
-		DialTimeout: 5 * time.Second,
-	})
-	require.NoError(t, err, "failed to init postgres provider")
-	defer func() { _ = p.Close() }()
+	p := newTestPostgreSQLProviderWithConfig(t, cfg)
 
 	require.NoError(t, p.UpsertMetricsCatalog(ctx, []MetricCatalogItem{{Name: "tz_metric", Type: "gauge", Help: "h"}}))
 
@@ -726,8 +640,8 @@ func TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC(t *testing.T) {
 }
 
 func TestPostgreSQL_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	metric := "http_requests_total"
 	now := time.Now().UTC().Truncate(time.Minute)
@@ -764,8 +678,8 @@ func TestPostgreSQL_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) 
 // -------------------- Rules & Dashboards --------------------
 
 func TestPostgreSQL_InsertRulesUsage_GetRulesUsage(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	base := time.Date(2025, 8, 18, 20, 0, 0, 0, time.UTC)
 	rules := []RulesUsage{
@@ -791,8 +705,8 @@ func TestPostgreSQL_InsertRulesUsage_GetRulesUsage(t *testing.T) {
 }
 
 func TestPostgreSQL_InsertDashboardUsage_UpsertBehavior(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	base := time.Now().UTC().Truncate(time.Minute)
 	mustInsertDashboards(t, p, []DashboardUsage{{Id: "d1", Serie: "m1", Name: "Dash 1", URL: "http://d/1", CreatedAt: base}})
@@ -819,8 +733,8 @@ func TestPostgreSQL_InsertDashboardUsage_UpsertBehavior(t *testing.T) {
 // unless it's run through ValidateSortField first, the same whitelist every
 // other paginated method already uses.
 func TestPostgreSQL_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC()
 	mustInsertRules(t, p, []RulesUsage{
@@ -850,8 +764,8 @@ func TestPostgreSQL_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing
 // counterpart for GetDashboardUsage, which has the identical
 // SortOrder-interpolation shape.
 func TestPostgreSQL_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	base := time.Now().UTC().Truncate(time.Minute)
 	mustInsertDashboards(t, p, []DashboardUsage{
@@ -879,8 +793,8 @@ func TestPostgreSQL_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery(t *tes
 // verifies InsertRulesUsage tolerates concurrent calls upserting
 // overlapping rows in different orders without deadlocking (#594).
 func TestPostgreSQL_InsertRulesUsage_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
 		func(i int) RulesUsage {
@@ -897,8 +811,8 @@ func TestPostgreSQL_InsertRulesUsage_ConcurrentOverlappingUpsertsDoNotDeadlock(t
 // verifies InsertDashboardUsage tolerates concurrent calls upserting
 // overlapping rows in different orders without deadlocking (#595).
 func TestPostgreSQL_InsertDashboardUsage_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
 		func(i int) DashboardUsage {
@@ -911,8 +825,8 @@ func TestPostgreSQL_InsertDashboardUsage_ConcurrentOverlappingUpsertsDoNotDeadlo
 // -------------------- Additional Tests parity with SQLite --------------------
 
 func TestPostgreSQL_HistogramSummaryMetricsCatalog(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	histogramItems := []MetricCatalogItem{
 		{Name: "access_evaluation_duration_bucket", Type: "histogram_bucket", Help: "Access evaluation duration (histogram buckets)", Unit: "seconds"},
@@ -962,8 +876,8 @@ func TestPostgreSQL_HistogramSummaryMetricsCatalog(t *testing.T) {
 }
 
 func TestPostgreSQL_MetricsInventoryAndList(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	items := []MetricCatalogItem{{Name: "up", Type: "gauge", Help: "up metric", Unit: ""}}
 	err := p.UpsertMetricsCatalog(context.Background(), items)
@@ -991,8 +905,8 @@ func TestPostgreSQL_MetricsInventoryAndList(t *testing.T) {
 }
 
 func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC()
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
@@ -1056,8 +970,8 @@ func TestPostgreSQL_GetSeriesMetadata_UsageFilters(t *testing.T) {
 // never been evaluated is not the same thing as a metric confirmed to have
 // zero usage. See https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
 func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "metric_a", Type: "gauge", Help: "a"},
@@ -1095,8 +1009,8 @@ func TestPostgreSQL_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testi
 // verifies UpsertMetricsCatalog tolerates concurrent calls upserting
 // overlapping rows in different orders without deadlocking (#592).
 func TestPostgreSQL_UpsertMetricsCatalog_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
 		func(i int) MetricCatalogItem {
@@ -1114,8 +1028,8 @@ func TestPostgreSQL_UpsertMetricsCatalog_ConcurrentOverlappingUpsertsDoNotDeadlo
 // UPDATE command cannot affect row a second time"), so de-duplicating
 // before upserting is required independently of the deadlock fix itself.
 func TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceWins(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "dup_metric", Type: "gauge", Help: "first"},
@@ -1142,8 +1056,8 @@ func TestPostgreSQL_UpsertMetricsCatalog_DuplicateNameInSameCall_LastOccurrenceW
 // helps where types belongs) would compile fine and silently misfile
 // every row's fields.
 func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	items := []MetricCatalogItem{
 		{Name: "metric_alpha", Type: "gauge", Help: "help alpha", Unit: "bytes"},
@@ -1171,8 +1085,8 @@ func TestPostgreSQL_UpsertMetricsCatalog_ManyRows_EachRowGetsItsOwnValues(t *tes
 // verifies UpsertMetricsJobIndex tolerates concurrent calls upserting
 // overlapping rows in different orders without deadlocking (#593).
 func TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadlock(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	assertConcurrentOverlappingUpsertsDoNotDeadlock(t, 40, 25,
 		func(i int) MetricJobIndexItem {
@@ -1189,8 +1103,8 @@ func TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadl
 // recompute it from the four usage counts - counts alone cannot distinguish
 // "evaluated, confirmed zero usage" from "never evaluated yet".
 func TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC()
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
@@ -1222,8 +1136,8 @@ func TestPostgreSQL_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
 }
 
 func TestPostgreSQL_DashboardUsage(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	baseTime := time.Date(2025, 8, 18, 20, 0, 0, 0, time.UTC)
 	dashboards := []DashboardUsage{
@@ -1332,8 +1246,8 @@ func TestPostgreSQL_DashboardUsage(t *testing.T) {
 }
 
 func TestPostgreSQL_QueryTimeRangeDistribution(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	now := time.Now().UTC()
 
@@ -1399,8 +1313,8 @@ func TestPostgreSQL_QueryTimeRangeDistribution(t *testing.T) {
 }
 
 func TestPostgreSQL_TimeRangeDistribution_ISO_TZ(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	_, _ = p.(*PostGreSQLProvider).db.ExecContext(context.Background(), `DELETE FROM queries`)
 
@@ -1441,8 +1355,8 @@ func TestPostgreSQL_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 }
 
 func TestPostgreSQLProvider_DeleteQueriesBefore(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -1487,46 +1401,13 @@ func TestPostgreSQLProvider_DeleteQueriesBefore(t *testing.T) {
 }
 
 func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	pgContainer, err := postgres.Run(ctx, "postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
-	}
-	defer func() { _ = pgContainer.Terminate(ctx) }()
-
-	host, err := pgContainer.Host(ctx)
-	assert.NoError(t, err)
-	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	assert.NoError(t, err)
-	portNum, err := strconv.Atoi(port.Port())
-	assert.NoError(t, err)
-
-	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
-		Addr:             host,
-		Port:             portNum,
-		User:             "testuser",
-		Password:         "testpass",
-		Database:         "testdb",
-		SSLMode:          "disable",
-		DialTimeout:      5 * time.Second,
-		StatementTimeout: 500 * time.Millisecond,
-	})
-	if !assert.NoError(t, err, "failed to init postgres provider") {
-		return
-	}
-	defer func() { _ = p.Close() }()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, 500*time.Millisecond)
 
 	// Sanity: a fast query still succeeds.
 	var fast int
-	err = p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT 1").Scan(&fast)
+	err := p.(*PostGreSQLProvider).db.QueryRowContext(ctx, "SELECT 1").Scan(&fast)
 	assert.NoError(t, err, "fast query under the budget should succeed")
 	assert.Equal(t, 1, fast)
 
@@ -1538,58 +1419,6 @@ func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
 	assert.Error(t, err, "query exceeding statement_timeout should fail")
 	assert.Contains(t, err.Error(), "statement timeout",
 		"error should identify the server-side timeout source")
-}
-
-// newTestPostgreSQLProviderWithStatementTimeout is newTestPostgreSQLProvider
-// with a configurable StatementTimeout, for tests that need PostgreSQL to
-// abort a slow statement server-side.
-func newTestPostgreSQLProviderWithStatementTimeout(t *testing.T, timeout time.Duration) (Provider, func()) {
-	t.Helper()
-
-	ctx := context.Background()
-
-	pgContainer, err := postgres.Run(ctx, "postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Skipf("Skipping PostgreSQL container tests (Docker not available): %v", err)
-	}
-
-	host, err := pgContainer.Host(ctx)
-	assert.NoError(t, err, "container host")
-	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	assert.NoError(t, err, "container port")
-	portNum, err := strconv.Atoi(port.Port())
-	assert.NoError(t, err, "container port number")
-
-	p, err := NewPostgreSQLProvider(ctx, config.PostgreSQLConfig{
-		Addr:             host,
-		Port:             portNum,
-		User:             "testuser",
-		Password:         "testpass",
-		Database:         "testdb",
-		SSLMode:          "disable",
-		DialTimeout:      5 * time.Second,
-		StatementTimeout: timeout,
-	})
-	if err != nil {
-		_ = pgContainer.Terminate(ctx)
-		assert.NoError(t, err, "failed to init postgres provider")
-		return nil, func() {}
-	}
-
-	cleanup := func() {
-		if p != nil {
-			_ = p.Close()
-		}
-		_ = pgContainer.Terminate(ctx)
-	}
-	return p, cleanup
 }
 
 // assertStatementLevelTriggerAbortsAndRollsBack attaches a BEFORE INSERT ...
@@ -1644,8 +1473,8 @@ func assertStatementLevelTriggerAbortsAndRollsBack(
 // criterion from #542 ("partial failures still roll back the transaction")
 // for the COPY-based Insert path added by this PR.
 func TestPostgreSQL_Insert_StatementTimeoutRollsBack(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
 
 	now := time.Now().UTC()
 	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "queries", func(ctx context.Context) error {
@@ -1667,8 +1496,8 @@ func TestPostgreSQL_Insert_StatementTimeoutRollsBack(t *testing.T) {
 // InsertRulesUsage, whose final INSERT ... SELECT ... ON CONFLICT lands on
 // RulesUsage.
 func TestPostgreSQL_InsertRulesUsage_StatementTimeoutRollsBack(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
 
 	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "rulesusage", func(ctx context.Context) error {
 		return p.InsertRulesUsage(ctx, []RulesUsage{{
@@ -1683,8 +1512,8 @@ func TestPostgreSQL_InsertRulesUsage_StatementTimeoutRollsBack(t *testing.T) {
 // InsertDashboardUsage, whose final INSERT ... SELECT ... ON CONFLICT lands
 // on DashboardUsage.
 func TestPostgreSQL_InsertDashboardUsage_StatementTimeoutRollsBack(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
-	defer cleanup()
+	t.Parallel()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, 100*time.Millisecond)
 
 	assertStatementLevelTriggerAbortsAndRollsBack(t, p, "dashboardusage", func(ctx context.Context) error {
 		return p.InsertDashboardUsage(ctx, []DashboardUsage{{

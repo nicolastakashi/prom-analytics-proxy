@@ -19,6 +19,7 @@ import (
 // drifting placeholder count) trips a fast unit-level check before any
 // container is spun up.
 func TestSeriesMetadataSQLConsts_Shape(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		sql      string
@@ -212,8 +213,8 @@ func TestSeriesMetadataSQLConsts_Shape(t *testing.T) {
 // where a const accidentally references a missing column or where the
 // dynamic ORDER BY emission produces a syntactically invalid query.
 func TestSeriesMetadataSQLConsts_PreparesSQLite(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	t.Cleanup(cleanup)
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	var rawDB *sql.DB
 	p.WithDB(func(db *sql.DB) { rawDB = db })
@@ -281,8 +282,8 @@ func TestSeriesMetadataSQLConsts_PreparesSQLite(t *testing.T) {
 // not available (matches the pattern used by the other postgresql_test.go
 // suites).
 func TestSeriesMetadataSQLConsts_PreparesPostgreSQL(t *testing.T) {
-	p, cleanup := newTestPostgreSQLProvider(t)
-	t.Cleanup(cleanup)
+	t.Parallel()
+	p := newTestPostgreSQLProvider(t)
 
 	var rawDB *sql.DB
 	p.WithDB(func(db *sql.DB) { rawDB = db })

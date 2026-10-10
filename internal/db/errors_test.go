@@ -9,6 +9,7 @@ import (
 )
 
 func TestValidationError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		field    string
@@ -44,6 +45,7 @@ func TestValidationError(t *testing.T) {
 }
 
 func TestErrorWithOperation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		err       error
@@ -85,6 +87,7 @@ func TestErrorWithOperation(t *testing.T) {
 }
 
 func TestCloseResource(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		resource    io.Closer
@@ -114,6 +117,7 @@ func TestCloseResource(t *testing.T) {
 }
 
 func TestIsNoResults(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -145,6 +149,7 @@ func TestIsNoResults(t *testing.T) {
 }
 
 func TestQueryError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		err       error
@@ -177,6 +182,7 @@ func TestQueryError(t *testing.T) {
 }
 
 func TestConnectionError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -209,6 +215,7 @@ func TestConnectionError(t *testing.T) {
 }
 
 func TestSchemaError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		err       error
@@ -241,6 +248,7 @@ func TestSchemaError(t *testing.T) {
 }
 
 func TestErrorTypes_Unwrap(t *testing.T) {
+	t.Parallel()
 	// Test that our custom error types can be unwrapped
 	originalErr := errors.New("original error")
 
@@ -260,6 +268,7 @@ func TestErrorTypes_Unwrap(t *testing.T) {
 }
 
 func TestErrorTypes_Comparison(t *testing.T) {
+	t.Parallel()
 	// Test that errors can be compared
 	err1 := ValidationError("field", "message")
 	err2 := ValidationError("field", "message")
@@ -273,6 +282,7 @@ func TestErrorTypes_Comparison(t *testing.T) {
 }
 
 func TestErrorTypes_Formatting(t *testing.T) {
+	t.Parallel()
 	// Test error formatting with special characters
 	err := ValidationError("field name", "message with 'quotes' and \"double quotes\"")
 	assert.Contains(t, err.Error(), "field name")
@@ -280,6 +290,7 @@ func TestErrorTypes_Formatting(t *testing.T) {
 }
 
 func TestErrorTypes_EmptyValues(t *testing.T) {
+	t.Parallel()
 	// Test error creation with empty values
 	validationErr := ValidationError("", "")
 	assert.Equal(t, "validation error for : ", validationErr.Error())
@@ -289,6 +300,7 @@ func TestErrorTypes_EmptyValues(t *testing.T) {
 }
 
 func TestErrorTypes_UnicodeSupport(t *testing.T) {
+	t.Parallel()
 	// Test error creation with unicode characters
 	err := ValidationError("fält", "meddelande med åäö")
 	assert.Contains(t, err.Error(), "fält")
@@ -296,6 +308,7 @@ func TestErrorTypes_UnicodeSupport(t *testing.T) {
 }
 
 func TestErrorTypes_LongMessages(t *testing.T) {
+	t.Parallel()
 	// Test error creation with long messages
 	longMessage := "This is a very long error message that contains many characters and should be handled properly by the error system without any issues or truncation"
 	err := ValidationError("field", longMessage)
@@ -304,6 +317,7 @@ func TestErrorTypes_LongMessages(t *testing.T) {
 }
 
 func TestStandardErrors(t *testing.T) {
+	t.Parallel()
 	// Test that standard errors are properly defined
 	assert.Error(t, ErrNoResults)
 	assert.Error(t, ErrInvalidScan)
