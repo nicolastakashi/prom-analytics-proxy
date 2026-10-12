@@ -58,19 +58,19 @@ func (f *fakePromAPI) Metadata(ctx context.Context, _ string, _ string) (map[str
 	}
 }
 
-func (f *fakePromAPI) LabelValues(ctx context.Context, _ string, _ []string, _, _ time.Time, _ ...v1.Option) (model.LabelValues, v1.Warnings, error) {
+func (f *fakePromAPI) LabelValues(ctx context.Context, _ string, _ []string, _, _ time.Time, _ ...v1.Option) (model.LabelValues, v1.Warnings, v1.Infos, error) {
 	select {
 	case <-time.After(f.labelDelay):
 		if f.labelErr != nil {
-			return nil, nil, f.labelErr
+			return nil, nil, nil, f.labelErr
 		}
 		values := make(model.LabelValues, len(f.jobs))
 		for i, j := range f.jobs {
 			values[i] = model.LabelValue(j)
 		}
-		return values, nil, nil
+		return values, nil, nil, nil
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, nil, nil, ctx.Err()
 	}
 }
 
@@ -79,11 +79,11 @@ func (f *fakePromAPI) LabelValues(ctx context.Context, _ string, _ []string, _, 
 // some other way.
 var jobFromQueryRe = regexp.MustCompile(`job="([^"]*)"`)
 
-func (f *fakePromAPI) Query(ctx context.Context, query string, _ time.Time, _ ...v1.Option) (model.Value, v1.Warnings, error) {
+func (f *fakePromAPI) Query(ctx context.Context, query string, _ time.Time, _ ...v1.Option) (model.Value, v1.Warnings, v1.Infos, error) {
 	select {
 	case <-time.After(f.queryDelay):
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, nil, nil, ctx.Err()
 	}
 
 	job := ""
@@ -95,12 +95,12 @@ func (f *fakePromAPI) Query(ctx context.Context, query string, _ time.Time, _ ..
 	f.mu.Unlock()
 
 	if f.queryErr != nil && f.queryErrJobs[job] {
-		return nil, nil, f.queryErr
+		return nil, nil, nil, f.queryErr
 	}
 	if f.result != nil {
-		return f.result, nil, nil
+		return f.result, nil, nil, nil
 	}
-	return model.Vector{{Metric: model.Metric{"__name__": "up"}}}, nil, nil
+	return model.Vector{{Metric: model.Metric{"__name__": "up"}}}, nil, nil, nil
 }
 
 // fakeProvider records what a cycle actually committed - catalog, summary

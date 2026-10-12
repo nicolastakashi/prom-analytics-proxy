@@ -332,7 +332,7 @@ func (s *Syncer) syncMetadataCatalogFromMetricNames(ctx context.Context) error {
 	metaCtx, cancelMeta := context.WithTimeout(ctx, s.metadataStepTimeout)
 	defer cancelMeta()
 	now := time.Now()
-	labelValues, _, err := s.promAPI.LabelValues(metaCtx, "__name__", nil, now.Add(-s.timeWindow), now)
+	labelValues, _, _, err := s.promAPI.LabelValues(metaCtx, "__name__", nil, now.Add(-s.timeWindow), now)
 
 	if err != nil {
 		slog.Error("inventory: fetch label values", "err", err)
