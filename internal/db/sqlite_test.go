@@ -5,36 +5,27 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"os"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// newTestSQLiteProvider creates a temporary SQLite database and returns a provider and cleanup.
-func newTestSQLiteProvider(t *testing.T) (Provider, func()) {
+// newTestSQLiteProvider returns a migrated Provider, closed when t ends.
+// Tests stay isolated, and so can run in parallel, only while the configured
+// SQLite path is empty: each provider then gets a private temporary database.
+func newTestSQLiteProvider(t testing.TB) Provider {
 	t.Helper()
-	ctx := context.Background()
-	file, err := os.CreateTemp("", "prom-analytics-proxy-test-*.db")
-	assert.NoError(t, err, "failed to create temp db")
-	_ = file.Close()
-
-	provider, err := newSqliteProvider(ctx)
-	if err != nil {
-		// Cleanup temp file on failure as well
-		_ = os.Remove(file.Name())
-		assert.NoError(t, err, "failed to init sqlite provider")
-	}
-
-	cleanup := func() {
-		_ = provider.Close()
-		_ = os.Remove(file.Name())
-	}
-	return provider, cleanup
+	require.Empty(t, config.DefaultConfig.Database.SQLite.DatabasePath,
+		"a configured SQLite path would make every test share one database")
+	p, err := newSqliteProvider(context.Background())
+	require.NoError(t, err, "init sqlite provider")
+	t.Cleanup(func() { _ = p.Close() })
+	return p
 }
 
 func mustInsertQueries(t *testing.T, p Provider, qs []Query) {
@@ -70,8 +61,8 @@ func mustInsertDashboards(t *testing.T, p Provider, items []DashboardUsage) {
 // -------------------- Analytics --------------------
 
 func TestSQLite_GetQueryTypes(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 10)
@@ -121,8 +112,8 @@ func TestSQLite_GetQueryTypes(t *testing.T) {
 }
 
 func TestSQLite_GetAverageDuration(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	base := time.Date(2025, 8, 20, 12, 0, 0, 0, time.UTC)
 	// previous window: [base-20m, base-10m)
@@ -169,8 +160,8 @@ func TestSQLite_GetAverageDuration(t *testing.T) {
 }
 
 func TestSQLite_GetQueryRate(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 5)
@@ -220,8 +211,8 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 // nearest-rank 95th percentile of each bucket's own durations: not the
 // bucket's maximum, and not ranked across the whole range.
 func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	ctx := context.Background()
 	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
@@ -273,8 +264,8 @@ func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
 }
 
 func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 13)
@@ -329,8 +320,8 @@ func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
 // -------------------- Aggregations --------------------
 
 func TestSQLite_GetQueriesBySerieName(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Seed a mix of queries for two queryParam values of the same metric
 	now := time.Now().UTC()
@@ -357,8 +348,8 @@ func TestSQLite_GetQueriesBySerieName(t *testing.T) {
 }
 
 func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	qs := make([]Query, 0, 8)
@@ -437,8 +428,8 @@ func TestSQLite_GetQueryExpressions_And_Executions(t *testing.T) {
 // -------------------- Metrics Inventory --------------------
 
 func TestSQLite_MetricsJobIndex_And_ListJobs(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	mustUpsertJobIndex(t, p, []MetricJobIndexItem{
 		{Name: "up", Job: "prometheus"},
@@ -454,8 +445,8 @@ func TestSQLite_MetricsJobIndex_And_ListJobs(t *testing.T) {
 }
 
 func TestSQLite_RefreshMetricsUsageSummary_And_GetSeriesMetadata(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Seed catalog and job index
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "up", Type: "gauge", Help: "up metric"}})
@@ -533,8 +524,8 @@ func mustSummaryRowSQLite(t *testing.T, rawDB *sql.DB, name string) summaryRow {
 // https://github.com/nicolastakashi/prom-analytics-proxy/issues/570:
 // "never evaluated" is distinct from "confirmed unused").
 func TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "fresh_metric", Type: "gauge", Help: "still scraped"},
@@ -584,8 +575,8 @@ func TestSQLite_RefreshMetricsUsageSummary_ExcludesStaleCatalogRows(t *testing.T
 // count toward alert_count/record_count. See
 // https://github.com/nicolastakashi/prom-analytics-proxy/issues/589.
 func TestSQLite_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "in_window_metric", Type: "gauge", Help: "actively alerting"},
@@ -634,8 +625,7 @@ func TestSQLite_RefreshMetricsUsageSummary_ExcludesOutOfWindowRulesUsage(t *test
 // warnIfSummaryRefreshWasNoOp surfaces that combination so metadata-sync
 // stalling doesn't freeze summaries silently.
 func TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	p := newTestSQLiteProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "stale_metric", Type: "gauge", Help: "gone"}})
 
@@ -664,8 +654,7 @@ func TestSQLite_RefreshMetricsUsageSummary_WarnsWhenAllRowsAreStale(t *testing.T
 // steady state of a fresh deployment, not a stalled sync - it must not log
 // the same warning.
 func TestSQLite_RefreshMetricsUsageSummary_NoWarnOnEmptyCatalog(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	p := newTestSQLiteProvider(t)
 
 	var logs bytes.Buffer
 	prevLogger := slog.Default()
@@ -690,8 +679,8 @@ type summaryRow struct {
 }
 
 func TestSQLite_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	metric := "http_requests_total"
 	now := time.Now().UTC().Truncate(time.Minute)
@@ -735,8 +724,8 @@ func TestSQLite_GetMetricStatistics_And_QueryPerformanceStats(t *testing.T) {
 // -------------------- Rules & Dashboards --------------------
 
 func TestSQLite_InsertRulesUsage_GetRulesUsage(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	base := time.Date(2025, 8, 18, 20, 0, 0, 0, time.UTC)
 	rules := []RulesUsage{
@@ -766,8 +755,8 @@ func TestSQLite_InsertRulesUsage_GetRulesUsage(t *testing.T) {
 }
 
 func TestSQLite_InsertDashboardUsage_UpsertBehavior(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	base := time.Now().UTC().Truncate(time.Minute)
 	mustInsertDashboards(t, p, []DashboardUsage{{Id: "d1", Serie: "m1", Name: "Dash 1", URL: "http://d/1", CreatedAt: base}})
@@ -798,8 +787,8 @@ func TestSQLite_InsertDashboardUsage_UpsertBehavior(t *testing.T) {
 // (and, incidentally, a fix for an uppercase "ASC" silently producing no
 // ordering at all) from the same ValidateSortField call.
 func TestSQLite_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC()
 	mustInsertRules(t, p, []RulesUsage{
@@ -829,8 +818,8 @@ func TestSQLite_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) 
 // counterpart; see TestSQLite_GetRulesUsage_MaliciousSortOrderDoesNotBreakQuery
 // for why SQLite was never exploitable the same way.
 func TestSQLite_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	base := time.Now().UTC().Truncate(time.Minute)
 	mustInsertDashboards(t, p, []DashboardUsage{
@@ -858,8 +847,8 @@ func TestSQLite_GetDashboardUsage_MaliciousSortOrderDoesNotBreakQuery(t *testing
 
 // Test histogram and summary metrics catalog handling
 func TestSQLite_HistogramSummaryMetricsCatalog(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Test histogram metrics: base metric should generate _bucket, _count, _sum variants
 	histogramItems := []MetricCatalogItem{
@@ -965,8 +954,8 @@ func TestSQLite_HistogramSummaryMetricsCatalog(t *testing.T) {
 
 // Basic integration test exercising catalog upsert, summary refresh and list.
 func TestSQLite_MetricsInventoryAndList(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Upsert catalog
 	items := []MetricCatalogItem{{Name: "up", Type: "gauge", Help: "up metric", Unit: ""}}
@@ -998,8 +987,8 @@ func TestSQLite_MetricsInventoryAndList(t *testing.T) {
 }
 
 func TestSQLite_GetSeriesMetadata_UsageFilters(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC()
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
@@ -1063,8 +1052,8 @@ func TestSQLite_GetSeriesMetadata_UsageFilters(t *testing.T) {
 // never been evaluated is not the same thing as a metric confirmed to have
 // zero usage. See https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
 func TestSQLite_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
 		{Name: "metric_a", Type: "gauge", Help: "a"},
@@ -1105,8 +1094,8 @@ func TestSQLite_UpsertMetricsCatalog_CreatesDefaultUnusedSummaryRow(t *testing.T
 // recompute it from the four usage counts - counts alone cannot distinguish
 // "evaluated, confirmed zero usage" from "never evaluated yet".
 func TestSQLite_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC()
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
@@ -1139,8 +1128,8 @@ func TestSQLite_GetSeriesMetadataByNames_PopulatesIsUnused(t *testing.T) {
 
 // TestSQLite_DashboardUsage verifies dashboard usage time range filtering
 func TestSQLite_DashboardUsage(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Use fixed timestamps for predictable testing
 	baseTime := time.Date(2025, 8, 18, 20, 0, 0, 0, time.UTC)
@@ -1304,8 +1293,8 @@ func TestSQLite_DashboardUsage(t *testing.T) {
 
 // TestSQLite_QueryTimeRangeDistribution verifies bucketed counts and percents for range queries
 func TestSQLite_QueryTimeRangeDistribution(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	now := time.Now().UTC()
 
@@ -1391,8 +1380,8 @@ func TestSQLite_QueryTimeRangeDistribution(t *testing.T) {
 }
 
 func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	// Manually insert a few range queries with ISO timestamps (T/Z) to simulate proxy inserts
 	_, _ = p.(*SQLiteProvider).db.ExecContext(context.Background(), `DELETE FROM queries`)
@@ -1446,8 +1435,8 @@ func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
 // stored format, and old and new rows share a calendar day, so a date-only
 // comparison fails.
 func TestSQLiteProvider_DeleteQueriesBefore(t *testing.T) {
-	p, cleanup := newTestSQLiteProvider(t)
-	defer cleanup()
+	t.Parallel()
+	p := newTestSQLiteProvider(t)
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)

@@ -9,6 +9,7 @@ import (
 )
 
 func TestValidateSortField(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		sortBy         string
@@ -79,6 +80,7 @@ func TestValidateSortField(t *testing.T) {
 }
 
 func TestValidatePagination(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		page            int
@@ -151,6 +153,7 @@ func TestValidatePagination(t *testing.T) {
 }
 
 func TestCalculateTotalPages(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		totalCount int
@@ -198,6 +201,7 @@ func TestCalculateTotalPages(t *testing.T) {
 }
 
 func TestTimeRange_Format(t *testing.T) {
+	t.Parallel()
 	tr := TimeRange{
 		From: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 		To:   time.Date(2023, 1, 15, 12, 0, 0, 0, time.UTC),
@@ -213,6 +217,7 @@ func TestTimeRange_Format(t *testing.T) {
 }
 
 func TestTimeRange_Previous(t *testing.T) {
+	t.Parallel()
 	tr := TimeRange{
 		From: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 		To:   time.Date(2023, 1, 15, 12, 0, 0, 0, time.UTC),
@@ -228,6 +233,7 @@ func TestTimeRange_Previous(t *testing.T) {
 }
 
 func TestGetDbProvider(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		provider    DatabaseProvider
