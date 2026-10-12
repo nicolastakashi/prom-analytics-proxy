@@ -958,14 +958,14 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	series, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().UTC().Add(-5*time.Minute), time.Now().UTC(), v1.WithLimit(*r.seriesLimit))
+	series, _, _, err := r.promAPI.Series(req.Context(), []string{name}, time.Now().UTC().Add(-5*time.Minute), time.Now().UTC(), v1.WithLimit(*r.seriesLimit))
 	if err != nil {
 		slog.Error("unable to retrieve series data", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve series data: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	labels, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, from, to)
+	labels, _, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, from, to)
 	if err != nil {
 		slog.Error("unable to retrieve label names", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
