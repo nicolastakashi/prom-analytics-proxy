@@ -535,3 +535,169 @@ func TestSQLite_DeleteQueriesBefore(t *testing.T) {
 	t.Parallel()
 	testDeleteQueriesBefore(t, sqliteTestBackend)
 }
+
+// testQueryFiltersScopeResults verifies fingerprint, metric and text filters,
+// and the range's upper bound, scope every query read.
+func testQueryFiltersScopeResults(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Minute)
+	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+	instant := func(ts time.Time, param, metric, fp string) Query {
+		q := instantQuery(ts, metric)
+		q.QueryParam, q.Fingerprint = param, fp
+		return q
+	}
+	qs := []Query{
+		instant(now.Add(-10*time.Minute), "up", "up", "fpA"),
+		instant(now.Add(-9*time.Minute), "up", "up", "fpA"),
+		instant(now.Add(3*time.Hour), "up", "up", "fpA"), // after the range
+		instant(now.Add(-8*time.Minute), "sum(up)", "up", "fpC"),
+	}
+	for i := range 3 {
+		qs = append(qs, Query{
+			TS: now.Add(time.Duration(-7+i) * time.Minute), QueryParam: "rate(other[5m])", TimeParam: now,
+			Duration: 40 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "other"}},
+			Type: QueryTypeRange, Start: now.Add(-5 * time.Minute), End: now, Step: 15, Fingerprint: "fpB",
+		})
+	}
+	mustInsertQueries(t, p, qs)
+
+	types, err := p.GetQueryTypes(ctx, tr, "fpA")
+	require.NoError(t, err)
+	assert.Equal(t, 2, *types.TotalQueries, "fpA queries inside the range")
+	assert.InDelta(t, 100.0, *types.InstantPercent, 0.2)
+
+	avg, err := p.GetAverageDuration(ctx, tr, "fpB")
+	require.NoError(t, err)
+	assert.InDelta(t, 40.0, *avg.AvgDuration, 0.2)
+
+	rate, err := p.GetQueryRate(ctx, tr, "up", "")
+	require.NoError(t, err)
+	assert.Equal(t, 3, *rate.SuccessTotal, "queries for metric up inside the range")
+
+	dist, err := p.GetQueryStatusDistribution(ctx, tr, "fpA")
+	require.NoError(t, err)
+	assert.Equal(t, [3]int{2, 0, 0}, statusTotals(dist), "fpA's 2xx, 4xx, 5xx")
+
+	for fp, want := range map[string]int{"fpA": 0, "fpB": 3} {
+		ranges, err := p.GetQueryTimeRangeDistribution(ctx, tr, fp)
+		require.NoError(t, err)
+		var n int
+		for _, r := range ranges {
+			n += r.Count
+		}
+		assert.Equal(t, want, n, "range queries of %s", fp)
+	}
+
+	exprs, err := p.GetQueryExpressions(ctx, QueryExpressionsParams{TimeRange: tr, Page: 1, PageSize: 10, Filter: "other"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fpB"}, fingerprints(t, exprs), "expressions matching the text filter")
+
+	for typ, want := range map[QueryType]int{QueryTypeInstant: 0, QueryTypeRange: 3} {
+		execs, err := p.GetQueryExecutions(ctx, QueryExecutionsParams{Fingerprint: "fpB", Type: string(typ), TimeRange: tr, Page: 1, PageSize: 10})
+		require.NoError(t, err)
+		assert.Equal(t, want, execs.Total, "%s executions of fpB", typ)
+	}
+
+	bySerie, err := p.GetQueriesBySerieName(ctx, QueriesBySerieNameParams{SerieName: "up", TimeRange: tr, Page: 1, PageSize: 10, Filter: "sum"})
+	require.NoError(t, err)
+	rows := rowsOf[QueriesBySerieNameResult](t, bySerie)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "sum(up)", rows[0].Query)
+
+	perf, err := p.GetMetricQueryPerformanceStatistics(ctx, "other", tr)
+	require.NoError(t, err)
+	assert.Equal(t, 3, *perf.TotalQueries)
+}
+
+func TestPostgreSQL_QueryFiltersScopeResults(t *testing.T) {
+	t.Parallel()
+	testQueryFiltersScopeResults(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_QueryFiltersScopeResults(t *testing.T) {
+	t.Parallel()
+	testQueryFiltersScopeResults(t, sqliteTestBackend)
+}
+
+// testQueryStatusClasses verifies 2xx counts as success, 4xx and 5xx as
+// errors, and other classes as neither.
+func testQueryStatusClasses(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Minute)
+	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+	var qs []Query
+	for i, status := range []int{200, 304, 404, 500} {
+		q := instantQuery(now.Add(time.Duration(i-10)*time.Minute), "up")
+		q.StatusCode, q.Fingerprint = status, "fp"
+		qs = append(qs, q)
+	}
+	mustInsertQueries(t, p, qs)
+
+	rate, err := p.GetQueryRate(ctx, tr, "", "fp")
+	require.NoError(t, err)
+	assert.Equal(t, [2]int{1, 2}, [2]int{*rate.SuccessTotal, *rate.ErrorTotal}, "success, error totals")
+
+	dist, err := p.GetQueryStatusDistribution(ctx, tr, "fp")
+	require.NoError(t, err)
+	assert.Equal(t, [3]int{1, 1, 1}, statusTotals(dist), "2xx, 4xx, 5xx totals")
+
+	errs, err := p.GetQueryErrorAnalysis(ctx, tr, "fp")
+	require.NoError(t, err)
+	var n float64
+	for _, r := range errs {
+		n += r.Value
+	}
+	assert.Equal(t, 2.0, n)
+}
+
+func TestPostgreSQL_QueryStatusClasses(t *testing.T) {
+	t.Parallel()
+	testQueryStatusClasses(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_QueryStatusClasses(t *testing.T) {
+	t.Parallel()
+	testQueryStatusClasses(t, sqliteTestBackend)
+}
+
+// testGetQueryLatencyTrendsP95IsUpperTail verifies p95 reports the upper tail
+// of a bucket rather than its middle. Backends compute it differently
+// (interpolated or nearest rank), so only the side of the median is pinned.
+func testGetQueryLatencyTrendsP95IsUpperTail(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	var qs []Query
+	for i := range 10 { // 10..100ms in one minute; median 55
+		q := instantQuery(now.Add(time.Duration(i)*time.Second), "up")
+		q.Duration = time.Duration(10*(i+1)) * time.Millisecond
+		qs = append(qs, q)
+	}
+	mustInsertQueries(t, p, qs)
+
+	lat, err := p.GetQueryLatencyTrends(context.Background(), TimeRange{From: now, To: now.Add(30 * time.Minute)}, "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, lat)
+	assert.GreaterOrEqual(t, lat[0].P95, 90)
+}
+
+func TestPostgreSQL_GetQueryLatencyTrends_P95IsUpperTail(t *testing.T) {
+	t.Parallel()
+	testGetQueryLatencyTrendsP95IsUpperTail(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetQueryLatencyTrends_P95IsUpperTail(t *testing.T) {
+	t.Parallel()
+	testGetQueryLatencyTrendsP95IsUpperTail(t, sqliteTestBackend)
+}
+
+// fingerprints returns the fingerprints res lists, in order.
+func fingerprints(t *testing.T, res PagedResult) []string {
+	t.Helper()
+	return keysOf(rowsOf[QueryExpression](t, res), func(e QueryExpression) string { return e.Fingerprint })
+}
