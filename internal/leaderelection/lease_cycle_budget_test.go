@@ -198,6 +198,6 @@ func TestWatchdog_RunningCycleOverBudget_CancelsAndStepsDown(t *testing.T) {
 	case <-time.After(20 * budget):
 		t.Fatal("a cycle still running past its declared budget was never canceled")
 	}
-	assert.Error(t, leaderCtx.Err(), "exceeding the budget must also step down, not just cancel the cycle")
 	<-done
+	assert.Error(t, leaderCtx.Err(), "exceeding the budget must also step down, not just cancel the cycle")
 }
