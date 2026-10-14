@@ -15,9 +15,6 @@ type testBackend struct {
 	newProvider func(testing.TB) Provider
 	// rebind rewrites "?" placeholders into the backend's syntax.
 	rebind func(query string) string
-	// bucketTime is the label the backend's time series give the bucket
-	// starting at t.
-	bucketTime func(t time.Time) string
 }
 
 // mustExec runs query, written with ? placeholders, on p in b's dialect.
