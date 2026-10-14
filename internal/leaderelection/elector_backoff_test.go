@@ -3,7 +3,6 @@ package leaderelection
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -11,36 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// recordingStrategy always fails to acquire: its first errorsFirst attempts
-// with a transient error, then every attempt with returnErr (nil: plain
-// contention, "someone else holds it") — and records the time of each
-// attempt. The elector's retry-pacing behavior doesn't depend on which
-// strategy is plugged in, so this avoids needing a real database for tests
-// that are purely about timing.
-type recordingStrategy struct {
-	mu          sync.Mutex
-	times       []time.Time
-	errorsFirst int
-	returnErr   error
-}
-
-func (s *recordingStrategy) acquireOrHold(ctx context.Context, name string) (acquisition, bool, error) {
-	s.mu.Lock()
-	s.times = append(s.times, time.Now())
-	attempt := len(s.times)
-	s.mu.Unlock()
-	if attempt <= s.errorsFirst {
-		return acquisition{}, false, errors.New("simulated transient error")
-	}
-	return acquisition{}, false, s.returnErr
-}
-
-func (s *recordingStrategy) snapshot() []time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]time.Time(nil), s.times...)
-}
 
 // TestElector_Run_BacksOffThenCapsRetryRate_OnErrors pins the observable
 // retry-pacing contract for the error path: retrying against a strategy that
@@ -118,41 +87,21 @@ func TestElector_Run_ContentionPollsAtFixedIntervalWithoutBackoff(t *testing.T) 
 	})
 }
 
-// failThenSucceedOnceStrategy fails to acquire failsBeforeSuccess times
-// (recording each attempt's wall-clock time), grants leadership exactly
-// once on the attempt right after that, then fails on every attempt after —
-// letting a test observe backoff's state exactly at the moment leadership
-// is (re)acquired and immediately lost again.
+// failThenSucceedOnceStrategy fails failsBeforeSuccess attempts, grants
+// leadership exactly once on the next, then fails every attempt after —
+// letting a test observe backoff's state at the moment leadership is
+// (re)acquired and immediately lost again. Attempt times are logged.
 type failThenSucceedOnceStrategy struct {
-	mu                 sync.Mutex
-	times              []time.Time
+	attemptLog
 	failsBeforeSuccess int
-	attempts           int
-	succeeded          bool
 }
 
 func (s *failThenSucceedOnceStrategy) acquireOrHold(ctx context.Context, _ string) (acquisition, bool, error) {
-	s.mu.Lock()
-	s.times = append(s.times, time.Now())
-	s.attempts++
-	attempt := s.attempts
-	alreadySucceeded := s.succeeded
-	s.mu.Unlock()
-
-	if attempt == s.failsBeforeSuccess+1 && !alreadySucceeded {
-		s.mu.Lock()
-		s.succeeded = true
-		s.mu.Unlock()
+	if s.record() == s.failsBeforeSuccess+1 {
 		leaderCtx, cancel := context.WithCancel(ctx)
 		return acquisition{leaderCtx: leaderCtx, release: cancel}, true, nil
 	}
 	return acquisition{}, false, errors.New("simulated error")
-}
-
-func (s *failThenSucceedOnceStrategy) snapshot() []time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]time.Time(nil), s.times...)
 }
 
 // TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership pins
