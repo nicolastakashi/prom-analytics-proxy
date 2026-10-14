@@ -15,6 +15,9 @@ type testBackend struct {
 	newProvider func(testing.TB) Provider
 	// rebind rewrites "?" placeholders into the backend's syntax.
 	rebind func(query string) string
+	// bucketTime is the label the backend's time series give the bucket
+	// starting at t.
+	bucketTime func(t time.Time) string
 }
 
 // mustExec runs query, written with ? placeholders, on p in b's dialect.
@@ -49,8 +52,15 @@ func (b testBackend) retireUsage(t testing.TB, p Provider, table, column, value 
 // presenceWindow spans from to a minute past now, covering usage presence
 // stamped by any earlier Insert*Usage call: stamps take the wall clock at
 // insert, after a test's own now, and bounds are truncated to whole seconds.
-func presenceWindow(from time.Time) TimeRange {
-	return TimeRange{From: from, To: time.Now().UTC().Add(time.Minute)}
+func presenceWindow(t testing.TB, from time.Time) TimeRange {
+	t.Helper()
+	return mustTimeRange(t, from, time.Now().UTC().Add(time.Minute))
+}
+
+// mustTimeRange is the TimeRange from from to to.
+func mustTimeRange(t testing.TB, from, to time.Time) TimeRange {
+	t.Helper()
+	return TimeRange{From: from, To: to}
 }
 
 // instantQuery is a successful 1ms instant query on metric at ts. QueryParam
@@ -61,6 +71,14 @@ func instantQuery(ts time.Time, metric string) Query {
 		TS: ts, QueryParam: metric, TimeParam: ts, Duration: time.Millisecond, StatusCode: 200,
 		LabelMatchers: LabelMatchers{{"__name__": metric}}, Type: QueryTypeInstant,
 	}
+}
+
+// rangeQuery is instantQuery as a range query over the window ending at ts,
+// with a 15s step.
+func rangeQuery(ts time.Time, metric string, window time.Duration) Query {
+	q := instantQuery(ts, metric)
+	q.Type, q.Start, q.End, q.Step = QueryTypeRange, ts.Add(-window), ts, 15
+	return q
 }
 
 // rowsOf returns res's rows, failing t when res lists rows of another type.
@@ -99,27 +117,27 @@ func rawDB(p Provider) *sql.DB {
 	return db
 }
 
-func mustInsertQueries(t *testing.T, p Provider, qs []Query) {
+func mustInsertQueries(t testing.TB, p Provider, qs []Query) {
 	t.Helper()
 	require.NoError(t, p.Insert(context.Background(), qs), "Insert")
 }
 
-func mustUpsertCatalog(t *testing.T, p Provider, items []MetricCatalogItem) {
+func mustUpsertCatalog(t testing.TB, p Provider, items []MetricCatalogItem) {
 	t.Helper()
 	require.NoError(t, p.UpsertMetricsCatalog(context.Background(), items), "UpsertMetricsCatalog")
 }
 
-func mustUpsertJobIndex(t *testing.T, p Provider, items []MetricJobIndexItem) {
+func mustUpsertJobIndex(t testing.TB, p Provider, items []MetricJobIndexItem) {
 	t.Helper()
 	require.NoError(t, p.UpsertMetricsJobIndex(context.Background(), items), "UpsertMetricsJobIndex")
 }
 
-func mustInsertRules(t *testing.T, p Provider, items []RulesUsage) {
+func mustInsertRules(t testing.TB, p Provider, items []RulesUsage) {
 	t.Helper()
 	require.NoError(t, p.InsertRulesUsage(context.Background(), items), "InsertRulesUsage")
 }
 
-func mustInsertDashboards(t *testing.T, p Provider, items []DashboardUsage) {
+func mustInsertDashboards(t testing.TB, p Provider, items []DashboardUsage) {
 	t.Helper()
 	require.NoError(t, p.InsertDashboardUsage(context.Background(), items), "InsertDashboardUsage")
 }
@@ -139,4 +157,10 @@ func mustSummaryRow(t *testing.T, b testBackend, p Provider, name string) summar
 		`SELECT alert_count, record_count, dashboard_count, query_count, is_unused FROM metrics_usage_summary WHERE name = ?`), name)
 	require.NoError(t, row.Scan(&r.Alert, &r.Record, &r.Dashboard, &r.Query, &r.Unused))
 	return r
+}
+
+// fingerprints returns the fingerprints res lists, in order.
+func fingerprints(t *testing.T, res PagedResult) []string {
+	t.Helper()
+	return keysOf(rowsOf[QueryExpression](t, res), func(e QueryExpression) string { return e.Fingerprint })
 }

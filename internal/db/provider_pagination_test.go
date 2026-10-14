@@ -36,7 +36,7 @@ func testPaginatedListings(t *testing.T, b testBackend) {
 
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Minute)
-	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+	tr := mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))
 	var qs []Query
 	for i := range 3 {
 		q := instantQuery(now.Add(time.Duration(i-10)*time.Minute), "up")
