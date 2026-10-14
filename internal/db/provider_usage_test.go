@@ -287,3 +287,62 @@ func TestSQLite_GetRulesUsage_WindowFilterAndLatest(t *testing.T) {
 	t.Parallel()
 	testGetRulesUsageWindowFilterAndLatest(t, sqliteTestBackend)
 }
+
+// testUsagePresenceBounds verifies rule and dashboard usage counts in a range
+// when its presence touches either bound, and not when it ends before From
+// or starts after To, for every range method reading usage presence.
+func testUsagePresenceBounds(t *testing.T, b testBackend) {
+	from := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	for _, c := range []struct {
+		name        string
+		first, last time.Time
+		want        int
+	}{
+		{"ends before From", from.Add(-2 * time.Hour), from.Add(-time.Second), 0},
+		{"ends at From", from.Add(-2 * time.Hour), from, 1},
+		{"starts at To", to, to.Add(2 * time.Hour), 1},
+		{"starts after To", to.Add(time.Second), to.Add(2 * time.Hour), 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			p := b.newProvider(t)
+			ctx := context.Background()
+			mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "up", Type: "gauge"}})
+			mustInsertRules(t, p, []RulesUsage{{Serie: "up", GroupName: "g", Name: "r", Expression: "up", Kind: string(RuleUsageKindAlert)}})
+			mustInsertDashboards(t, p, []DashboardUsage{{Id: "d", Serie: "up", Name: "dash", URL: "http://d"}})
+			b.setPresence(t, p, "RulesUsage", "serie", "up", c.first, c.last)
+			b.setPresence(t, p, "DashboardUsage", "serie", "up", c.first, c.last)
+			tr := mustTimeRange(t, from, to)
+
+			rules, err := p.GetRulesUsage(ctx, RulesUsageParams{Serie: "up", Kind: string(RuleUsageKindAlert), TimeRange: tr, Page: 1, PageSize: 10})
+			require.NoError(t, err)
+			dashboards, err := p.GetDashboardUsage(ctx, DashboardUsageParams{Serie: "up", TimeRange: tr, Page: 1, PageSize: 10})
+			require.NoError(t, err)
+			stats, err := p.GetMetricStatistics(ctx, "up", tr)
+			require.NoError(t, err)
+			require.NoError(t, p.RefreshMetricsUsageSummary(ctx, tr))
+			summary := mustSummaryRow(t, b, p, "up")
+
+			assert.Equal(t, map[string]int{
+				"GetRulesUsage": c.want, "GetDashboardUsage": c.want,
+				"GetMetricStatistics alerts": c.want, "GetMetricStatistics dashboards": c.want,
+				"summary alerts": c.want, "summary dashboards": c.want,
+			}, map[string]int{
+				"GetRulesUsage": rules.Total, "GetDashboardUsage": dashboards.Total,
+				"GetMetricStatistics alerts": stats.AlertCount, "GetMetricStatistics dashboards": stats.DashboardCount,
+				"summary alerts": summary.Alert, "summary dashboards": summary.Dashboard,
+			})
+		})
+	}
+}
+
+func TestPostgreSQL_UsagePresenceBounds(t *testing.T) {
+	t.Parallel()
+	testUsagePresenceBounds(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_UsagePresenceBounds(t *testing.T) {
+	t.Parallel()
+	testUsagePresenceBounds(t, sqliteTestBackend)
+}
