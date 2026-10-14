@@ -9,6 +9,8 @@ import (
 var (
 	// ErrNoResults is returned when a query returns no results
 	ErrNoResults = errors.New("no results found")
+	// ErrTimeRangeRequired is returned by a range method given no TimeRange.
+	ErrTimeRangeRequired = errors.New("time range required")
 
 	// ErrInvalidScan is returned when row scanning fails
 	ErrInvalidScan = errors.New("invalid row scan")

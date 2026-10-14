@@ -146,7 +146,7 @@ func (f *fakeProvider) UpsertMetricsCatalog(_ context.Context, _ []db.MetricCata
 func (f *fakeProvider) RefreshMetricsUsageSummary(ctx context.Context, tr db.TimeRange) error {
 	f.mu.Lock()
 	f.summaryCalls++
-	f.summaryFrom, f.summaryTo = tr.From, tr.To
+	f.summaryFrom, f.summaryTo = tr.From(), tr.To()
 	f.mu.Unlock()
 
 	select {

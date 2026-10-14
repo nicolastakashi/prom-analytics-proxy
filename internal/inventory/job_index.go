@@ -22,7 +22,7 @@ func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
 
 	labelCtx, cancelLabels := context.WithTimeout(jobIndexCtx, s.jobIndexLabelTimeout)
 	defer cancelLabels()
-	jobs, _, _, err := s.promAPI.LabelValues(labelCtx, "job", []string{}, tr.From, tr.To)
+	jobs, _, _, err := s.promAPI.LabelValues(labelCtx, "job", []string{}, tr.From(), tr.To())
 	if err != nil {
 		// No series with a job label is a successful, empty response, so
 		// every error here - 4xx included - is a failure.
@@ -30,7 +30,7 @@ func (s *Syncer) syncJobIndex(ctx context.Context, tr db.TimeRange) error {
 	}
 
 	if len(jobs) == 0 {
-		slog.Debug("no job labels found in time range", "from", tr.From, "to", tr.To)
+		slog.Debug("no job labels found in time range", "from", tr.From(), "to", tr.To())
 		return nil
 	}
 
@@ -96,7 +96,7 @@ func (s *Syncer) processJob(ctx context.Context, job string, tr db.TimeRange, wo
 	defer cancelJob()
 
 	query := fmt.Sprintf(`group({job="%s", __name__=~".+"}) by (__name__)`, job)
-	result, _, _, err := s.promAPI.Query(jobCtx, query, tr.To)
+	result, _, _, err := s.promAPI.Query(jobCtx, query, tr.To())
 	if err != nil {
 		slog.Warn("failed to query metrics for job", "job", job, "worker", workerID, "query", query, "err", err)
 		return err
