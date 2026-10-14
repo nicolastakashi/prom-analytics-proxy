@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -143,33 +144,32 @@ func TestElector_Run_RawFnIgnoringReporter_IsUnaffectedByBudgetEnforcement(t *te
 // every single cycle, and stepping down each time would flap leadership
 // indefinitely while running extra cycles on every re-acquisition.
 func TestWatchdog_FinishedCycleIdlePastItsBudget_KeepsLeadership(t *testing.T) {
-	const renewInterval = 5 * time.Millisecond
-	const ttl = time.Hour // never approached: isolates the budget check
-	const budget = 20 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		const renewInterval = 5 * time.Millisecond
+		const ttl = time.Hour // never approached: isolates the budget check
+		const budget = 20 * time.Millisecond
 
-	renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
-	leaderCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
+		leaderCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	tracker := &cycleTracker{}
-	done := watchdog(leaderCtx, cancel, renewer, "finished-cycle-idle-test", renewInterval, ttl, tracker)
+		tracker := &cycleTracker{}
+		done := watchdog(leaderCtx, cancel, renewer, "finished-cycle-idle-test", renewInterval, ttl, tracker)
 
-	// One cycle reported and then finished inside its budget - PeriodicJob's
-	// exact sequence, including canceling that cycle's context on the way
-	// out.
-	cycleCtx, cycleCancel := context.WithCancel(leaderCtx)
-	tracker.CycleStarted(cycleCtx, cycleCancel, budget)
-	cycleCancel()
+		// One cycle reported, then finished inside its budget with its context
+		// canceled on the way out.
+		cycleCtx, cycleCancel := context.WithCancel(leaderCtx)
+		tracker.CycleStarted(cycleCtx, cycleCancel, budget)
+		cycleCancel()
 
-	select {
-	case <-leaderCtx.Done():
-		t.Fatal("leadership was given up while the job sat idle between cycles, having finished the last one inside its budget")
-	case <-time.After(5 * budget):
-	}
+		time.Sleep(5 * budget)
+		synctest.Wait()
+		assert.NoError(t, leaderCtx.Err(), "leadership was given up while the job sat idle between cycles, having finished the last one inside its budget")
 
-	cancel()
-	<-done
-	assert.Greater(t, renewer.callCount(), 1, "the watchdog must have gone on renewing throughout")
+		cancel()
+		<-done
+		assert.Equal(t, int(5*budget/renewInterval), renewer.callCount(), "the watchdog must have renewed on every tick throughout")
+	})
 }
 
 // TestWatchdog_RunningCycleOverBudget_CancelsAndStepsDown is the counterpart
@@ -177,27 +177,30 @@ func TestWatchdog_FinishedCycleIdlePastItsBudget_KeepsLeadership(t *testing.T) {
 // is exactly what this check exists to catch, and the distinction from the
 // finished cycle above is the reported cycle's own context.
 func TestWatchdog_RunningCycleOverBudget_CancelsAndStepsDown(t *testing.T) {
-	const renewInterval = 5 * time.Millisecond
-	const ttl = time.Hour
-	const budget = 20 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		const renewInterval = 5 * time.Millisecond
+		const ttl = time.Hour
+		const budget = 20 * time.Millisecond
 
-	renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
-	leaderCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
+		leaderCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	tracker := &cycleTracker{}
-	done := watchdog(leaderCtx, cancel, renewer, "running-cycle-over-budget-test", renewInterval, ttl, tracker)
+		tracker := &cycleTracker{}
+		done := watchdog(leaderCtx, cancel, renewer, "running-cycle-over-budget-test", renewInterval, ttl, tracker)
 
-	// A cycle that never returns on its own: reported, and left running.
-	cycleCtx, cycleCancel := context.WithCancel(leaderCtx)
-	defer cycleCancel()
-	tracker.CycleStarted(cycleCtx, cycleCancel, budget)
+		// A cycle that never returns on its own: reported, and left running.
+		cycleCtx, cycleCancel := context.WithCancel(leaderCtx)
+		defer cycleCancel()
+		tracker.CycleStarted(cycleCtx, cycleCancel, budget)
 
-	select {
-	case <-cycleCtx.Done():
-	case <-time.After(20 * budget):
-		t.Fatal("a cycle still running past its declared budget was never canceled")
-	}
-	<-done
-	assert.Error(t, leaderCtx.Err(), "exceeding the budget must also step down, not just cancel the cycle")
+		time.Sleep(budget)
+		synctest.Wait()
+		require.NoError(t, cycleCtx.Err(), "a cycle reaching its budget, but not past it, must keep running")
+		time.Sleep(renewInterval)
+		synctest.Wait()
+		assert.Error(t, cycleCtx.Err(), "a cycle still running past its declared budget must be canceled on the first tick past it")
+		mustReceive(t, done, "exceeding the budget must also step down, not just cancel the cycle")
+		assert.Error(t, leaderCtx.Err(), "exceeding the budget must also step down, not just cancel the cycle")
+	})
 }

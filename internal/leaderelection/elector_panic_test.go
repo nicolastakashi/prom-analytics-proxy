@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -18,21 +19,23 @@ import (
 // only guarantees the lock is released first, not that panics are
 // swallowed.
 func TestElector_Run_ReleasesLock_WhenFnPanics(t *testing.T) {
-	strat := &releaseTrackingStrategy{}
-	elector := newTestElector(strat, backoffConfig{initial: 5 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		strat := &releaseTrackingStrategy{}
+		elector := newTestElector(strat, backoffConfig{initial: 5 * time.Millisecond})
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		_ = elector.Run(ctx, "panic-test", func(context.Context, CycleReporter) {
-			panic("simulated fn panic")
-		})
-		t.Fatal("Run must not return normally when fn panics")
-	}()
+		var recovered any
+		func() {
+			defer func() { recovered = recover() }()
+			_ = elector.Run(ctx, "panic-test", func(context.Context, CycleReporter) {
+				panic("simulated fn panic")
+			})
+			t.Fatal("Run must not return normally when fn panics")
+		}()
 
-	require.NotNil(t, recovered, "the panic must still propagate out of Run, not be swallowed")
-	assert.True(t, strat.released.Load(), "release() must run before the panic propagates out of Run")
+		require.NotNil(t, recovered, "the panic must still propagate out of Run, not be swallowed")
+		assert.True(t, strat.released.Load(), "release() must run before the panic propagates out of Run")
+	})
 }
