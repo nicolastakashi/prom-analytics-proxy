@@ -38,6 +38,7 @@ func (stubReporter) CycleStarted(context.Context, context.CancelFunc, time.Durat
 // exists so a strategy that acts on reported cycles gets to see them, and
 // nothing else in this package would notice the plumbing being cut.
 func TestElector_Run_HandsTheStrategysReporterToFn(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		want := stubReporter{}
 		el := newTestElector(&reporterStrategy{reporter: want}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
@@ -60,6 +61,7 @@ func TestElector_Run_HandsTheStrategysReporterToFn(t *testing.T) {
 // with nothing to coordinate (advisory-lock today) leaves fn with a nil
 // reporter rather than anything it would have to guard against.
 func TestElector_Run_NilReporterFromStrategyReachesFnAsNil(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		el := newTestElector(&reporterStrategy{reporter: nil}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
 

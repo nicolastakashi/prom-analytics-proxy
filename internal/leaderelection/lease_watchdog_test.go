@@ -3,7 +3,6 @@ package leaderelection
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -55,6 +54,7 @@ var errSimulatedTransient = errors.New("simulated transient renewal failure")
 // leaderCtx on the spot — a renew deadline exists precisely to absorb this
 // without throwing away the TTL margin the renew interval provides.
 func TestWatchdog_TransientRenewalError_DoesNotCancelLeaderCtx(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 10 * time.Millisecond
 		const ttl = time.Hour // never approached: isolates the single-blip behavior
@@ -87,6 +87,7 @@ func TestWatchdog_TransientRenewalError_DoesNotCancelLeaderCtx(t *testing.T) {
 // since the last success comfortably under ttl — even once total elapsed
 // time exceeds ttl many times over.
 func TestWatchdog_FlappingErrors_NeverCancelWhenEachRecoveryResetsWithinTTL(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 10 * time.Millisecond
 		const ttl = 50 * time.Millisecond // 5x renewInterval: comfortable margin between recoveries
@@ -123,6 +124,7 @@ func TestWatchdog_FlappingErrors_NeverCancelWhenEachRecoveryResetsWithinTTL(t *t
 // success reaches ttl, the lease may genuinely have expired server-side,
 // and continuing to run as leader can no longer be trusted.
 func TestWatchdog_SustainedRenewalErrors_CancelsOncePastTTLMargin(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 10 * time.Millisecond
 		const ttl = 50 * time.Millisecond
@@ -149,6 +151,7 @@ func TestWatchdog_SustainedRenewalErrors_CancelsOncePastTTLMargin(t *testing.T) 
 // clause matched no row), so it cancels on the very first tick even with
 // plenty of margin left.
 func TestWatchdog_LostToAnotherHolder_CancelsImmediatelyEvenWithMarginRemaining(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 10 * time.Millisecond
 		const ttl = time.Hour // plenty of margin left, if margin applied here
@@ -171,6 +174,7 @@ func TestWatchdog_LostToAnotherHolder_CancelsImmediatelyEvenWithMarginRemaining(
 // from outside — the release() path — without needing a renewal failure of
 // its own, and performs no further renewal attempts afterward.
 func TestWatchdog_StopsCleanly_WhenLeaderCtxCanceledExternally(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 5 * time.Millisecond
 		renewer := &fakeLeaseRenewer{script: []renewOutcome{{ok: true}}}
@@ -193,11 +197,9 @@ func TestWatchdog_StopsCleanly_WhenLeaderCtxCanceledExternally(t *testing.T) {
 // able to tell "still retrying, within margin" apart from "gave up,
 // stepped down" without reading source.
 func TestWatchdog_LogsDistinguishTransientRetryFromTTLStepDown(t *testing.T) {
+	// Not parallel: swaps the process-wide default logger.
 	synctest.Test(t, func(t *testing.T) {
-		handler := &recordingHandler{}
-		prev := slog.Default()
-		slog.SetDefault(slog.New(handler))
-		t.Cleanup(func() { slog.SetDefault(prev) })
+		handler := captureDefaultLogs(t)
 
 		const renewInterval = 10 * time.Millisecond
 		const ttl = 30 * time.Millisecond

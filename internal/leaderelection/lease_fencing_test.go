@@ -13,6 +13,7 @@ import (
 // sharing one Postgres container — each uses its own lease name, so
 // there's no reason to pay for a separate container per check.
 func TestLeaseStrategy_FenceTokenDurability(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 
 	// SurvivesRowDeletion proves fence_token keeps increasing across the
