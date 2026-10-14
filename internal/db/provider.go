@@ -14,10 +14,8 @@ import (
 
 // Common time formats
 const (
-	SQLiteTimeFormat  = "2006-01-02 15:04:05" // For SQLite native format
-	ISOTimeFormat     = time.RFC3339          // For standard ISO format
-	ISOTimeFormatNano = time.RFC3339Nano      // For high precision timestamps
-	DisplayTimeFormat = "2006-01-02 15:04"    // For user display
+	SQLiteTimeFormat = "2006-01-02 15:04:05" // For SQLite native format
+	ISOTimeFormat    = time.RFC3339          // For standard ISO format
 )
 
 // Time constants
