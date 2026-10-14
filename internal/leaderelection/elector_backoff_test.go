@@ -49,6 +49,7 @@ func (s *recordingStrategy) snapshot() []time.Time {
 // database, a recovery that slows without bound, or replicas retrying in
 // lockstep.
 func TestElector_Run_BacksOffThenCapsRetryRate_OnErrors(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		strat := &recordingStrategy{returnErr: errors.New("simulated transient error")}
 		const initial = 20 * time.Millisecond
@@ -91,6 +92,7 @@ func TestElector_Run_BacksOffThenCapsRetryRate_OnErrors(t *testing.T) {
 // backoff, which must not carry over. Contention must keep polling at
 // backoff.initial for as long as it persists, never growing toward max.
 func TestElector_Run_ContentionPollsAtFixedIntervalWithoutBackoff(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		// Errors first grow the backoff to 4x initial; contention follows.
 		const errorsFirst = 3
@@ -163,6 +165,7 @@ func (s *failThenSucceedOnceStrategy) snapshot() []time.Time {
 // following a hand-off starts from initial again, not from wherever backoff
 // had grown to pre-hand-off.
 func TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const initial = 5 * time.Millisecond
 		const max = 100 * time.Millisecond
@@ -194,6 +197,7 @@ func TestElector_Run_ResetsBackoffToInitial_AfterReacquiringLeadership(t *testin
 // but also must not be a no-op — replicas started by the same rollout would
 // otherwise poll Postgres in lockstep.
 func TestJitter_StaysWithinBoundsAndVaries(t *testing.T) {
+	t.Parallel()
 	const d = 100 * time.Millisecond
 	seen := map[time.Duration]bool{}
 	var shorter, longer bool

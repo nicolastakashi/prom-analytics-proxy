@@ -14,6 +14,7 @@ import (
 // concurrency guarantees — safety and liveness — as subtests sharing one
 // Postgres container, each against its own lease name.
 func TestElector_Run_ConcurrentGoroutines(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 
 	// MutualExclusion proves the exported Elector API enforces exclusion

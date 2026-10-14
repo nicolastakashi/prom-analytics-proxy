@@ -16,17 +16,20 @@ import (
 // them would catch an accidental rename here — this test checks the
 // literal instead.
 func TestStrategy_LiteralValuesAreStable(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, Strategy("advisory-lock"), AdvisoryLock)
 	assert.Equal(t, Strategy("lease"), Lease)
 }
 
 func TestNew_RejectsUnknownStrategy(t *testing.T) {
+	t.Parallel()
 	_, err := New(config.LeaderElectionConfig{Strategy: "bogus"}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown strategy")
 }
 
 func TestNew_DefaultsToAdvisoryLockWhenStrategyEmpty(t *testing.T) {
+	t.Parallel()
 	// A fresh registry per success-path test — New registers metrics, and
 	// prometheus.DefaultRegisterer is process-global: reusing it across
 	// tests that construct the same metric names would panic.
@@ -36,6 +39,7 @@ func TestNew_DefaultsToAdvisoryLockWhenStrategyEmpty(t *testing.T) {
 }
 
 func TestNew_AdvisoryLockStrategyDoesNotRequireLeaseFields(t *testing.T) {
+	t.Parallel()
 	elector, err := New(config.LeaderElectionConfig{Strategy: string(AdvisoryLock)}, nil, prometheus.NewRegistry())
 	assert.NoError(t, err)
 	assert.NotNil(t, elector)
@@ -48,6 +52,7 @@ func TestNew_AdvisoryLockStrategyDoesNotRequireLeaseFields(t *testing.T) {
 // happened to be caught by the later branch instead. Checking the phrase
 // unique to this branch is what actually proves this check fired.
 func TestNew_LeaseStrategyRequiresPositiveTTL(t *testing.T) {
+	t.Parallel()
 	_, err := New(config.LeaderElectionConfig{Strategy: string(Lease), LeaseTTL: 0, RenewInterval: time.Second}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires a positive lease_ttl")
@@ -57,12 +62,14 @@ func TestNew_LeaseStrategyRequiresPositiveTTL(t *testing.T) {
 // third validation branch's error text also contains "renew_interval", so
 // the phrase checked here must be the one unique to this specific check.
 func TestNew_LeaseStrategyRequiresPositiveRenewInterval(t *testing.T) {
+	t.Parallel()
 	_, err := New(config.LeaderElectionConfig{Strategy: string(Lease), LeaseTTL: time.Second, RenewInterval: 0}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires a positive renew_interval")
 }
 
 func TestNew_LeaseStrategyRejectsRenewIntervalNotLessThanTTL(t *testing.T) {
+	t.Parallel()
 	_, err := New(config.LeaderElectionConfig{Strategy: string(Lease), LeaseTTL: time.Second, RenewInterval: time.Second}, nil, nil)
 	require.Error(t, err, "renewing no faster than the TTL guarantees eventual false expiry for a healthy holder")
 	assert.Contains(t, err.Error(), "renew_interval")
@@ -74,6 +81,7 @@ func TestNew_LeaseStrategyRejectsRenewIntervalNotLessThanTTL(t *testing.T) {
 // called (see newLeaseStrategy). The leader_leases table is expected to
 // already exist by then, created by internal/db's own migrations.
 func TestNew_LeaseStrategyConstructsSuccessfully(t *testing.T) {
+	t.Parallel()
 	elector, err := New(config.LeaderElectionConfig{Strategy: string(Lease), LeaseTTL: time.Second, RenewInterval: 100 * time.Millisecond}, nil, prometheus.NewRegistry())
 	assert.NoError(t, err)
 	assert.NotNil(t, elector)
