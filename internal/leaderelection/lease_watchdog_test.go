@@ -16,8 +16,7 @@ import (
 // fakeLeaseRenewer is a hand-written fake for leaseRenewer, injecting a
 // scripted sequence of renewal outcomes — deterministic transient-then-
 // recovered failures a real Postgres connection can't be forced into on
-// demand, the same rationale fakeAdvisoryConn documents for advisoryConn.
-// Calls past the end of the script repeat its last entry.
+// demand. Calls past the end of the script repeat its last entry.
 type fakeLeaseRenewer struct {
 	mu     sync.Mutex
 	script []renewOutcome
