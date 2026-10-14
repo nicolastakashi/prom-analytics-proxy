@@ -67,14 +67,6 @@ func ScanSingleRow(rows *sql.Rows, dest ...interface{}) error {
 	return nil
 }
 
-// PrepareTimeRange formats time range parameters based on the database dialect
-func PrepareTimeRange(tr TimeRange, dialect string) (string, string) {
-	if dialect == "postgresql" {
-		return tr.Format(ISOTimeFormat)
-	}
-	return tr.Format(SQLiteTimeFormat)
-}
-
 // warnIfSummaryRefreshWasNoOp logs when RefreshMetricsUsageSummary's INSERT
 // touched zero rows while metrics_catalog is non-empty. That combination
 // means every catalog row failed the last_synced_at freshness filter (see

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -147,8 +148,10 @@ func TestSQLite_TimeSeries_BucketsStartAtRangeStartMinute(t *testing.T) {
 }
 
 // testTimeSeriesBucketWidthFollowsRangeSpan verifies each time series' bucket
-// width on and past every range span threshold, with both range ends getting a
-// bucket, and that a range with no queries yields every bucket with value 0.
+// width on and past every range span threshold, with buckets from the one at
+// From's minute through the one containing To, that a range with no queries
+// yields every bucket with value 0, and that a reversed range yields no
+// buckets.
 func testTimeSeriesBucketWidthFollowsRangeSpan(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
@@ -169,6 +172,8 @@ func testTimeSeriesBucketWidthFollowsRangeSpan(t *testing.T, b testBackend) {
 		{30 * 24 * time.Hour, 6 * time.Hour, 121},
 		{31 * 24 * time.Hour, 24 * time.Hour, 32},
 		{100 * 24 * time.Hour, 24 * time.Hour, 101},
+		// Not a multiple of the width: the last bucket starts before To.
+		{2*time.Hour + 3*time.Minute, 5 * time.Minute, 25},
 	} {
 		t.Run(tier.span.String(), func(t *testing.T) {
 			t.Parallel()
@@ -181,6 +186,12 @@ func testTimeSeriesBucketWidthFollowsRangeSpan(t *testing.T, b testBackend) {
 			}
 		})
 	}
+	t.Run("reversed", func(t *testing.T) {
+		t.Parallel()
+		for _, s := range timeSeries {
+			assert.Empty(t, s.read(t, p, mustTimeRange(t, from.Add(time.Hour), from)), s.name)
+		}
+	})
 }
 
 func TestPostgreSQL_TimeSeries_BucketWidthFollowsRangeSpan(t *testing.T) {
@@ -198,7 +209,7 @@ type rangeMethod struct {
 	count func(testing.TB, Provider, TimeRange) int
 }
 
-// rangeMethods counts, for each read filtering queries by TimeRange, how many
+// rangeMethods counts, for each range method that filters queries, how many
 // queries seeded by rangeBoundsQuery it reports in tr. A time series counts
 // its values summed over buckets or, for a duration, its non-empty buckets.
 var rangeMethods = func() []rangeMethod {
@@ -264,6 +275,14 @@ var rangeMethods = func() []rangeMethod {
 			require.NoError(t, err, "MetricQueryPerformanceStatistics")
 			return intOrZero(res.TotalQueries)
 		}},
+		rangeMethod{"RefreshMetricsUsageSummary", func(t testing.TB, p Provider, tr TimeRange) int {
+			require.NoError(t, p.UpsertMetricsCatalog(ctx, []MetricCatalogItem{{Name: "up", Type: "gauge"}}))
+			require.NoError(t, p.RefreshMetricsUsageSummary(ctx, tr))
+			md, err := p.GetSeriesMetadataByNames(ctx, []string{"up"}, "")
+			require.NoError(t, err, "RefreshMetricsUsageSummary")
+			require.Len(t, md, 1)
+			return md[0].QueryCount
+		}},
 	)
 }()
 
@@ -299,37 +318,13 @@ var rangeBoundOffsets = []struct {
 }
 
 // testRangeBounds verifies which queries around a range's bounds each range
-// method reports, one query per offset in rangeBoundOffsets: want maps each
-// range method to its count per offset, in order. Range methods and backends
-// differ at To, so each backend states its own expectations.
-func testRangeBounds(t *testing.T, b testBackend, want map[string][]int) {
-	from := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
-	tr := mustTimeRange(t, from, from.Add(time.Hour))
-	for name, counts := range want {
-		require.Len(t, counts, len(rangeBoundOffsets), name)
-	}
-	for i, o := range rangeBoundOffsets {
-		t.Run(o.name, func(t *testing.T) {
-			t.Parallel()
-			p := b.newProvider(t)
-			mustInsertQueries(t, p, []Query{rangeBoundsQuery(from.Add(o.offset))})
-			wantHere, got := map[string]int{}, map[string]int{}
-			for name, counts := range want {
-				wantHere[name] = counts[i]
-			}
-			for _, r := range rangeMethods {
-				got[r.name] = r.count(t, p, tr)
-			}
-			assert.Equal(t, wantHere, got, "count per range method")
-		})
-	}
-}
-
-func TestPostgreSQL_RangeBounds(t *testing.T) {
-	t.Parallel()
+// method reports, one query per offset in rangeBoundOffsets: the time series
+// cover [From, To) and every other range method [From, To]. Bounds compare to
+// the whole second, so a range shifted half a second later reports the same.
+func testRangeBounds(t *testing.T, b testBackend) {
 	series := []int{0, 1, 1, 1, 0, 0, 0}
 	closed := []int{0, 1, 1, 1, 1, 0, 0}
-	testRangeBounds(t, postgreSQLTestBackend, map[string][]int{
+	want := map[string][]int{
 		"Throughput":                       series,
 		"ErrorAnalysis":                    series,
 		"StatusDistribution":               series,
@@ -342,28 +337,37 @@ func TestPostgreSQL_RangeBounds(t *testing.T) {
 		"QueriesBySerieName":               closed,
 		"QueryExpressions":                 closed,
 		"MetricQueryPerformanceStatistics": closed,
-	})
+		"RefreshMetricsUsageSummary":       closed,
+	}
+	from := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	for _, shift := range []time.Duration{0, 500 * time.Millisecond} {
+		tr := mustTimeRange(t, from.Add(shift), from.Add(time.Hour+shift))
+		for i, o := range rangeBoundOffsets {
+			t.Run(fmt.Sprintf("%s/range+%v", o.name, shift), func(t *testing.T) {
+				t.Parallel()
+				p := b.newProvider(t)
+				mustInsertQueries(t, p, []Query{rangeBoundsQuery(from.Add(o.offset))})
+				wantHere, got := map[string]int{}, map[string]int{}
+				for name, counts := range want {
+					wantHere[name] = counts[i]
+				}
+				for _, r := range rangeMethods {
+					got[r.name] = r.count(t, p, tr)
+				}
+				assert.Equal(t, wantHere, got, "count per range method")
+			})
+		}
+	}
+}
+
+func TestPostgreSQL_RangeBounds(t *testing.T) {
+	t.Parallel()
+	testRangeBounds(t, postgreSQLTestBackend)
 }
 
 func TestSQLite_RangeBounds(t *testing.T) {
 	t.Parallel()
-	lastBucket := []int{0, 1, 1, 1, 1, 1, 1}
-	toSecond := []int{0, 1, 1, 1, 1, 1, 0}
-	open := []int{0, 1, 1, 1, 0, 0, 0}
-	testRangeBounds(t, sqliteTestBackend, map[string][]int{
-		"Throughput":                       lastBucket,
-		"ErrorAnalysis":                    lastBucket,
-		"StatusDistribution":               toSecond,
-		"LatencyTrends":                    lastBucket,
-		"TimeRangeDistribution":            toSecond,
-		"Executions":                       toSecond,
-		"QueryTypes":                       open,
-		"AverageDuration":                  open,
-		"QueryRate":                        open,
-		"QueriesBySerieName":               open,
-		"QueryExpressions":                 open,
-		"MetricQueryPerformanceStatistics": open,
-	})
+	testRangeBounds(t, sqliteTestBackend)
 }
 
 func testGetQueryLatencyTrendsAndThroughputAndErrors(t *testing.T, b testBackend) {
@@ -429,4 +433,63 @@ func TestPostgreSQL_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T
 func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
 	t.Parallel()
 	testGetQueryLatencyTrendsAndThroughputAndErrors(t, sqliteTestBackend)
+}
+
+// testGetQueryLatencyTrendsP95PerBucket verifies p95 is the nearest-rank 95th
+// percentile of each bucket's own durations: not the bucket's maximum, and
+// not ranked across the whole range.
+func testGetQueryLatencyTrendsP95PerBucket(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	ctx := context.Background()
+	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
+	query := func(ts time.Time, d time.Duration) Query {
+		q := instantQuery(ts, "up")
+		q.Duration = d
+		return q
+	}
+	// Minute 0: 19 queries at 10ms and one at 100ms; minute 1: one at 20ms.
+	var qs []Query
+	for range 19 {
+		qs = append(qs, query(from, 10*time.Millisecond))
+	}
+	qs = append(qs, query(from, 100*time.Millisecond), query(from.Add(time.Minute), 20*time.Millisecond))
+	mustInsertQueries(t, p, qs)
+
+	// 1-minute buckets.
+	lat, err := p.GetQueryLatencyTrends(ctx, mustTimeRange(t, from, from.Add(30*time.Minute)), "", "")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(lat), 2)
+	assert.Equal(t, 10, lat[0].P95, "minute 0: the 19th of 20 durations")
+	assert.Equal(t, 20, lat[1].P95, "minute 1: its only duration")
+
+	// 5-minute buckets: all 21 queries share the first one.
+	lat, err = p.GetQueryLatencyTrends(ctx, mustTimeRange(t, from, from.Add(6*time.Hour)), "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, lat)
+	assert.Equal(t, 20, lat[0].P95, "the 20th of 21 durations")
+
+	// A day later, one bucket where minute 0 holds a single 100ms query and
+	// minute 1 holds 39 at 10ms: the bucket's p95 is 10ms, while ranking each
+	// minute on its own would report 100ms.
+	day := from.Add(24 * time.Hour)
+	qs = []Query{query(day, 100*time.Millisecond)}
+	for range 39 {
+		qs = append(qs, query(day.Add(time.Minute), 10*time.Millisecond))
+	}
+	mustInsertQueries(t, p, qs)
+	lat, err = p.GetQueryLatencyTrends(ctx, mustTimeRange(t, day, day.Add(6*time.Hour)), "", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, lat)
+	assert.Equal(t, 10, lat[0].P95, "the 38th of 40 durations, ranked across the whole bucket")
+}
+
+func TestPostgreSQL_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
+	t.Parallel()
+	testGetQueryLatencyTrendsP95PerBucket(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
+	t.Parallel()
+	testGetQueryLatencyTrendsP95PerBucket(t, sqliteTestBackend)
 }

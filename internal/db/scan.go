@@ -82,6 +82,12 @@ func scanQueryStatusDistribution(row *sql.Rows) (QueryStatusDistributionResult, 
 	return r, err
 }
 
+func scanQueryLatencyTrends(row *sql.Rows) (QueryLatencyTrendsResult, error) {
+	var r QueryLatencyTrendsResult
+	err := row.Scan((*bucketTime)(&r.Time), &r.Value, &r.P95)
+	return r, err
+}
+
 func scanQueryThroughputAnalysis(row *sql.Rows) (QueryThroughputAnalysisResult, error) {
 	var r QueryThroughputAnalysisResult
 	err := row.Scan((*bucketTime)(&r.Time), &r.Value)
