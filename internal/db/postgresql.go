@@ -417,27 +417,10 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	if err != nil {
 		return PagedResult{}, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueriesBySerieNameResult
 	var totalCount int
-
-	for rows.Next() {
-		var result QueriesBySerieNameResult
-		if err := rows.Scan(
-			&result.Query,
-			&result.AvgDuration,
-			&result.AvgPeakySamples,
-			&result.MaxPeakSamples,
-			&totalCount,
-		); err != nil {
-			return PagedResult{}, ErrorWithOperation(err, "scanning row")
-		}
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return PagedResult{}, ErrorWithOperation(err, "row iteration")
+	results, err := ScanRows(rows, scanQueriesBySerieName(&totalCount))
+	if err != nil {
+		return PagedResult{}, err
 	}
 
 	totalPages := CalculateTotalPages(totalCount, params.PageSize)
@@ -677,43 +660,9 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 	if err != nil {
 		return PagedResult{}, err
 	}
-	defer CloseResource(rows)
-
-	results := []RulesUsage{}
-	for rows.Next() {
-		var (
-			serie      string
-			groupName  string
-			name       string
-			expression string
-			kind       string
-			labelsJSON json.RawMessage
-			createdAt  time.Time
-		)
-
-		if err := rows.Scan(&serie, &groupName, &name, &expression, &kind, &labelsJSON, &createdAt); err != nil {
-			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		var labels []string
-		if len(labelsJSON) > 0 {
-			if err := json.Unmarshal(labelsJSON, &labels); err != nil {
-				return PagedResult{}, fmt.Errorf("failed to unmarshal labels: %w", err)
-			}
-		}
-
-		results = append(results, RulesUsage{
-			Serie:      serie,
-			GroupName:  groupName,
-			Name:       name,
-			Expression: expression,
-			Kind:       kind,
-			Labels:     labels,
-			CreatedAt:  createdAt,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+	results, err := ScanRows(rows, scanRulesUsage)
+	if err != nil {
+		return PagedResult{}, err
 	}
 
 	return PagedResult{
@@ -888,33 +837,9 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 	if err != nil {
 		return PagedResult{}, err
 	}
-	defer CloseResource(rows)
-
-	results := []DashboardUsage{}
-	for rows.Next() {
-		var (
-			id        string
-			serie     string
-			name      string
-			url       string
-			createdAt time.Time
-		)
-
-		if err := rows.Scan(&id, &serie, &name, &url, &createdAt); err != nil {
-			return PagedResult{}, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		results = append(results, DashboardUsage{
-			Id:        id,
-			Serie:     serie,
-			Name:      name,
-			URL:       url,
-			CreatedAt: createdAt,
-		})
-	}
-
-	if err := rows.Err(); err != nil {
-		return PagedResult{}, fmt.Errorf("row iteration error: %w", err)
+	results, err := ScanRows(rows, scanDashboardUsage)
+	if err != nil {
+		return PagedResult{}, err
 	}
 
 	return PagedResult{
@@ -963,9 +888,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadata(ctx context.Context, params Serie
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
-	defer CloseResource(rows)
-
-	out, err := scanSeriesMetadataRows(rows, params.PageSize)
+	out, err := ScanRows(rows, scanMetricMetadata)
 	if err != nil {
 		return PagedResult{}, err
 	}
@@ -1014,9 +937,7 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnused(ctx context.Context, params
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
-	defer CloseResource(rows)
-
-	out, err := scanSeriesMetadataRows(rows, params.PageSize)
+	out, err := ScanRows(rows, scanMetricMetadata)
 	if err != nil {
 		return PagedResult{}, err
 	}
@@ -1050,43 +971,12 @@ func (p *PostGreSQLProvider) getSeriesMetadataUnusedJobScoped(ctx context.Contex
 	if err != nil {
 		return PagedResult{}, fmt.Errorf("select: %w", err)
 	}
-	defer CloseResource(rows)
-
-	out, err := scanSeriesMetadataRows(rows, params.PageSize)
+	out, err := ScanRows(rows, scanMetricMetadata)
 	if err != nil {
 		return PagedResult{}, err
 	}
 	pages := (total + params.PageSize - 1) / params.PageSize
 	return PagedResult{Total: total, TotalPages: pages, Data: out}, nil
-}
-
-// scanSeriesMetadataRows scans rows returned by either GetSeriesMetadata
-// branch into a slice of models.MetricMetadata. Both branches return the
-// same column layout (the unused branch drops the COALESCE wrappers since
-// the INNER JOIN guarantees non-NULL summary counts, but the scanned
-// Go types are identical).
-func scanSeriesMetadataRows(rows *sql.Rows, pageSize int) ([]models.MetricMetadata, error) {
-	type row struct {
-		name, mtype, help, unit     string
-		alert, record, dash, qcount int
-		last                        sql.NullTime
-	}
-	out := make([]models.MetricMetadata, 0, pageSize)
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount}
-		if r.last.Valid {
-			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
-		}
-		out = append(out, mm)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iter: %w", err)
-	}
-	return out, nil
 }
 
 func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
@@ -1133,30 +1023,7 @@ func (p *PostGreSQLProvider) GetSeriesMetadataByNames(ctx context.Context, names
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	type row struct {
-		name, mtype, help, unit     string
-		alert, record, dash, qcount int
-		last                        sql.NullTime
-		isUnused                    bool
-	}
-	out := make([]models.MetricMetadata, 0, len(names))
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.name, &r.mtype, &r.help, &r.unit, &r.alert, &r.record, &r.dash, &r.qcount, &r.last, &r.isUnused); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		mm := models.MetricMetadata{Name: r.name, Type: r.mtype, Help: r.help, Unit: r.unit, AlertCount: r.alert, RecordCount: r.record, DashboardCount: r.dash, QueryCount: r.qcount, IsUnused: r.isUnused}
-		if r.last.Valid {
-			mm.LastQueriedAt = r.last.Time.UTC().Format(time.RFC3339)
-		}
-		out = append(out, mm)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iter: %w", err)
-	}
-	return out, nil
+	return ScanRows(rows, scanMetricMetadataWithUnused)
 }
 
 // upsertMetricsCatalogItems de-duplicates items by name (last occurrence
@@ -1380,20 +1247,7 @@ func (p *PostGreSQLProvider) ListJobs(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var jobs []string
-	for rows.Next() {
-		var job string
-		if err := rows.Scan(&job); err != nil {
-			return nil, fmt.Errorf("scan job: %w", err)
-		}
-		jobs = append(jobs, job)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iter jobs: %w", err)
-	}
-	return jobs, nil
+	return ScanRows(rows, scanJob)
 }
 
 func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error) {
@@ -1466,22 +1320,10 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
 	result := &AverageDurationResult{}
-
-	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+	if err := ScanSingleRow(rows, &result.AvgDuration, &result.DeltaPercent); err != nil {
+		return nil, err
 	}
-
-	if err := rows.Scan(&result.AvgDuration, &result.DeltaPercent); err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -1510,27 +1352,10 @@ func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, met
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
 	result := &QueryRateResult{}
-
-	if !rows.Next() {
-		return nil, fmt.Errorf("no results found")
+	if err := ScanSingleRow(rows, &result.SuccessTotal, &result.SuccessRatePercent, &result.ErrorTotal, &result.ErrorRatePercent); err != nil {
+		return nil, err
 	}
-
-	if err := rows.Scan(
-		&result.SuccessTotal,
-		&result.SuccessRatePercent,
-		&result.ErrorTotal,
-		&result.ErrorRatePercent,
-	); err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -1576,22 +1401,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueryStatusDistributionResult
-	for rows.Next() {
-		var result QueryStatusDistributionResult
-		if err := rows.Scan(&result.Time, &result.Status2xx, &result.Status4xx, &result.Status5xx); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
-		}
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
-	}
-
-	return results, nil
+	return ScanRows(rows, scanQueryStatusDistribution)
 }
 
 func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error) {
@@ -1630,24 +1440,13 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueryLatencyTrendsResult
-	for rows.Next() {
+	return ScanRows(rows, func(row *sql.Rows) (QueryLatencyTrendsResult, error) {
 		var result QueryLatencyTrendsResult
 		var p95 float64
-		if err := rows.Scan(&result.Time, &result.Value, &p95); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
-		}
+		err := row.Scan(&result.Time, &result.Value, &p95)
 		result.P95 = int(p95)
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
-	}
-
-	return results, nil
+		return result, err
+	})
 }
 
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
@@ -1679,22 +1478,7 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueryThroughputAnalysisResult
-	for rows.Next() {
-		var result QueryThroughputAnalysisResult
-		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
-		}
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
-	}
-
-	return results, nil
+	return ScanRows(rows, scanQueryThroughputAnalysis)
 }
 
 func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error) {
@@ -1728,22 +1512,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueryErrorAnalysisResult
-	for rows.Next() {
-		var result QueryErrorAnalysisResult
-		if err := rows.Scan(&result.Time, &result.Value); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
-		}
-		results = append(results, result)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
-	}
-
-	return results, nil
+	return ScanRows(rows, scanQueryErrorAnalysis)
 }
 
 // GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
@@ -1783,20 +1552,7 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	defer CloseResource(rows)
-
-	var results []QueryTimeRangeDistributionResult
-	for rows.Next() {
-		var r QueryTimeRangeDistributionResult
-		if err := rows.Scan(&r.Label, &r.Count, &r.Percent); err != nil {
-			return nil, ErrorWithOperation(err, "scanning row")
-		}
-		results = append(results, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, ErrorWithOperation(err, "row iteration")
-	}
-	return results, nil
+	return ScanRows(rows, scanQueryTimeRangeDistribution)
 }
 
 // GetRecentQueries removed (endpoint deprecated)
@@ -1847,21 +1603,10 @@ func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params Que
 	if err != nil {
 		return PagedResult{}, err
 	}
-	defer CloseResource(rows)
-
-	var (
-		results    []QueryExpression
-		totalCount int
-	)
-	for rows.Next() {
-		var r QueryExpression
-		if err := rows.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples, &totalCount); err != nil {
-			return PagedResult{}, fmt.Errorf("scan: %w", err)
-		}
-		results = append(results, r)
-	}
-	if err := rows.Err(); err != nil {
-		return PagedResult{}, fmt.Errorf("row iter: %w", err)
+	var totalCount int
+	results, err := ScanRows(rows, scanQueryExpression(&totalCount))
+	if err != nil {
+		return PagedResult{}, err
 	}
 
 	totalPages := CalculateTotalPages(totalCount, params.PageSize)
@@ -1907,40 +1652,10 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 	if err != nil {
 		return PagedResult{}, err
 	}
-	defer CloseResource(rows)
-
-	type row struct {
-		ts          time.Time
-		status      int
-		duration    int64
-		samples     int
-		typ         string
-		steps       float64
-		httpHeaders []byte
-		start       time.Time
-		end         time.Time
-		totalCount  int
-	}
-	var (
-		results []QueryExecutionRow
-		total   int
-	)
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.ts, &r.status, &r.duration, &r.samples, &r.typ, &r.steps, &r.httpHeaders, &r.start, &r.end, &r.totalCount); err != nil {
-			return PagedResult{}, ErrorWithOperation(err, "scanning row")
-		}
-		res := QueryExecutionRow{Timestamp: r.ts, Status: r.status, Duration: r.duration, Samples: r.samples, Type: r.typ, Steps: r.steps, Start: r.start, End: r.end}
-		if len(r.httpHeaders) > 0 {
-			if err := json.Unmarshal(r.httpHeaders, &res.HTTPHeaders); err != nil {
-				return PagedResult{}, fmt.Errorf("unmarshal httpHeaders: %w", err)
-			}
-		}
-		results = append(results, res)
-		total = r.totalCount
-	}
-	if err := rows.Err(); err != nil {
-		return PagedResult{}, ErrorWithOperation(err, "row iteration")
+	var total int
+	results, err := ScanRows(rows, scanQueryExecution(&total))
+	if err != nil {
+		return PagedResult{}, err
 	}
 	return PagedResult{Total: total, TotalPages: CalculateTotalPages(total, params.PageSize), Data: results}, nil
 }
@@ -1982,28 +1697,10 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	if err != nil {
 		return MetricUsageStatics{}, err
 	}
-	defer CloseResource(rows)
-
 	result := MetricUsageStatics{}
-	if !rows.Next() {
-		return MetricUsageStatics{}, nil
+	if err := ScanSingleRow(rows, &result.AlertCount, &result.RecordCount, &result.DashboardCount, &result.TotalAlerts, &result.TotalRecords, &result.TotalDashboards); err != nil {
+		return MetricUsageStatics{}, err
 	}
-
-	if err := rows.Scan(
-		&result.AlertCount,
-		&result.RecordCount,
-		&result.DashboardCount,
-		&result.TotalAlerts,
-		&result.TotalRecords,
-		&result.TotalDashboards,
-	); err != nil {
-		return MetricUsageStatics{}, fmt.Errorf("failed to scan row: %w", err)
-	}
-
-	if err := rows.Err(); err != nil {
-		return MetricUsageStatics{}, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -2024,21 +1721,10 @@ func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Con
 	if err != nil {
 		return MetricQueryPerformanceStatistics{}, err
 	}
-	defer CloseResource(rows)
-
 	result := MetricQueryPerformanceStatistics{}
-	if !rows.Next() {
-		return MetricQueryPerformanceStatistics{}, nil
+	if err := ScanSingleRow(rows, &result.TotalQueries, &result.AverageSamples, &result.PeakSamples, &result.AverageDuration); err != nil {
+		return MetricQueryPerformanceStatistics{}, err
 	}
-
-	if err := rows.Scan(&result.TotalQueries, &result.AverageSamples, &result.PeakSamples, &result.AverageDuration); err != nil {
-		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to scan row: %w", err)
-	}
-
-	if err := rows.Err(); err != nil {
-		return MetricQueryPerformanceStatistics{}, fmt.Errorf("row iteration error: %w", err)
-	}
-
 	return result, nil
 }
 
