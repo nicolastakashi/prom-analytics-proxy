@@ -18,15 +18,6 @@ const (
 	ISOTimeFormat    = time.RFC3339          // For standard ISO format
 )
 
-// Time constants
-const (
-	FifteenMinutes = 15 * time.Minute
-	ThirtyMinutes  = 30 * time.Minute
-	OneHour        = time.Hour
-	OneDay         = 24 * time.Hour
-	ThirtyDays     = 30 * 24 * time.Hour
-)
-
 // SQL ORDER BY direction literals. resolveSafeSortOrder narrows the
 // user-supplied sortOrder to one of these two constants so the ORDER BY
 // direction in generated SQL is never user-controlled.
@@ -126,15 +117,6 @@ func GetDbProvider(ctx context.Context, dbProvider DatabaseProvider) (Provider, 
 		return newSqliteProvider(ctx)
 	default:
 		return nil, ValidationError("database type", fmt.Sprintf("invalid type %q, only 'postgresql' and 'sqlite' are supported", dbProvider))
-	}
-}
-
-func SetDefaultTimeRange(tr *TimeRange) {
-	if tr.From.IsZero() {
-		tr.From = time.Now().UTC().Add(-ThirtyDays)
-	}
-	if tr.To.IsZero() {
-		tr.To = time.Now().UTC()
 	}
 }
 
@@ -306,23 +288,6 @@ type MetricCatalogItem struct {
 type MetricJobIndexItem struct {
 	Name string
 	Job  string
-}
-
-type TimeRange struct {
-	From time.Time
-	To   time.Time
-}
-
-func (tr TimeRange) Format(layout string) (string, string) {
-	return tr.From.UTC().Format(layout), tr.To.UTC().Format(layout)
-}
-
-func (tr TimeRange) Previous() TimeRange {
-	duration := tr.To.Sub(tr.From)
-	return TimeRange{
-		From: tr.From.Add(-duration),
-		To:   tr.To.Add(-duration),
-	}
 }
 
 type ListQueriesResult struct {

@@ -214,6 +214,35 @@ func defaultTimeParam() time.Time {
 	return time.Now().UTC()
 }
 
+// timeRangeParam returns the request's from and to as a db.TimeRange, each
+// defaulting to now when absent. When they do not form one, it answers 400
+// and returns false.
+func timeRangeParam(w http.ResponseWriter, req *http.Request) (db.TimeRange, bool) {
+	tr, err := db.NewTimeRange(getTimeParam(req, "from"), getTimeParam(req, "to"))
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid time range: %w", err), http.StatusBadRequest)
+		return db.TimeRange{}, false
+	}
+	return tr, true
+}
+
+// pageParams returns the request's page and pageSize, defaulting to 1 and
+// defaultPageSize when absent. When either is not an integer, it answers 400
+// and returns false.
+func pageParams(w http.ResponseWriter, req *http.Request, defaultPageSize int) (page, pageSize int, ok bool) {
+	page, err := getQueryParamAsInt(req, "page", 1)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
+		return 0, 0, false
+	}
+	pageSize, err = getQueryParamAsInt(req, "pageSize", defaultPageSize)
+	if err != nil {
+		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+		return 0, 0, false
+	}
+	return page, pageSize, true
+}
+
 func getTimeParam(req *http.Request, param string) time.Time {
 	if timeParam := req.FormValue(param); timeParam != "" {
 		// Attempt RFC3339 parsing first.
@@ -515,19 +544,13 @@ func (r *routes) query_range(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/types [get]
 func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	if from.IsZero() {
-		from = time.Now().UTC().Add(-7 * 24 * time.Hour)
-	}
-
-	if to.IsZero() {
-		to = time.Now().UTC()
-	}
-
-	data, err := r.dbProvider.GetQueryTypes(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
+	data, err := r.dbProvider.GetQueryTypes(req.Context(), tr, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -549,11 +572,13 @@ func (r *routes) queryTypes(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/average_duration [get]
 func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetAverageDuration(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
+	data, err := r.dbProvider.GetAverageDuration(req.Context(), tr, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -575,11 +600,13 @@ func (r *routes) averageDuration(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/rate [get]
 func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, "", fingerprint)
+	data, err := r.dbProvider.GetQueryRate(req.Context(), tr, "", fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -601,11 +628,13 @@ func (r *routes) queryRate(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/status_distribution [get]
 func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryStatusDistribution(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
+	data, err := r.dbProvider.GetQueryStatusDistribution(req.Context(), tr, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -628,12 +657,14 @@ func (r *routes) queryStatusDistribution(w http.ResponseWriter, req *http.Reques
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/latency [get]
 func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	metric_name := req.FormValue("metricName")
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), db.TimeRange{From: from, To: to}, metric_name, fingerprint)
+	data, err := r.dbProvider.GetQueryLatencyTrends(req.Context(), tr, metric_name, fingerprint)
 
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
@@ -655,10 +686,12 @@ func (r *routes) queryLatencyTrends(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/throughput [get]
 func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 
-	data, err := r.dbProvider.GetQueryThroughputAnalysis(req.Context(), db.TimeRange{From: from, To: to})
+	data, err := r.dbProvider.GetQueryThroughputAnalysis(req.Context(), tr)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -680,11 +713,13 @@ func (r *routes) queryThroughputAnalysis(w http.ResponseWriter, req *http.Reques
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/errors [get]
 func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
+	data, err := r.dbProvider.GetQueryErrorAnalysis(req.Context(), tr, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -706,11 +741,13 @@ func (r *routes) queryErrorAnalysis(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/time_range_distribution [get]
 func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 
-	data, err := r.dbProvider.GetQueryTimeRangeDistribution(req.Context(), db.TimeRange{From: from, To: to}, fingerprint)
+	data, err := r.dbProvider.GetQueryTimeRangeDistribution(req.Context(), tr, fingerprint)
 	if err != nil {
 		slog.Error("unable to execute query", "err", err)
 		writeErrorResponse(req, w, fmt.Errorf("unable to execute query: %w", err), http.StatusInternalServerError)
@@ -736,18 +773,13 @@ func (r *routes) queryTimeRangeDistribution(w http.ResponseWriter, req *http.Req
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/expressions [get]
 func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
-
-	page, err := getQueryParamAsInt(req, "page", 1)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
 		return
 	}
 
-	pageSize, err := getQueryParamAsInt(req, "pageSize", 10)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+	page, pageSize, ok := pageParams(w, req, 10)
+	if !ok {
 		return
 	}
 
@@ -756,7 +788,7 @@ func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
 	filter := req.FormValue("filter")
 
 	params := db.QueryExpressionsParams{
-		TimeRange: db.TimeRange{From: from, To: to},
+		TimeRange: tr,
 		Page:      page,
 		PageSize:  pageSize,
 		SortBy:    sortBy,
@@ -791,21 +823,17 @@ func (r *routes) queryExpressions(w http.ResponseWriter, req *http.Request) {
 // @Failure 500 {object} models.ErrorResponse
 // @Router /api/v1/query/executions [get]
 func (r *routes) queryExecutions(w http.ResponseWriter, req *http.Request) {
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 	fingerprint := req.FormValue("fingerprint")
 	if fingerprint == "" {
 		writeErrorResponse(req, w, fmt.Errorf("missing fingerprint parameter"), http.StatusBadRequest)
 		return
 	}
-	page, err := getQueryParamAsInt(req, "page", 1)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
-		return
-	}
-	pageSize, err := getQueryParamAsInt(req, "pageSize", 10)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+	page, pageSize, ok := pageParams(w, req, 10)
+	if !ok {
 		return
 	}
 	sortBy := req.FormValue("sortBy")
@@ -817,7 +845,7 @@ func (r *routes) queryExecutions(w http.ResponseWriter, req *http.Request) {
 
 	params := db.QueryExecutionsParams{
 		Fingerprint: fingerprint,
-		TimeRange:   db.TimeRange{From: from, To: to},
+		TimeRange:   tr,
 		Page:        page,
 		PageSize:    pageSize,
 		SortBy:      sortBy,
@@ -948,10 +976,12 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 
-	statistics, err := r.dbProvider.GetMetricStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
+	statistics, err := r.dbProvider.GetMetricStatistics(req.Context(), name, tr)
 	if err != nil {
 		slog.Error("unable to retrieve metric statistics", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric statistics: %w", err), http.StatusInternalServerError)
@@ -965,7 +995,7 @@ func (r *routes) GetMetricStatistics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	labels, _, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, from, to)
+	labels, _, _, err := r.promAPI.LabelNames(req.Context(), []string{name}, tr.From(), tr.To())
 	if err != nil {
 		slog.Error("unable to retrieve label names", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve label names: %w", err), http.StatusInternalServerError)
@@ -1011,17 +1041,19 @@ func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req 
 		return
 	}
 
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 
-	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), db.TimeRange{From: from, To: to}, name, "")
+	queryRate, err := r.dbProvider.GetQueryRate(req.Context(), tr, name, "")
 	if err != nil {
 		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
 		return
 	}
 
-	queryPerformanceStatistics, err := r.dbProvider.GetMetricQueryPerformanceStatistics(req.Context(), name, db.TimeRange{From: from, To: to})
+	queryPerformanceStatistics, err := r.dbProvider.GetMetricQueryPerformanceStatistics(req.Context(), name, tr)
 	if err != nil {
 		slog.Error("unable to retrieve metric query performance statistics", "err", err, "name", name)
 		writeErrorResponse(req, w, fmt.Errorf("unable to retrieve metric query performance statistics: %w", err), http.StatusInternalServerError)
@@ -1052,23 +1084,18 @@ func (r *routes) GetMetricQueryPerformanceStatistics(w http.ResponseWriter, req 
 func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 	name := req.PathValue("name")
 
-	page, err := getQueryParamAsInt(req, "page", 1)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
-		return
-	}
-
-	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
-	if err != nil {
-		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter: %w", err), http.StatusBadRequest)
+	page, pageSize, ok := pageParams(w, req, 1)
+	if !ok {
 		return
 	}
 
 	sortBy := req.URL.Query().Get("sortBy")
 	sortOrder := req.URL.Query().Get("sortOrder")
 	filter := req.URL.Query().Get("filter")
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 
 	params := db.QueriesBySerieNameParams{
 		SerieName: name,
@@ -1077,7 +1104,7 @@ func (r *routes) serieExpressions(w http.ResponseWriter, req *http.Request) {
 		Filter:    filter,
 		SortBy:    sortBy,
 		SortOrder: sortOrder,
-		TimeRange: db.TimeRange{From: from, To: to},
+		TimeRange: tr,
 	}
 
 	data, err := r.dbProvider.GetQueriesBySerieName(req.Context(), params)
@@ -1254,25 +1281,18 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	page, err := getQueryParamAsInt(req, "page", 1)
-	if err != nil {
-		slog.Error("invalid page parameter", "err", err, "name", name, "kind", kind)
-		writeErrorResponse(req, w, fmt.Errorf("invalid page parameter: %w", err), http.StatusBadRequest)
-		return
-	}
-
-	pageSize, err := getQueryParamAsInt(req, "pageSize", 1)
-	if err != nil {
-		slog.Error("invalid pageSize parameter", "err", err)
-		writeErrorResponse(req, w, fmt.Errorf("invalid pageSize parameter"), http.StatusBadRequest)
+	page, pageSize, ok := pageParams(w, req, 1)
+	if !ok {
 		return
 	}
 
 	filter := req.URL.Query().Get("filter")
 	sortBy := req.URL.Query().Get("sortBy")
 	sortOrder := req.URL.Query().Get("sortOrder")
-	from := getTimeParam(req, "from")
-	to := getTimeParam(req, "to")
+	tr, ok := timeRangeParam(w, req)
+	if !ok {
+		return
+	}
 
 	if kind == "dashboard" {
 		params := db.DashboardUsageParams{
@@ -1282,7 +1302,7 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 			Filter:    filter,
 			SortBy:    sortBy,
 			SortOrder: sortOrder,
-			TimeRange: db.TimeRange{From: from, To: to},
+			TimeRange: tr,
 		}
 
 		dashboards, err := r.dbProvider.GetDashboardUsage(req.Context(), params)
@@ -1303,7 +1323,7 @@ func (r *routes) GetMetricUsage(w http.ResponseWriter, req *http.Request) {
 		Filter:    filter,
 		SortBy:    sortBy,
 		SortOrder: sortOrder,
-		TimeRange: db.TimeRange{From: from, To: to},
+		TimeRange: tr,
 	}
 
 	alerts, err := r.dbProvider.GetRulesUsage(req.Context(), params)

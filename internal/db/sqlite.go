@@ -249,6 +249,9 @@ func (p *SQLiteProvider) Insert(ctx context.Context, queries []Query) error {
 }
 
 func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params QueriesBySerieNameParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
@@ -258,7 +261,6 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 		"maxPeakSamples":  true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	startTime, endTime := PrepareTimeRange(params.TimeRange, "sqlite")
 
@@ -435,6 +437,9 @@ func (p *SQLiteProvider) InsertRulesUsage(ctx context.Context, rulesUsage []Rule
 }
 
 func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSortFields := map[string]bool{
 		"name":       true,
@@ -443,7 +448,6 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 		"created_at": true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
@@ -598,6 +602,9 @@ func (p *SQLiteProvider) InsertDashboardUsage(ctx context.Context, dashboardUsag
 }
 
 func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSortFields := map[string]bool{
 		"name":       true,
@@ -605,7 +612,6 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 		"created_at": true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
 
@@ -1075,6 +1081,9 @@ const refreshMetricsUsageSummaryQuerySQLite = `
     `
 
 func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	if tr.IsZero() {
+		return ErrTimeRangeRequired
+	}
 	from, to := PrepareTimeRange(tr, "sqlite")
 	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQuerySQLite, to, from, to, from, from, to, from)
 	if err != nil {
@@ -1088,7 +1097,9 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
 
 // GetQueryTypes returns the total number of queries, the percentage of instant queries, and the percentage of range queries.
 func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	startTime, endTime := PrepareTimeRange(tr, "sqlite")
 
 	query := `
@@ -1138,6 +1149,9 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange, finger
 }
 
 func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error) {
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	query := `
 		WITH current AS (
 			SELECT AVG(duration) AS avg_current
@@ -1178,6 +1192,9 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange, f
 }
 
 func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string, fingerprint string) (*QueryRateResult, error) {
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	query := `
 		SELECT
 			SUM(CASE WHEN statusCode >= 200 AND statusCode < 300 THEN 1 ELSE 0 END) AS successful_queries,
@@ -1223,7 +1240,7 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 // minute of tr.From through the minute of tr.To, both included. It returns
 // the statement and its arguments, the buckets' followed by args.
 func withSQLiteTimeBuckets(tr TimeRange, query string, args ...any) (string, []any) {
-	interval := GetInterval(tr.From, tr.To, "sqlite")
+	interval := GetInterval(tr.From(), tr.To(), "sqlite")
 	from, to := PrepareTimeRange(tr, "sqlite")
 	return sqliteTimeBuckets + query, append([]any{from, from, interval, interval, to}, args...)
 }
@@ -1252,11 +1269,13 @@ func sqliteSecond(column string) string {
 // every stored timestamp whose second lies from tr.From's second through
 // tr.To's second, both included.
 func sqliteSecondRange(tr TimeRange) (from, until string) {
-	return tr.From.UTC().Format(SQLiteTimeFormat), tr.To.UTC().Add(time.Second).Format(SQLiteTimeFormat)
+	return tr.From().UTC().Format(SQLiteTimeFormat), tr.To().UTC().Add(time.Second).Format(SQLiteTimeFormat)
 }
 
 func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	from, until := sqliteSecondRange(tr)
 
 	query, args := withSQLiteTimeBuckets(tr, `,
@@ -1287,7 +1306,9 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 }
 
 func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 
 	query, args := withSQLiteTimeBuckets(tr, `,
 	-- Ranks each bucket's own durations; nearest-rank p95 is the row at
@@ -1339,7 +1360,9 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 }
 
 func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 
 	query, args := withSQLiteTimeBuckets(tr, `
 	SELECT
@@ -1361,7 +1384,9 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 }
 
 func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 
 	query, args := withSQLiteTimeBuckets(tr, `
 	SELECT
@@ -1388,7 +1413,9 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 
 // GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
 func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	from, until := sqliteSecondRange(tr)
 	start, end := "julianday("+sqliteSecond("start")+")", "julianday("+sqliteSecond(`"end"`)+")"
 
@@ -1435,6 +1462,9 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
 
 // GetQueryExpressions aggregates queries by fingerprint for SQLite
 func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
@@ -1515,6 +1545,9 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
 
 // GetQueryExecutions returns raw query executions with DB-computed steps
 func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	if params.SortOrder == "" {
 		params.SortOrder = "desc"
@@ -1607,6 +1640,9 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 }
 
 func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
+	if tr.IsZero() {
+		return MetricUsageStatics{}, ErrTimeRangeRequired
+	}
 	query := `
 	WITH rule_stats AS (
 		SELECT
@@ -1654,6 +1690,9 @@ func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName str
 }
 
 func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
+	if tr.IsZero() {
+		return MetricQueryPerformanceStatistics{}, ErrTimeRangeRequired
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_queries,
