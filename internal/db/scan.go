@@ -78,19 +78,19 @@ func scanJob(row *sql.Rows) (string, error) {
 
 func scanQueryStatusDistribution(row *sql.Rows) (QueryStatusDistributionResult, error) {
 	var r QueryStatusDistributionResult
-	err := row.Scan(&r.Time, &r.Status2xx, &r.Status4xx, &r.Status5xx)
+	err := row.Scan((*bucketTime)(&r.Time), &r.Status2xx, &r.Status4xx, &r.Status5xx)
 	return r, err
 }
 
 func scanQueryThroughputAnalysis(row *sql.Rows) (QueryThroughputAnalysisResult, error) {
 	var r QueryThroughputAnalysisResult
-	err := row.Scan(&r.Time, &r.Value)
+	err := row.Scan((*bucketTime)(&r.Time), &r.Value)
 	return r, err
 }
 
 func scanQueryErrorAnalysis(row *sql.Rows) (QueryErrorAnalysisResult, error) {
 	var r QueryErrorAnalysisResult
-	err := row.Scan(&r.Time, &r.Value)
+	err := row.Scan((*bucketTime)(&r.Time), &r.Value)
 	return r, err
 }
 
@@ -98,6 +98,27 @@ func scanQueryTimeRangeDistribution(row *sql.Rows) (QueryTimeRangeDistributionRe
 	var r QueryTimeRangeDistributionResult
 	err := row.Scan(&r.Label, &r.Count, &r.Percent)
 	return r, err
+}
+
+// bucketTime scans a time.Time, or text in SQLiteTimeFormat, as a UTC
+// time.Time.
+type bucketTime time.Time
+
+func (b *bucketTime) Scan(src any) error {
+	switch v := src.(type) {
+	case time.Time:
+		*b = bucketTime(v.UTC())
+		return nil
+	case string:
+		t, err := time.ParseInLocation(SQLiteTimeFormat, v, time.UTC)
+		if err != nil {
+			return fmt.Errorf("bucket time: %w", err)
+		}
+		*b = bucketTime(t)
+		return nil
+	default:
+		return fmt.Errorf("bucket time: unsupported type %T", src)
+	}
 }
 
 // metricMetadataRow holds a series metadata row's columns while it is

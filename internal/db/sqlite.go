@@ -1354,7 +1354,7 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	}
 	return ScanRows(rows, func(row *sql.Rows) (QueryLatencyTrendsResult, error) {
 		var result QueryLatencyTrendsResult
-		err := row.Scan(&result.Time, &result.Value, &result.P95)
+		err := row.Scan((*bucketTime)(&result.Time), &result.Value, &result.P95)
 		return result, err
 	})
 }
