@@ -241,8 +241,7 @@ func (s *Syncer) RunOnce(ctx context.Context) {
 	}
 
 	if s.jobSyncEnabled {
-		tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
-		if err := s.syncJobIndex(cycleCtx, tr); err != nil {
+		if err := s.syncJobIndex(cycleCtx, db.TimeRangeUntilNow(s.timeWindow)); err != nil {
 			// The run still counts as a success: the catalog and the summary
 			// both landed, and this step's outcome is separable from theirs
 			// (see docs/jobs.md). Counted on its own so an index left stale
@@ -280,8 +279,7 @@ func (s *Syncer) syncCatalogAndSummary(cycleCtx context.Context) (catalogCommitt
 
 	sumCtx, cancelSum := context.WithTimeout(cycleCtx, s.summaryStepTimeout)
 	defer cancelSum()
-	tr := db.TimeRange{From: time.Now().UTC().Add(-s.timeWindow), To: time.Now().UTC()}
-	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, tr); err != nil {
+	if err := s.dbProvider.RefreshMetricsUsageSummary(sumCtx, db.TimeRangeUntilNow(s.timeWindow)); err != nil {
 		slog.Error("inventory: refresh summary", "err", err)
 		return true, err
 	}

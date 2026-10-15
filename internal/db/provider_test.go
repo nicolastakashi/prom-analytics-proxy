@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -198,38 +197,6 @@ func TestCalculateTotalPages(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestTimeRange_Format(t *testing.T) {
-	t.Parallel()
-	tr := TimeRange{
-		From: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
-		To:   time.Date(2023, 1, 15, 12, 0, 0, 0, time.UTC),
-	}
-
-	fromStr, toStr := tr.Format(time.RFC3339)
-
-	expectedFrom := "2023-01-01T12:00:00Z"
-	expectedTo := "2023-01-15T12:00:00Z"
-
-	assert.Equal(t, expectedFrom, fromStr)
-	assert.Equal(t, expectedTo, toStr)
-}
-
-func TestTimeRange_Previous(t *testing.T) {
-	t.Parallel()
-	tr := TimeRange{
-		From: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
-		To:   time.Date(2023, 1, 15, 12, 0, 0, 0, time.UTC),
-	}
-
-	previous := tr.Previous()
-
-	expectedFrom := time.Date(2022, 12, 18, 12, 0, 0, 0, time.UTC)
-	expectedTo := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
-
-	assert.Equal(t, expectedFrom, previous.From)
-	assert.Equal(t, expectedTo, previous.To)
 }
 
 func TestGetDbProvider(t *testing.T) {

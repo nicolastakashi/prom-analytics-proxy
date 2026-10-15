@@ -39,7 +39,7 @@ func TestOTLPIngester_E2E_GRPC_FilterAndForward(t *testing.T) {
 		LabelMatchers: db.LabelMatchers{{"__name__": "used_metric"}},
 		Type:          db.QueryTypeInstant,
 	}}))
-	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}))
+	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))))
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

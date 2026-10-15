@@ -1027,7 +1027,7 @@ func TestOTLPIngester_Integration_UnusedFiltering_PostgreSQL(t *testing.T) {
 	now := time.Now().UTC()
 	q := db.Query{TS: now, QueryParam: "used_metric", TimeParam: now, Duration: 10 * time.Millisecond, StatusCode: 200, LabelMatchers: db.LabelMatchers{{"__name__": "used_metric"}}, Type: db.QueryTypeInstant}
 	assert.NoError(t, prov.Insert(context.Background(), []db.Query{q}))
-	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}))
+	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))))
 
 	buildGauge := func(name string) *metricspb.Metric {
 		return &metricspb.Metric{Name: name, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
@@ -1126,7 +1126,7 @@ func TestOTLPIngester_Integration_DownstreamCollector(t *testing.T) {
 	assert.NoError(t, err)
 	now := time.Now().UTC()
 	assert.NoError(t, prov.Insert(context.Background(), []db.Query{{TS: now, QueryParam: "used_metric", TimeParam: now, Duration: 5 * time.Millisecond, StatusCode: 200, LabelMatchers: db.LabelMatchers{{"__name__": "used_metric"}}, Type: db.QueryTypeInstant}}))
-	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}))
+	assert.NoError(t, prov.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))))
 
 	buildGauge := func(name string) *metricspb.Metric {
 		return &metricspb.Metric{Name: name, Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{Attributes: []*commonpb.KeyValue{}}}}}}
@@ -1361,4 +1361,15 @@ func TestOTLPIngester_Run_ShutdownFlushesCatalogBuffer(t *testing.T) {
 	}
 
 	mp.AssertExpectations(t)
+}
+
+// mustTimeRange is the db.TimeRange from from to to, failing tb if it is not
+// a valid one.
+func mustTimeRange(tb testing.TB, from, to time.Time) db.TimeRange {
+	tb.Helper()
+	tr, err := db.NewTimeRange(from, to)
+	if err != nil {
+		tb.Fatalf("NewTimeRange: %v", err)
+	}
+	return tr
 }

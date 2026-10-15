@@ -32,7 +32,7 @@ const (
 // lastHour is the lookback window these tests pass to syncJobIndex; the
 // fakes never read it, so any window will do.
 func lastHour() db.TimeRange {
-	return db.TimeRange{From: time.Now().Add(-time.Hour), To: time.Now()}
+	return db.TimeRangeUntilNow(time.Hour)
 }
 
 // defaultBudgetSyncer builds a Syncer on the shipped default budget with

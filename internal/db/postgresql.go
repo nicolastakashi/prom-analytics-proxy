@@ -355,6 +355,9 @@ func (p *PostGreSQLProvider) Insert(ctx context.Context, queries []Query) error 
 func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	ctx context.Context,
 	params QueriesBySerieNameParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 
 	// Set default values using common helpers
 	ValidatePagination(&params.Page, &params.PageSize, 10)
@@ -366,7 +369,6 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 		"maxPeakSamples":  true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	baseQuery := `
 	WITH filtered_queries AS (
@@ -406,8 +408,8 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 
 	args := []interface{}{
 		metricMatcherJSON(params.SerieName),
-		params.TimeRange.From,
-		params.TimeRange.To,
+		params.TimeRange.From(),
+		params.TimeRange.To(),
 		params.Filter,
 		params.PageSize,
 		(params.Page - 1) * params.PageSize,
@@ -575,6 +577,9 @@ func (p *PostGreSQLProvider) InsertRulesUsage(ctx context.Context, rulesUsage []
 }
 
 func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsageParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSortFields := map[string]bool{
 		"name":       true,
@@ -583,7 +588,6 @@ func (p *PostGreSQLProvider) GetRulesUsage(ctx context.Context, params RulesUsag
 		"created_at": true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	startTime, endTime := params.TimeRange.Format(ISOTimeFormat)
 
@@ -763,6 +767,9 @@ func (p *PostGreSQLProvider) InsertDashboardUsage(ctx context.Context, dashboard
 }
 
 func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params DashboardUsageParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSortFields := map[string]bool{
 		"name":       true,
@@ -770,7 +777,6 @@ func (p *PostGreSQLProvider) GetDashboardUsage(ctx context.Context, params Dashb
 		"created_at": true,
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
-	SetDefaultTimeRange(&params.TimeRange)
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
@@ -1080,7 +1086,7 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	//
 	// last_synced_at is stored as TIMESTAMP WITHOUT TIME ZONE, so a bare NOW()
 	// lands in the server session's time zone while RefreshMetricsUsageSummary
-	// compares it against tr.From.UTC() (see PrepareTimeRange). AT TIME ZONE
+	// compares it against tr.From().UTC() (see PrepareTimeRange). AT TIME ZONE
 	// 'UTC' pins the written value to UTC so the two stay in the same clock
 	// domain regardless of session TimeZone.
 	if _, err := tx.ExecContext(ctx, `
@@ -1183,6 +1189,9 @@ const refreshMetricsUsageSummaryQueryPostgreSQL = `
     `
 
 func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr TimeRange) error {
+	if tr.IsZero() {
+		return ErrTimeRangeRequired
+	}
 	from, to := PrepareTimeRange(tr, "postgresql")
 	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQueryPostgreSQL, from, to)
 	if err != nil {
@@ -1251,7 +1260,9 @@ func (p *PostGreSQLProvider) ListJobs(ctx context.Context) ([]string, error) {
 }
 
 func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fingerprint string) (*QueryTypesResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	startTime, endTime := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1294,6 +1305,9 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fi
 }
 
 func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRange, fingerprint string) (*AverageDurationResult, error) {
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	query := `
 		WITH win AS (
 			SELECT
@@ -1328,6 +1342,9 @@ func (p *PostGreSQLProvider) GetAverageDuration(ctx context.Context, tr TimeRang
 }
 
 func (p *PostGreSQLProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricName string, fingerprint string) (*QueryRateResult, error) {
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	query := `
 		WITH s AS (
 			SELECT
@@ -1368,8 +1385,10 @@ const (
 )
 
 func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
-	SetDefaultTimeRange(&tr)
-	interval := GetInterval(tr.From, tr.To, "postgresql")
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
+	interval := GetInterval(tr.From(), tr.To(), "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1405,8 +1424,10 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 }
 
 func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange, metricName string, fingerprint string) ([]QueryLatencyTrendsResult, error) {
-	SetDefaultTimeRange(&tr)
-	interval := GetInterval(tr.From, tr.To, "postgresql")
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
+	interval := GetInterval(tr.From(), tr.To(), "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1450,8 +1471,10 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 }
 
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
-	SetDefaultTimeRange(&tr)
-	interval := GetInterval(tr.From, tr.To, "postgresql")
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
+	interval := GetInterval(tr.From(), tr.To(), "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1482,8 +1505,10 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 }
 
 func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryErrorAnalysisResult, error) {
-	SetDefaultTimeRange(&tr)
-	interval := GetInterval(tr.From, tr.To, "postgresql")
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
+	interval := GetInterval(tr.From(), tr.To(), "postgresql")
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1517,7 +1542,9 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 
 // GetQueryTimeRangeDistribution returns counts and percentages of range queries bucketed by window size.
 func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryTimeRangeDistributionResult, error) {
-	SetDefaultTimeRange(&tr)
+	if tr.IsZero() {
+		return nil, ErrTimeRangeRequired
+	}
 	from, to := PrepareTimeRange(tr, "postgresql")
 
 	query := `
@@ -1559,6 +1586,9 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
 
 // GetQueryExpressions aggregates queries by fingerprint returning executions, avgDuration, errorRatePercent, peakSamples and latest query text
 func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params QueryExpressionsParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 
 	validSortFields := map[string]bool{
@@ -1615,6 +1645,9 @@ func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params Que
 
 // GetQueryExecutions returns raw executions filtered by fingerprint/time range with steps computed in DB
 func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params QueryExecutionsParams) (PagedResult, error) {
+	if params.TimeRange.IsZero() {
+		return PagedResult{}, ErrTimeRangeRequired
+	}
 	ValidatePagination(&params.Page, &params.PageSize, 10)
 	validSort := map[string]bool{
 		"ts":         true,
@@ -1661,6 +1694,9 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 }
 
 func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricUsageStatics, error) {
+	if tr.IsZero() {
+		return MetricUsageStatics{}, ErrTimeRangeRequired
+	}
 	query := `
 	WITH rule_stats AS (
 		SELECT
@@ -1705,6 +1741,9 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 }
 
 func (p *PostGreSQLProvider) GetMetricQueryPerformanceStatistics(ctx context.Context, metricName string, tr TimeRange) (MetricQueryPerformanceStatistics, error) {
+	if tr.IsZero() {
+		return MetricQueryPerformanceStatistics{}, ErrTimeRangeRequired
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_queries,
