@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -22,9 +23,13 @@ type fakeAdvisoryConn struct {
 	unlockResult bool
 	unlockErr    error
 	unlockCtx    context.Context
+	// unlockedDuringPing records whether unlock ran while a ping was in flight.
+	unlockedDuringPing bool
 
-	pingErrAfter int // ping fails starting from this call number; 0 = never fails
+	pingErrAfter int           // ping fails starting from this call number; 0 = never fails
+	pingGate     chan struct{} // when set, each ping waits for it before returning
 	pingCalls    int
+	pinging      bool
 
 	discarded bool
 	closed    bool
@@ -34,12 +39,24 @@ func (f *fakeAdvisoryConn) unlock(ctx context.Context, _ int64) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unlockCtx = ctx
+	f.unlockedDuringPing = f.pinging
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	return f.unlockResult, f.unlockErr
 }
 
 func (f *fakeAdvisoryConn) ping(context.Context) error {
 	f.mu.Lock()
+	f.pinging = true
+	gate := f.pingGate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.pinging = false
 	f.pingCalls++
 	if f.pingErrAfter > 0 && f.pingCalls >= f.pingErrAfter {
 		return errors.New("simulated ping failure")
@@ -73,14 +90,16 @@ func (f *fakeAdvisoryConn) snapshot() (discarded, closed bool, pingCalls int) {
 // ordinary application traffic while it still physically holds the lock,
 // leaking the lease forever.
 func TestNewHeldLease_DiscardsConnection_WhenUnlockErrors(t *testing.T) {
-	ac := &fakeAdvisoryConn{unlockErr: errors.New("simulated statement timeout")}
-	_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		ac := &fakeAdvisoryConn{unlockErr: errors.New("simulated statement timeout")}
+		_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
 
-	release()
+		release()
 
-	discarded, closed, _ := ac.snapshot()
-	assert.True(t, discarded, "an unlock error must force-discard the connection")
-	assert.False(t, closed, "a discarded connection must not also be pooled via close()")
+		discarded, closed, _ := ac.snapshot()
+		assert.True(t, discarded, "an unlock error must force-discard the connection")
+		assert.False(t, closed, "a discarded connection must not also be pooled via close()")
+	})
 }
 
 // TestNewHeldLease_DiscardsConnection_WhenUnlockReturnsFalse covers the
@@ -88,14 +107,16 @@ func TestNewHeldLease_DiscardsConnection_WhenUnlockErrors(t *testing.T) {
 // return false with no error at all (the session doesn't hold the lock),
 // which is just as much a failure to actually release as a query error.
 func TestNewHeldLease_DiscardsConnection_WhenUnlockReturnsFalse(t *testing.T) {
-	ac := &fakeAdvisoryConn{unlockResult: false, unlockErr: nil}
-	_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		ac := &fakeAdvisoryConn{unlockResult: false, unlockErr: nil}
+		_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
 
-	release()
+		release()
 
-	discarded, closed, _ := ac.snapshot()
-	assert.True(t, discarded, "unlocked=false must force-discard the connection even with err == nil")
-	assert.False(t, closed, "a discarded connection must not also be pooled via close()")
+		discarded, closed, _ := ac.snapshot()
+		assert.True(t, discarded, "unlocked=false must force-discard the connection even with err == nil")
+		assert.False(t, closed, "a discarded connection must not also be pooled via close()")
+	})
 }
 
 // TestNewHeldLease_ClosesConnectionNormally_WhenUnlockSucceeds is the
@@ -103,14 +124,16 @@ func TestNewHeldLease_DiscardsConnection_WhenUnlockReturnsFalse(t *testing.T) {
 // releases the lock) must return the connection to the pool for reuse, not
 // discard a perfectly good connection.
 func TestNewHeldLease_ClosesConnectionNormally_WhenUnlockSucceeds(t *testing.T) {
-	ac := &fakeAdvisoryConn{unlockResult: true, unlockErr: nil}
-	_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		ac := &fakeAdvisoryConn{unlockResult: true, unlockErr: nil}
+		_, release := newHeldLease(context.Background(), ac, 1, "fault-test", time.Hour)
 
-	release()
+		release()
 
-	discarded, closed, _ := ac.snapshot()
-	assert.True(t, closed, "a successful unlock must return the connection to the pool")
-	assert.False(t, discarded, "a successful unlock must not discard a healthy connection")
+		discarded, closed, _ := ac.snapshot()
+		assert.True(t, closed, "a successful unlock must return the connection to the pool")
+		assert.False(t, discarded, "a successful unlock must not discard a healthy connection")
+	})
 }
 
 // TestNewHeldLease_ReleaseUsesABoundedDetachedContext pins both halves of
@@ -121,21 +144,23 @@ func TestNewHeldLease_ClosesConnectionNormally_WhenUnlockSucceeds(t *testing.T) 
 // shutdown on the OS TCP timeout instead of failing over to the discard
 // path.
 func TestNewHeldLease_ReleaseUsesABoundedDetachedContext(t *testing.T) {
-	ac := &fakeAdvisoryConn{unlockResult: true}
+	synctest.Test(t, func(t *testing.T) {
+		ac := &fakeAdvisoryConn{unlockResult: true}
 
-	callerCtx, cancel := context.WithCancel(context.Background())
-	cancel() // simulate release() running after the caller's ctx is already gone
+		callerCtx, cancel := context.WithCancel(context.Background())
+		cancel() // simulate release() running after the caller's ctx is already gone
 
-	_, release := newHeldLease(callerCtx, ac, 1, "fault-test", time.Hour)
-	release()
+		_, release := newHeldLease(callerCtx, ac, 1, "fault-test", time.Hour)
+		release()
 
-	deadline, ok := ac.unlockCtx.Deadline()
-	require.True(t, ok, "the context passed to unlock must carry a deadline, not context.Background()")
-	assert.WithinDuration(t, time.Now().Add(releaseUnlockTimeout), deadline, 2*time.Second,
-		"the unlock deadline must be bounded around releaseUnlockTimeout")
+		deadline, ok := ac.unlockCtx.Deadline()
+		require.True(t, ok, "the context passed to unlock must carry a deadline, not context.Background()")
+		assert.True(t, deadline.Equal(time.Now().Add(releaseUnlockTimeout)),
+			"the unlock deadline must be releaseUnlockTimeout after release")
 
-	_, closed, _ := ac.snapshot()
-	assert.True(t, closed, "unlock must still run to completion (and succeed) even though callerCtx was already canceled")
+		_, closed, _ := ac.snapshot()
+		assert.True(t, closed, "unlock must still run to completion (and succeed) even though callerCtx was already canceled")
+	})
 }
 
 // TestNewHeldLease_CancelsLeaderCtx_WhenLivenessPingFails pins the fix for
@@ -146,15 +171,18 @@ func TestNewHeldLease_ReleaseUsesABoundedDetachedContext(t *testing.T) {
 // canceled the moment a liveness ping detects that, not only when release()
 // is explicitly called.
 func TestNewHeldLease_CancelsLeaderCtx_WhenLivenessPingFails(t *testing.T) {
-	ac := &fakeAdvisoryConn{pingErrAfter: 1}
-	leaderCtx, release := newHeldLease(context.Background(), ac, 1, "liveness-test", 5*time.Millisecond)
-	defer release()
+	synctest.Test(t, func(t *testing.T) {
+		const interval = 5 * time.Millisecond
+		ac := &fakeAdvisoryConn{pingErrAfter: 1}
+		leaderCtx, release := newHeldLease(context.Background(), ac, 1, "liveness-test", interval)
+		defer release()
 
-	select {
-	case <-leaderCtx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("leaderCtx must be canceled once a liveness ping fails, without release() ever being called")
-	}
+		synctest.Wait()
+		require.NoError(t, leaderCtx.Err(), "leaderCtx must stay live until a ping fails")
+		time.Sleep(interval)
+		synctest.Wait()
+		assert.Error(t, leaderCtx.Err(), "leaderCtx must be canceled by the first failing ping, without release() ever being called")
+	})
 }
 
 // TestNewHeldLease_LeaderCtxStaysLive_WhileLivenessPingsSucceed is the
@@ -162,18 +190,18 @@ func TestNewHeldLease_CancelsLeaderCtx_WhenLivenessPingFails(t *testing.T) {
 // its own as long as the connection stays healthy, or every lease would be
 // spuriously torn down.
 func TestNewHeldLease_LeaderCtxStaysLive_WhileLivenessPingsSucceed(t *testing.T) {
-	ac := &fakeAdvisoryConn{}
-	leaderCtx, release := newHeldLease(context.Background(), ac, 1, "liveness-healthy-test", 5*time.Millisecond)
-	defer release()
+	synctest.Test(t, func(t *testing.T) {
+		const interval = 5 * time.Millisecond
+		ac := &fakeAdvisoryConn{}
+		leaderCtx, release := newHeldLease(context.Background(), ac, 1, "liveness-healthy-test", interval)
+		defer release()
 
-	select {
-	case <-leaderCtx.Done():
-		t.Fatal("leaderCtx must stay live while liveness pings keep succeeding")
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	_, _, pingCalls := ac.snapshot()
-	assert.Greater(t, pingCalls, 0, "the liveness goroutine must actually be pinging on its interval")
+		time.Sleep(10 * interval)
+		synctest.Wait()
+		assert.NoError(t, leaderCtx.Err(), "leaderCtx must stay live while liveness pings keep succeeding")
+		_, _, pingCalls := ac.snapshot()
+		assert.Equal(t, 10, pingCalls, "the liveness goroutine must ping once per interval")
+	})
 }
 
 // TestNewHeldLease_StopsLivenessGoroutine_AfterRelease proves release()
@@ -181,14 +209,48 @@ func TestNewHeldLease_LeaderCtxStaysLive_WhileLivenessPingsSucceed(t *testing.T)
 // happening, rather than continuing forever against a connection that's
 // already been closed or discarded.
 func TestNewHeldLease_StopsLivenessGoroutine_AfterRelease(t *testing.T) {
-	ac := &fakeAdvisoryConn{unlockResult: true}
-	_, release := newHeldLease(context.Background(), ac, 1, "liveness-stop-test", 5*time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		ac := &fakeAdvisoryConn{unlockResult: true}
+		_, release := newHeldLease(context.Background(), ac, 1, "liveness-stop-test", 5*time.Millisecond)
 
-	release()
-	_, _, callsAtRelease := ac.snapshot()
+		release()
+		_, _, callsAtRelease := ac.snapshot()
 
-	time.Sleep(50 * time.Millisecond)
-	_, _, callsAfterWait := ac.snapshot()
+		time.Sleep(50 * time.Millisecond)
+		_, _, callsAfterWait := ac.snapshot()
 
-	assert.Equal(t, callsAtRelease, callsAfterWait, "no further liveness pings may occur after release()")
+		assert.Equal(t, callsAtRelease, callsAfterWait, "no further liveness pings may occur after release()")
+	})
+}
+
+// TestNewHeldLease_ReleaseWaitsForAnInFlightPing proves release() never
+// unlocks the connection while a liveness ping is still using it.
+func TestNewHeldLease_ReleaseWaitsForAnInFlightPing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const interval = 5 * time.Millisecond
+		gate := make(chan struct{})
+		ac := &fakeAdvisoryConn{unlockResult: true, pingGate: gate}
+		_, release := newHeldLease(context.Background(), ac, 1, "liveness-join-test", interval)
+
+		time.Sleep(interval)
+		synctest.Wait() // the first ping is in flight, held at the gate
+		released := make(chan struct{})
+		go func() {
+			release()
+			close(released)
+		}()
+		synctest.Wait()
+		select {
+		case <-released:
+			t.Fatal("release() returned while a ping was still in flight")
+		default:
+		}
+
+		close(gate)
+		<-released
+		ac.mu.Lock()
+		defer ac.mu.Unlock()
+		assert.False(t, ac.unlockedDuringPing, "unlock must wait for the in-flight ping to finish")
+		assert.True(t, ac.closed, "release() must complete once the ping returns")
+	})
 }

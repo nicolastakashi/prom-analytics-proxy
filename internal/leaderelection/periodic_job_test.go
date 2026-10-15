@@ -16,34 +16,38 @@ import (
 // doesn't wait out the first interval before doing any work, then keeps
 // calling cycle repeatedly for as long as ctx is alive.
 func TestPeriodicJob_CallsCycleImmediatelyThenOnEachTick(t *testing.T) {
-	var calls atomic.Int32
-	job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {
-		calls.Add(1)
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {
+			calls.Add(1)
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+		defer cancel()
+		job(ctx, nil)
+
+		assert.GreaterOrEqual(t, calls.Load(), int32(3), "must call cycle immediately and then repeatedly on tick, not just once")
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
-	defer cancel()
-	job(ctx, nil)
-
-	assert.GreaterOrEqual(t, calls.Load(), int32(3), "must call cycle immediately and then repeatedly on tick, not just once")
 }
 
 // TestPeriodicJob_ReportsEachCycleToReporter proves every single cycle
 // invocation reports itself, with a usable cancel and the configured
 // budget - not just the first one.
 func TestPeriodicJob_ReportsEachCycleToReporter(t *testing.T) {
-	reporter := &recordingReporter{}
-	job := PeriodicJob(10*time.Millisecond, 42*time.Second, func(context.Context) {})
+	synctest.Test(t, func(t *testing.T) {
+		reporter := &recordingReporter{}
+		job := PeriodicJob(10*time.Millisecond, 42*time.Second, func(context.Context) {})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Millisecond)
-	defer cancel()
-	job(ctx, reporter)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Millisecond)
+		defer cancel()
+		job(ctx, reporter)
 
-	reported := reporter.reported()
-	require.GreaterOrEqual(t, len(reported), 3, "every cycle must report itself, not just the first")
-	for i, c := range reported {
-		assert.Equal(t, 42*time.Second, c.budget, "cycle %d: the declared budget must reach the reporter unchanged", i)
-	}
+		reported := reporter.reported()
+		require.GreaterOrEqual(t, len(reported), 3, "every cycle must report itself, not just the first")
+		for i, c := range reported {
+			assert.Equal(t, 42*time.Second, c.budget, "cycle %d: the declared budget must reach the reporter unchanged", i)
+		}
+	})
 }
 
 // TestPeriodicJob_CancelingOneCycleDoesNotStopTheLoop proves cycles are
@@ -55,74 +59,76 @@ func TestPeriodicJob_ReportsEachCycleToReporter(t *testing.T) {
 // ticks until something cancels it, which is exactly what this proves
 // recovers cleanly.
 func TestPeriodicJob_CancelingOneCycleDoesNotStopTheLoop(t *testing.T) {
-	var calls atomic.Int32
-	firstCycleCanceled := make(chan struct{})
-	firstCycleStarted := make(chan context.CancelFunc, 1)
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		firstCycleCanceled := make(chan struct{})
+		firstCycleStarted := make(chan context.CancelFunc, 1)
 
-	job := PeriodicJob(10*time.Millisecond, time.Hour, func(cycleCtx context.Context) {
-		if calls.Add(1) == 1 {
-			<-cycleCtx.Done() // simulates a stuck first cycle; only an external cancel ends this
-		}
-		// every other cycle returns immediately, proving the loop is healthy again
-	})
+		job := PeriodicJob(10*time.Millisecond, time.Hour, func(cycleCtx context.Context) {
+			if calls.Add(1) == 1 {
+				<-cycleCtx.Done() // simulates a stuck first cycle; only an external cancel ends this
+			}
+			// every other cycle returns immediately, proving the loop is healthy again
+		})
 
-	reporter := &recordingReporter{onStart: func(cancel context.CancelFunc) {
+		reporter := &recordingReporter{onStart: func(cancel context.CancelFunc) {
+			select {
+			case firstCycleStarted <- cancel:
+			default:
+			}
+		}}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+
+		go func() {
+			firstCancel := <-firstCycleStarted
+			time.Sleep(30 * time.Millisecond) // let the loop sit genuinely stuck on cycle 1 for a while before unblocking it
+			firstCancel()
+			close(firstCycleCanceled)
+		}()
+
+		job(ctx, reporter)
+
 		select {
-		case firstCycleStarted <- cancel:
+		case <-firstCycleCanceled:
 		default:
+			t.Fatal("test ended before the external cancel ever fired - not a valid run")
 		}
-	}}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	go func() {
-		firstCancel := <-firstCycleStarted
-		time.Sleep(30 * time.Millisecond) // let the loop sit genuinely stuck on cycle 1 for a while before unblocking it
-		firstCancel()
-		close(firstCycleCanceled)
-	}()
-
-	job(ctx, reporter)
-
-	select {
-	case <-firstCycleCanceled:
-	default:
-		t.Fatal("test ended before the external cancel ever fired - not a valid run")
-	}
-	assert.GreaterOrEqual(t, calls.Load(), int32(2), "canceling the stuck first cycle must unblock it and let later ticks still run")
+		assert.GreaterOrEqual(t, calls.Load(), int32(2), "canceling the stuck first cycle must unblock it and let later ticks still run")
+	})
 }
 
 // TestPeriodicJob_NilReporter_DoesNotPanic proves nil is a genuinely valid
 // reporter, not something callers must guard against themselves.
 func TestPeriodicJob_NilReporter_DoesNotPanic(t *testing.T) {
-	job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {})
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {})
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		defer cancel()
 
-	assert.NotPanics(t, func() { job(ctx, nil) })
+		assert.NotPanics(t, func() { job(ctx, nil) })
+	})
 }
 
 // TestPeriodicJob_StopsWhenOuterCtxCanceled proves the loop actually exits
 // (doesn't leak) once its outer ctx ends.
 func TestPeriodicJob_StopsWhenOuterCtxCanceled(t *testing.T) {
-	job := PeriodicJob(5*time.Millisecond, time.Hour, func(context.Context) {})
-	ctx, cancel := context.WithCancel(context.Background())
+	synctest.Test(t, func(t *testing.T) {
+		job := PeriodicJob(5*time.Millisecond, time.Hour, func(context.Context) {})
+		ctx, cancel := context.WithCancel(context.Background())
 
-	done := make(chan struct{})
-	go func() {
-		job(ctx, nil)
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			job(ctx, nil)
+			close(done)
+		}()
 
-	time.Sleep(20 * time.Millisecond)
-	cancel()
+		time.Sleep(20 * time.Millisecond)
+		cancel()
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("PeriodicJob did not return after its outer ctx was canceled")
-	}
+		mustReceive(t, done, "PeriodicJob did not return after its outer ctx was canceled")
+	})
 }
 
 // reportedCycle is one CycleStarted call as recordingReporter saw it,
@@ -281,17 +287,19 @@ func TestPeriodicJob_ReportedContextEndsExactlyWhenItsCycleDoes(t *testing.T) {
 // Elector.Run's release-then-repanic path is what handles it, and it can
 // only do that if the panic reaches it.
 func TestPeriodicJob_PanickingCycleEndsItsReportedContextAndPropagates(t *testing.T) {
-	reporter := &recordingReporter{}
-	job := PeriodicJob(time.Hour, time.Minute, func(context.Context) {
-		panic("cycle blew up")
+	synctest.Test(t, func(t *testing.T) {
+		reporter := &recordingReporter{}
+		job := PeriodicJob(time.Hour, time.Minute, func(context.Context) {
+			panic("cycle blew up")
+		})
+
+		assert.PanicsWithValue(t, "cycle blew up", func() {
+			job(context.Background(), reporter)
+		}, "the loop must not swallow a cycle's panic")
+
+		reported := reporter.reported()
+		require.Len(t, reported, 1, "the cycle must have been reported before it ran")
+		assert.Error(t, reported[0].ctx.Err(),
+			"a panicking cycle's reported context must end like any other, or a budget check would keep watching a cycle that is long gone")
 	})
-
-	assert.PanicsWithValue(t, "cycle blew up", func() {
-		job(context.Background(), reporter)
-	}, "the loop must not swallow a cycle's panic")
-
-	reported := reporter.reported()
-	require.Len(t, reported, 1, "the cycle must have been reported before it ran")
-	assert.Error(t, reported[0].ctx.Err(),
-		"a panicking cycle's reported context must end like any other, or a budget check would keep watching a cycle that is long gone")
 }

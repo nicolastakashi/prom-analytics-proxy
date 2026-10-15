@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -69,6 +70,21 @@ func newTestPostgresDB(t *testing.T) *sql.DB {
 	require.NoError(t, err, "create leader_leases table")
 
 	return db
+}
+
+// mustReceive returns the value ch holds once every goroutine in the
+// synctest bubble has settled, failing t if it holds none.
+func mustReceive[T any](t *testing.T, ch <-chan T, msgAndArgs ...any) T {
+	t.Helper()
+	synctest.Wait()
+	select {
+	case v := <-ch:
+		return v
+	default:
+		require.FailNow(t, "nothing received", msgAndArgs...)
+		var zero T
+		return zero
+	}
 }
 
 // noRenewal is used as a leaseStrategy's renewInterval in tests that want
