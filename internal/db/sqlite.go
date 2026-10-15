@@ -262,7 +262,7 @@ func (p *SQLiteProvider) GetQueriesBySerieName(ctx context.Context, params Queri
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
 
-	startTime, endTime := PrepareTimeRange(params.TimeRange, "sqlite")
+	startTime, endTime := sqliteTimeBounds(params.TimeRange)
 
 	query := `
 	WITH filtered_queries AS (
@@ -449,7 +449,7 @@ func (p *SQLiteProvider) GetRulesUsage(ctx context.Context, params RulesUsagePar
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
 
-	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
+	startTime, endTime := sqliteTimeBounds(params.TimeRange)
 
 	countQuery := `
         SELECT COUNT(DISTINCT kind || '|' || group_name || '|' || name)
@@ -613,7 +613,7 @@ func (p *SQLiteProvider) GetDashboardUsage(ctx context.Context, params Dashboard
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "created_at")
 
-	startTime, endTime := params.TimeRange.Format(SQLiteTimeFormat)
+	startTime, endTime := sqliteTimeBounds(params.TimeRange)
 
 	countQuery := `
         SELECT COUNT(DISTINCT id)
@@ -1084,8 +1084,9 @@ func (p *SQLiteProvider) RefreshMetricsUsageSummary(ctx context.Context, tr Time
 	if tr.IsZero() {
 		return ErrTimeRangeRequired
 	}
-	from, to := PrepareTimeRange(tr, "sqlite")
-	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQuerySQLite, to, from, to, from, from, to, from)
+	from, to := sqliteTimeBounds(tr)
+	syncedFrom, _ := tr.Format(SQLiteTimeFormat)
+	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQuerySQLite, to, from, to, from, from, to, syncedFrom)
 	if err != nil {
 		return fmt.Errorf("refresh summary: %w", err)
 	}
@@ -1100,7 +1101,7 @@ func (p *SQLiteProvider) GetQueryTypes(ctx context.Context, tr TimeRange, finger
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
-	startTime, endTime := PrepareTimeRange(tr, "sqlite")
+	startTime, endTime := sqliteTimeBounds(tr)
 
 	query := `
 		WITH total AS (
@@ -1177,8 +1178,8 @@ func (p *SQLiteProvider) GetAverageDuration(ctx context.Context, tr TimeRange, f
 	`
 
 	prevRange := tr.Previous()
-	prevFrom, prevTo := PrepareTimeRange(prevRange, "sqlite")
-	from, to := PrepareTimeRange(tr, "sqlite")
+	prevFrom, prevTo := sqliteTimeBounds(prevRange)
+	from, to := sqliteTimeBounds(tr)
 
 	rows, err := p.db.QueryContext(ctx, query, from, to, fingerprint, fingerprint, prevFrom, prevTo, fingerprint, fingerprint)
 	if err != nil {
@@ -1223,7 +1224,7 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 			END;
 	`
 
-	from, to := PrepareTimeRange(tr, "sqlite")
+	from, to := sqliteTimeBounds(tr)
 	rows, err := p.db.QueryContext(ctx, query, from, to, metricName, metricName, fingerprint, fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query query rate: %w", err)
@@ -1237,12 +1238,13 @@ func (p *SQLiteProvider) GetQueryRate(ctx context.Context, tr TimeRange, metricN
 
 // withSQLiteTimeBuckets prefixes query, which continues a WITH clause, with
 // time_buckets(bucket_start, bucket_end): one bucket per interval from the
-// minute of tr.From through the minute of tr.To, both included. It returns
-// the statement and its arguments, the buckets' followed by args.
+// minute of tr.From, while a bucket starts no later than the minute of
+// tr.To. It returns the statement and its arguments, the buckets' followed
+// by args.
 func withSQLiteTimeBuckets(tr TimeRange, query string, args ...any) (string, []any) {
 	interval := GetInterval(tr.From(), tr.To(), "sqlite")
-	from, to := PrepareTimeRange(tr, "sqlite")
-	return sqliteTimeBuckets + query, append([]any{from, from, interval, interval, to}, args...)
+	from, to := tr.Format(SQLiteTimeFormat)
+	return sqliteTimeBuckets + query, append([]any{from, from, interval, from, to, interval, to}, args...)
 }
 
 const sqliteTimeBuckets = `
@@ -1250,12 +1252,13 @@ const sqliteTimeBuckets = `
 		SELECT
 			strftime('%Y-%m-%d %H:%M:00', ?) as bucket_start,
 			strftime('%Y-%m-%d %H:%M:00', datetime(?, ?)) as bucket_end
+		WHERE strftime('%Y-%m-%d %H:%M:00', ?) <= strftime('%Y-%m-%d %H:%M:00', ?)
 		UNION ALL
 		SELECT
 			bucket_end,
 			strftime('%Y-%m-%d %H:%M:00', datetime(bucket_end, ?))
 		FROM time_buckets
-		WHERE bucket_start < strftime('%Y-%m-%d %H:%M:00', ?)
+		WHERE bucket_end <= strftime('%Y-%m-%d %H:%M:00', ?)
 	)`
 
 // sqliteSecond is the UTC second a stored timestamp column holds, as
@@ -1265,18 +1268,19 @@ func sqliteSecond(column string) string {
 	return "substr(" + column + ", 1, 19)"
 }
 
-// sqliteSecondRange returns bounds for "ts >= from AND ts < until" matching
-// every stored timestamp whose second lies from tr.From's second through
-// tr.To's second, both included.
-func sqliteSecondRange(tr TimeRange) (from, until string) {
-	return tr.From().UTC().Format(SQLiteTimeFormat), tr.To().UTC().Add(time.Second).Format(SQLiteTimeFormat)
+// sqliteTimeBounds returns tr's bounds truncated to the second, in UTC. Bound
+// as arguments, the driver formats them like the timestamps it stores, so
+// comparing them with a column the driver wrote from a time.Time orders them
+// as times.
+func sqliteTimeBounds(tr TimeRange) (from, to time.Time) {
+	return tr.From().UTC().Truncate(time.Second), tr.To().UTC().Truncate(time.Second)
 }
 
 func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr TimeRange, fingerprint string) ([]QueryStatusDistributionResult, error) {
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
-	from, until := sqliteSecondRange(tr)
+	from, to := sqliteTimeBounds(tr)
 
 	query, args := withSQLiteTimeBuckets(tr, `,
 	filtered AS (
@@ -1296,7 +1300,7 @@ func (p *SQLiteProvider) GetQueryStatusDistribution(ctx context.Context, tr Time
 		q.ts < b.bucket_end
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
-	`, from, until, fingerprint, fingerprint)
+	`, from, to, fingerprint, fingerprint)
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
@@ -1309,6 +1313,8 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
+
+	from, to := sqliteTimeBounds(tr)
 
 	query, args := withSQLiteTimeBuckets(tr, `,
 	-- Ranks each bucket's own durations; nearest-rank p95 is the row at
@@ -1323,7 +1329,8 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 		LEFT JOIN (
 			SELECT ts, duration
 			FROM queries
-			WHERE CASE
+			WHERE ts >= ? AND ts < ?
+			AND CASE
 				WHEN ? != '' THEN
 					json_extract(labelMatchers, '$[0].__name__') = ?
 				ELSE
@@ -1346,23 +1353,21 @@ func (p *SQLiteProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeRange
 	FROM bucketed
 	GROUP BY bucket_start
 	ORDER BY bucket_start;
-	`, metricName, metricName, fingerprint, fingerprint)
+	`, from, to, metricName, metricName, fingerprint, fingerprint)
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	return ScanRows(rows, func(row *sql.Rows) (QueryLatencyTrendsResult, error) {
-		var result QueryLatencyTrendsResult
-		err := row.Scan((*bucketTime)(&result.Time), &result.Value, &result.P95)
-		return result, err
-	})
+	return ScanRows(rows, scanQueryLatencyTrends)
 }
 
 func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
+
+	from, to := sqliteTimeBounds(tr)
 
 	query, args := withSQLiteTimeBuckets(tr, `
 	SELECT
@@ -1372,9 +1377,10 @@ func (p *SQLiteProvider) GetQueryThroughputAnalysis(ctx context.Context, tr Time
 	LEFT JOIN queries t ON
 		t.ts >= b.bucket_start AND
 		t.ts < b.bucket_end
+		AND t.ts >= ? AND t.ts < ?
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
-	`)
+	`, from, to)
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
@@ -1388,6 +1394,8 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 		return nil, ErrTimeRangeRequired
 	}
 
+	from, to := sqliteTimeBounds(tr)
+
 	query, args := withSQLiteTimeBuckets(tr, `
 	SELECT
 		b.bucket_start as time,
@@ -1399,10 +1407,11 @@ func (p *SQLiteProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeRange
 	LEFT JOIN queries q ON
 		q.ts >= b.bucket_start AND
 		q.ts < b.bucket_end
+		AND q.ts >= ? AND q.ts < ?
 		AND CASE WHEN ? != '' THEN q.fingerprint = ? ELSE 1=1 END
 	GROUP BY b.bucket_start
 	ORDER BY b.bucket_start;
-	`, fingerprint, fingerprint)
+	`, from, to, fingerprint, fingerprint)
 
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
@@ -1416,14 +1425,14 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
-	from, until := sqliteSecondRange(tr)
+	from, to := sqliteTimeBounds(tr)
 	start, end := "julianday("+sqliteSecond("start")+")", "julianday("+sqliteSecond(`"end"`)+")"
 
 	query := `
     WITH filtered AS (
         SELECT CAST((` + end + ` - ` + start + `) * 86400 AS INTEGER) AS seconds
         FROM queries
-        WHERE ts >= ? AND ts < ?
+        WHERE ts BETWEEN ? AND ?
           AND CASE WHEN ? != '' THEN fingerprint = ? ELSE 1=1 END
           AND type = 'range'
           AND start IS NOT NULL AND "end" IS NOT NULL
@@ -1451,7 +1460,7 @@ func (p *SQLiteProvider) GetQueryTimeRangeDistribution(ctx context.Context, tr T
     FROM buckets, total t;
     `
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, until, fingerprint, fingerprint)
+	rows, err := ExecuteQuery(ctx, p.db, query, from, to, fingerprint, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -1479,7 +1488,7 @@ func (p *SQLiteProvider) GetQueryExpressions(ctx context.Context, params QueryEx
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "executions")
 
-	from, to := PrepareTimeRange(params.TimeRange, "sqlite")
+	from, to := sqliteTimeBounds(params.TimeRange)
 
 	query := `
         WITH filtered AS (
@@ -1562,7 +1571,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "ts")
 
-	from, until := sqliteSecondRange(params.TimeRange)
+	from, to := sqliteTimeBounds(params.TimeRange)
 
 	query := `
         WITH filtered AS (
@@ -1575,10 +1584,9 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
                 start,
                 "end",
                 step,
-				httpHeaders,
-                ` + sqliteSecond("ts") + ` AS nts
+				httpHeaders
             FROM queries
-            WHERE ts >= ? AND ts < ?
+            WHERE ts BETWEEN ? AND ?
               AND fingerprint = ?
               AND CASE WHEN ? != '' THEN type = ? ELSE 1=1 END
         ), counted AS (
@@ -1599,7 +1607,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
         ORDER BY
             CASE WHEN ? = 'asc' THEN
                 CASE ?
-                    WHEN 'ts' THEN nts
+                    WHEN 'ts' THEN ts
                     WHEN 'duration' THEN duration
                     WHEN 'samples' THEN samples
                     WHEN 'statusCode' THEN statusCode
@@ -1609,7 +1617,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
             END ASC,
             CASE WHEN ? = 'desc' THEN
                 CASE ?
-                    WHEN 'ts' THEN nts
+                    WHEN 'ts' THEN ts
                     WHEN 'duration' THEN duration
                     WHEN 'samples' THEN samples
                     WHEN 'statusCode' THEN statusCode
@@ -1620,7 +1628,7 @@ func (p *SQLiteProvider) GetQueryExecutions(ctx context.Context, params QueryExe
         LIMIT ? OFFSET ?;
     `
 
-	args := []interface{}{from, until, params.Fingerprint, params.Type, params.Type,
+	args := []interface{}{from, to, params.Fingerprint, params.Type, params.Type,
 		params.SortOrder, params.SortBy, params.SortOrder, params.SortBy,
 		params.PageSize, (params.Page - 1) * params.PageSize,
 	}
@@ -1671,7 +1679,7 @@ func (p *SQLiteProvider) GetMetricStatistics(ctx context.Context, metricName str
 	CROSS JOIN dash_stats ds;
 	`
 
-	from, to := PrepareTimeRange(tr, "sqlite")
+	from, to := sqliteTimeBounds(tr)
 	rows, err := p.db.QueryContext(ctx, query,
 		metricName, // rule_stats serie filter for alert_count
 		metricName, // rule_stats serie filter for record_count
@@ -1704,7 +1712,7 @@ func (p *SQLiteProvider) GetMetricQueryPerformanceStatistics(ctx context.Context
 		AND ts BETWEEN ? AND ?;
 	`
 
-	from, to := PrepareTimeRange(tr, "sqlite")
+	from, to := sqliteTimeBounds(tr)
 	rows, err := p.db.QueryContext(ctx, query, metricName, from, to)
 	if err != nil {
 		return MetricQueryPerformanceStatistics{}, fmt.Errorf("failed to query metric query performance statistics: %w", err)
@@ -1720,7 +1728,7 @@ func (p *SQLiteProvider) DeleteQueriesBefore(ctx context.Context, cutoff time.Ti
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < ?", cutoff.UTC().Format(SQLiteTimeFormat))
+	result, err := p.db.ExecContext(ctx, "DELETE FROM queries WHERE ts < ?", cutoff.UTC())
 	if err != nil {
 		return 0, ErrorWithOperation(err, "delete old queries")
 	}
