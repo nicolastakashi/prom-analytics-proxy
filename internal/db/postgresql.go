@@ -1464,7 +1464,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	return ScanRows(rows, func(row *sql.Rows) (QueryLatencyTrendsResult, error) {
 		var result QueryLatencyTrendsResult
 		var p95 float64
-		err := row.Scan(&result.Time, &result.Value, &p95)
+		err := row.Scan((*bucketTime)(&result.Time), &result.Value, &p95)
 		result.P95 = int(p95)
 		return result, err
 	})

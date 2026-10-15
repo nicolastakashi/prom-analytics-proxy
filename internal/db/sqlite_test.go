@@ -13,7 +13,6 @@ import (
 var sqliteTestBackend = testBackend{
 	newProvider: newTestSQLiteProvider,
 	rebind:      func(query string) string { return query },
-	bucketTime:  func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05") },
 }
 
 // newTestSQLiteProvider returns a migrated Provider, closed when t ends.
