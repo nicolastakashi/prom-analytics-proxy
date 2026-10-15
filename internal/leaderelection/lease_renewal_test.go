@@ -25,10 +25,13 @@ import (
 // would let the lease go stale partway through, and the rival's next poll
 // would take it over.
 func TestElector_Run_HoldsLeadershipAcrossMultipleRenewalTicks(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
-	const ttl = 80 * time.Millisecond
-	const renewInterval = 20 * time.Millisecond
-	const holdWindow = 400 * time.Millisecond // ~5x the TTL, ~20 renewal ticks
+	// The TTL leaves four renewal ticks of slack for database round trips
+	// under load.
+	const ttl = 250 * time.Millisecond
+	const renewInterval = 50 * time.Millisecond
+	const holdWindow = time.Second // 4x the TTL, ~20 renewal ticks
 
 	strat := newLeaseStrategy(db, ttl, renewInterval)
 	elector := newTestElector(strat, backoffConfig{initial: 10 * time.Millisecond})

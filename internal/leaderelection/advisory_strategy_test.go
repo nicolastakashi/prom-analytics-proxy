@@ -32,6 +32,7 @@ import (
 // than silently discarded — a test that can pass with zero acquisitions
 // ever entering the critical section proves nothing about mutual exclusion.
 func TestAdvisoryStrategy_MutualExclusion_ConcurrentGoroutines(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	db.SetMaxOpenConns(30)
 	strat := newAdvisoryLockStrategy(db)

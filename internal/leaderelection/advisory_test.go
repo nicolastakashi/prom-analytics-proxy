@@ -13,6 +13,7 @@ import (
 // that Run checks ctx before ever touching db — a nil *sql.DB is safe here
 // precisely because that check must happen first.
 func TestAdvisoryElector_ReturnsWhenContextAlreadyCanceled(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		elector := NewAdvisoryElector(nil, prometheus.NewRegistry())
 
