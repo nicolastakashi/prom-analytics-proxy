@@ -15,8 +15,7 @@ import (
 // fakeAdvisoryConn is a hand-written fake for advisoryConn, injecting
 // deterministic unlock/ping outcomes that a real Postgres backend can't be
 // forced into on demand (a statement-timeout-but-session-alive unlock
-// failure, or a session that dies mid-lease) — the same rationale
-// flakyConnGetter documents for connGetter.
+// failure, or a session that dies mid-lease).
 type fakeAdvisoryConn struct {
 	mu sync.Mutex
 

@@ -2,6 +2,7 @@ package leaderelection
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,42 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
+
+// attemptLog records when each acquire attempt happened.
+type attemptLog struct {
+	mu    sync.Mutex
+	times []time.Time
+}
+
+// record logs an attempt now and returns its number, counting from 1.
+func (l *attemptLog) record() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.times = append(l.times, time.Now())
+	return len(l.times)
+}
+
+func (l *attemptLog) snapshot() []time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]time.Time(nil), l.times...)
+}
+
+// recordingStrategy never grants leadership: its first errorsFirst attempts
+// fail with a transient error, every later one with returnErr (contention
+// when nil), and it logs when each one happened.
+type recordingStrategy struct {
+	attemptLog
+	errorsFirst int
+	returnErr   error
+}
+
+func (s *recordingStrategy) acquireOrHold(context.Context, string) (acquisition, bool, error) {
+	if s.record() <= s.errorsFirst {
+		return acquisition{}, false, errors.New("simulated transient error")
+	}
+	return acquisition{}, false, s.returnErr
+}
 
 // mustReceive returns the value ch holds once every goroutine in the
 // synctest bubble has settled, failing t if it holds none.
