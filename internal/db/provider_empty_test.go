@@ -43,7 +43,7 @@ func testEmptyInputsAndDatabase(t *testing.T, b testBackend) {
 	assert.Empty(t, rowsOf[models.MetricMetadata](t, res))
 
 	now := time.Now().UTC()
-	types, err := p.GetQueryTypes(ctx, TimeRange{From: now.Add(-1 * time.Hour), To: now}, "")
+	types, err := p.GetQueryTypes(ctx, mustTimeRange(t, now.Add(-1*time.Hour), now), "")
 	require.NoError(t, err, "GetQueryTypes")
 	require.NotNil(t, types.TotalQueries)
 	assert.Zero(t, *types.TotalQueries)

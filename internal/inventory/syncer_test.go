@@ -558,3 +558,29 @@ func TestSettleConfig_LeavesAFittingConfigAlone(t *testing.T) {
 
 	assert.Equal(t, before, cfg.Inventory)
 }
+
+// TestSyncer_EvaluatesItsTimeWindow verifies a cycle refreshes the usage
+// summary and indexes jobs over the configured time window, ending when the
+// cycle starts.
+func TestSyncer_EvaluatesItsTimeWindow(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		provider := &fakeProvider{}
+		api := oneJobAPI()
+		s := defaultBudgetSyncer(provider, api)
+		start := time.Now()
+
+		s.RunOnce(context.Background())
+
+		provider.mu.Lock()
+		summary := [2]time.Time{provider.summaryFrom, provider.summaryTo}
+		provider.mu.Unlock()
+		api.mu.Lock()
+		labels := [2]time.Time{api.labelStart, api.labelEnd}
+		api.mu.Unlock()
+		want := [2]time.Time{start.Add(-s.timeWindow), start}
+		for name, got := range map[string][2]time.Time{"summary refresh": summary, "job index": labels} {
+			assert.True(t, got[0].Equal(want[0]) && got[1].Equal(want[1]), "%s window: got %v, want %v", name, got, want)
+		}
+	})
+}

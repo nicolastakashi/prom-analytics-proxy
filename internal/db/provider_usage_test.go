@@ -24,7 +24,7 @@ func testInsertRulesUsageGetRulesUsage(t *testing.T, b testBackend) {
 	out, err := p.GetRulesUsage(context.Background(), RulesUsageParams{
 		Serie:     "up",
 		Kind:      string(RuleUsageKindAlert),
-		TimeRange: presenceWindow(time.Now().UTC().Add(-1 * time.Hour)),
+		TimeRange: presenceWindow(t, time.Now().UTC().Add(-1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 	})
@@ -57,7 +57,7 @@ func testGetRulesUsageMaliciousSortOrderDoesNotBreakQuery(t *testing.T, b testBa
 	out, err := p.GetRulesUsage(context.Background(), RulesUsageParams{
 		Serie:     "up",
 		Kind:      string(RuleUsageKindAlert),
-		TimeRange: presenceWindow(time.Now().UTC().Add(-1 * time.Hour)),
+		TimeRange: presenceWindow(t, time.Now().UTC().Add(-1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 		SortBy:    "name",
@@ -98,14 +98,14 @@ func testDashboardUsage(t *testing.T, b testBackend) {
 			d.id, d.serie, d.name, "http://grafana/d/"+d.id, baseTime, d.first, d.last)
 	}
 
-	wide := TimeRange{From: baseTime.Add(-3 * time.Hour), To: baseTime}
+	wide := mustTimeRange(t, baseTime.Add(-3*time.Hour), baseTime)
 	tests := []struct {
 		name    string
 		params  DashboardUsageParams
 		wantIDs []string
 	}{
 		{"all dashboards of a series", DashboardUsageParams{Serie: "metric1", TimeRange: wide}, []string{"dash1", "dash2"}},
-		{"range excludes ended presence", DashboardUsageParams{Serie: "metric1", TimeRange: TimeRange{From: baseTime.Add(-90 * time.Minute), To: baseTime}}, []string{"dash2"}},
+		{"range excludes ended presence", DashboardUsageParams{Serie: "metric1", TimeRange: mustTimeRange(t, baseTime.Add(-90*time.Minute), baseTime)}, []string{"dash2"}},
 		{"name filter", DashboardUsageParams{Serie: "metric1", TimeRange: wide, Filter: "Dashboard 1"}, []string{"dash1"}},
 		{"unknown series", DashboardUsageParams{Serie: "non-existent", TimeRange: wide}, nil},
 	}
@@ -140,7 +140,7 @@ func testInsertDashboardUsageUpsertBehavior(t *testing.T, b testBackend) {
 
 	out, err := p.GetDashboardUsage(context.Background(), DashboardUsageParams{
 		Serie:     "m1",
-		TimeRange: TimeRange{From: base.Add(-1 * time.Hour), To: base.Add(1 * time.Hour)},
+		TimeRange: mustTimeRange(t, base.Add(-1*time.Hour), base.Add(1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 	})
@@ -174,7 +174,7 @@ func testGetDashboardUsageMaliciousSortOrderDoesNotBreakQuery(t *testing.T, b te
 
 	out, err := p.GetDashboardUsage(context.Background(), DashboardUsageParams{
 		Serie:     "m1",
-		TimeRange: TimeRange{From: base.Add(-1 * time.Hour), To: base.Add(1 * time.Hour)},
+		TimeRange: mustTimeRange(t, base.Add(-1*time.Hour), base.Add(1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 		SortBy:    "name",
@@ -216,7 +216,7 @@ func testGetMetricStatisticsAndQueryPerformanceStats(t *testing.T, b testBackend
 		{TS: now.Add(-4 * time.Minute), QueryParam: metric, TimeParam: now, Duration: 18 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": metric}}, Type: QueryTypeInstant, PeakSamples: 200},
 	})
 
-	tr := presenceWindow(now.Add(-1 * time.Hour))
+	tr := presenceWindow(t, now.Add(-1*time.Hour))
 
 	stats, err := p.GetMetricStatistics(context.Background(), metric, tr)
 	require.NoError(t, err, "GetMetricStatistics")
@@ -260,7 +260,7 @@ func testGetRulesUsageWindowFilterAndLatest(t *testing.T, b testBackend) {
 	b.retireUsage(t, p, "RulesUsage", "name", "retired")
 
 	list := func(filter string) []RulesUsage {
-		res, err := p.GetRulesUsage(ctx, RulesUsageParams{Serie: "up", Kind: string(RuleUsageKindAlert), Filter: filter, TimeRange: presenceWindow(now.Add(-1 * time.Hour)), Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc"})
+		res, err := p.GetRulesUsage(ctx, RulesUsageParams{Serie: "up", Kind: string(RuleUsageKindAlert), Filter: filter, TimeRange: presenceWindow(t, now.Add(-1*time.Hour)), Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc"})
 		require.NoError(t, err)
 		rows := rowsOf[RulesUsage](t, res)
 		assert.Equal(t, len(rows), res.Total, "Total matches the listed rules")

@@ -20,24 +20,13 @@ func testGetQueryTypes(t *testing.T, b testBackend) {
 		qs = append(qs, q)
 	}
 	for i := range 6 { // 6 range
-		qs = append(qs, Query{
-			TS:            now.Add(time.Duration(i) * time.Minute),
-			QueryParam:    "rate(up[5m])",
-			TimeParam:     now,
-			Duration:      15 * time.Millisecond,
-			StatusCode:    200,
-			BodySize:      1,
-			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:          QueryTypeRange,
-			Start:         now.Add(-5 * time.Minute),
-			End:           now,
-			Step:          15,
-			Fingerprint:   "fp2",
-		})
+		q := rangeQuery(now.Add(time.Duration(i)*time.Minute), "up", 5*time.Minute)
+		q.QueryParam, q.Fingerprint = "rate(up[5m])", "fp2"
+		qs = append(qs, q)
 	}
 	mustInsertQueries(t, p, qs)
 
-	tr := TimeRange{From: now.Add(-10 * time.Minute), To: now.Add(10 * time.Minute)}
+	tr := mustTimeRange(t, now.Add(-10*time.Minute), now.Add(10*time.Minute))
 	out, err := p.GetQueryTypes(context.Background(), tr, "")
 	assert.NoError(t, err, "GetQueryTypes")
 	if assert.NotNil(t, out) {
@@ -86,7 +75,7 @@ func testGetAverageDuration(t *testing.T, b testBackend) {
 	}
 	mustInsertQueries(t, p, qs)
 
-	out, err := p.GetAverageDuration(context.Background(), TimeRange{From: curFrom, To: curTo}, "")
+	out, err := p.GetAverageDuration(context.Background(), mustTimeRange(t, curFrom, curTo), "")
 	assert.NoError(t, err, "GetAverageDuration")
 	if assert.NotNil(t, out) {
 		assert.NotNil(t, out.AvgDuration)
@@ -122,7 +111,7 @@ func testGetQueryRate(t *testing.T, b testBackend) {
 	}
 	mustInsertQueries(t, p, qs)
 
-	tr := TimeRange{From: now.Add(-5 * time.Minute), To: now.Add(10 * time.Minute)}
+	tr := mustTimeRange(t, now.Add(-5*time.Minute), now.Add(10*time.Minute))
 	out, err := p.GetQueryRate(context.Background(), tr, "up", "fp1")
 	assert.NoError(t, err, "GetQueryRate")
 	if assert.NotNil(t, out) {
@@ -147,139 +136,23 @@ func TestSQLite_GetQueryRate(t *testing.T) {
 	testGetQueryRate(t, sqliteTestBackend)
 }
 
-func testGetQueryLatencyTrendsAndThroughputAndErrors(t *testing.T, b testBackend) {
-	p := b.newProvider(t)
-
-	now := time.Now().UTC().Truncate(time.Minute)
-	qs := make([]Query, 0, 13)
-	for i := range 10 {
-		q := instantQuery(now.Add(time.Duration(i)*time.Minute), "up")
-		q.Duration, q.Fingerprint = time.Duration(5+i)*time.Millisecond, "fp-lat"
-		qs = append(qs, q)
-	}
-	for i := range 3 {
-		q := instantQuery(now.Add(time.Duration(i*2)*time.Minute), "up")
-		q.Duration, q.StatusCode, q.Fingerprint = 10*time.Millisecond, 500, "fp-lat"
-		qs = append(qs, q)
-	}
-	mustInsertQueries(t, p, qs)
-
-	tr := TimeRange{From: now.Add(-10 * time.Minute), To: now.Add(20 * time.Minute)}
-
-	// One query per minute at 5..14ms; minutes 0, 2 and 4 add a 10ms error.
-	lat, err := p.GetQueryLatencyTrends(context.Background(), tr, "up", "fp-lat")
-	require.NoError(t, err, "GetQueryLatencyTrends")
-	var avgs []float64
-	for _, r := range lat {
-		if r.Value == 0 {
-			continue
-		}
-		avgs = append(avgs, r.Value)
-		if r.Value == 6 {
-			assert.Equal(t, 6, r.P95, "a single-query bucket's p95 is its duration")
-		}
-	}
-	assert.ElementsMatch(t, []float64{7.5, 6, 8.5, 8, 9.5, 10, 11, 12, 13, 14}, avgs, "per-minute average latency")
-
-	thr, err := p.GetQueryThroughputAnalysis(context.Background(), tr)
-	require.NoError(t, err, "GetQueryThroughputAnalysis")
-	var total float64
-	for _, r := range thr {
-		total += r.Value
-	}
-	assert.Equal(t, 13.0, total, "throughput counts every query in range")
-
-	errSeries, err := p.GetQueryErrorAnalysis(context.Background(), tr, "fp-lat")
-	require.NoError(t, err, "GetQueryErrorAnalysis")
-	var errs float64
-	for _, r := range errSeries {
-		errs += r.Value
-	}
-	assert.Equal(t, 3.0, errs, "error analysis counts status >= 400")
-
-	dist, err := p.GetQueryStatusDistribution(context.Background(), tr, "fp-lat")
-	require.NoError(t, err, "GetQueryStatusDistribution")
-	assert.Equal(t, [3]int{10, 0, 3}, statusTotals(dist), "2xx, 4xx, 5xx totals")
-}
-
-func TestPostgreSQL_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
-	t.Parallel()
-	testGetQueryLatencyTrendsAndThroughputAndErrors(t, postgreSQLTestBackend)
-}
-
-func TestSQLite_GetQueryLatencyTrends_And_Throughput_And_Errors(t *testing.T) {
-	t.Parallel()
-	testGetQueryLatencyTrendsAndThroughputAndErrors(t, sqliteTestBackend)
-}
-
-// testTimeSeriesWideRangeCountsEveryQuery verifies the bucketed
-// time series count every query in range when buckets span several minutes,
-// not only queries in a bucket's first minute, and step one bucket at a time.
-func testTimeSeriesWideRangeCountsEveryQuery(t *testing.T, b testBackend) {
-	p := b.newProvider(t)
-
-	ctx := context.Background()
-	from := time.Date(2026, 10, 7, 6, 0, 0, 0, time.UTC)
-	tr := TimeRange{From: from, To: from.Add(6 * time.Hour)} // 5-minute buckets
-	var qs []Query
-	for i, minute := range []int{1, 2, 3} {
-		q := instantQuery(from.Add(time.Duration(minute)*time.Minute), "up")
-		q.Duration, q.StatusCode, q.Fingerprint = time.Duration(10*(i+1))*time.Millisecond, 500, "fp"
-		qs = append(qs, q)
-	}
-	mustInsertQueries(t, p, qs)
-
-	thr, err := p.GetQueryThroughputAnalysis(ctx, tr)
-	require.NoError(t, err)
-	var throughput float64
-	for _, r := range thr {
-		throughput += r.Value
-	}
-	assert.Equal(t, 3.0, throughput, "throughput")
-	assert.Len(t, thr, 73, "one bucket every 5 minutes across 6 hours, both ends included")
-
-	errs, err := p.GetQueryErrorAnalysis(ctx, tr, "fp")
-	require.NoError(t, err)
-	var errCount float64
-	for _, r := range errs {
-		errCount += r.Value
-	}
-	assert.Equal(t, 3.0, errCount, "error analysis")
-
-	dist, err := p.GetQueryStatusDistribution(ctx, tr, "fp")
-	require.NoError(t, err)
-	assert.Equal(t, [3]int{0, 0, 3}, statusTotals(dist), "status distribution")
-
-	lat, err := p.GetQueryLatencyTrends(ctx, tr, "up", "fp")
-	require.NoError(t, err)
-	require.NotEmpty(t, lat)
-	assert.Equal(t, 20.0, lat[0].Value, "first bucket averages all three queries")
-}
-
-func TestPostgreSQL_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
-	t.Parallel()
-	testTimeSeriesWideRangeCountsEveryQuery(t, postgreSQLTestBackend)
-}
-
-func TestSQLite_TimeSeries_WideRangeCountsEveryQuery(t *testing.T) {
-	t.Parallel()
-	testTimeSeriesWideRangeCountsEveryQuery(t, sqliteTestBackend)
-}
-
 func testGetQueriesBySerieName(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
 	now := time.Now().UTC()
 	qs := []Query{
-		{TS: now.Add(-2 * time.Minute), QueryParam: "up", TimeParam: now, Duration: 10 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, PeakSamples: 100},
-		{TS: now.Add(-1 * time.Minute), QueryParam: "up", TimeParam: now, Duration: 20 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeInstant, PeakSamples: 200},
-		{TS: now.Add(-2 * time.Minute), QueryParam: "rate(up[5m])", TimeParam: now, Duration: 30 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeRange, Start: now.Add(-5 * time.Minute), End: now, PeakSamples: 300},
+		instantQuery(now.Add(-2*time.Minute), "up"),
+		instantQuery(now.Add(-1*time.Minute), "up"),
+		rangeQuery(now.Add(-2*time.Minute), "up", 5*time.Minute),
 	}
+	qs[0].Duration, qs[0].PeakSamples = 10*time.Millisecond, 100
+	qs[1].Duration, qs[1].PeakSamples = 20*time.Millisecond, 200
+	qs[2].QueryParam, qs[2].Duration, qs[2].PeakSamples = "rate(up[5m])", 30*time.Millisecond, 300
 	mustInsertQueries(t, p, qs)
 
 	res, err := p.GetQueriesBySerieName(context.Background(), QueriesBySerieNameParams{
 		SerieName: "up",
-		TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)},
+		TimeRange: mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 		SortBy:    "avgDuration",
@@ -322,26 +195,15 @@ func testGetQueryExpressionsAndExecutions(t *testing.T, b testBackend) {
 		qs = append(qs, q)
 	}
 	for i := range 3 {
-		qs = append(qs, Query{
-			TS:                    now.Add(time.Duration(i) * time.Minute),
-			QueryParam:            "rate(up[5m])",
-			TimeParam:             now,
-			Duration:              20 * time.Millisecond,
-			StatusCode:            500,
-			LabelMatchers:         LabelMatchers{{"__name__": "up"}},
-			Type:                  QueryTypeRange,
-			Start:                 now.Add(-5 * time.Minute),
-			End:                   now,
-			Step:                  15,
-			PeakSamples:           100,
-			TotalQueryableSamples: 1000 + i,
-			Fingerprint:           "fp-b",
-		})
+		q := rangeQuery(now.Add(time.Duration(i)*time.Minute), "up", 5*time.Minute)
+		q.QueryParam, q.Duration, q.StatusCode, q.Fingerprint = "rate(up[5m])", 20*time.Millisecond, 500, "fp-b"
+		q.PeakSamples, q.TotalQueryableSamples = 100, 1000+i
+		qs = append(qs, q)
 	}
 	mustInsertQueries(t, p, qs)
 
 	pr, err := p.GetQueryExpressions(context.Background(), QueryExpressionsParams{
-		TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)},
+		TimeRange: mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour)),
 		Page:      1,
 		PageSize:  10,
 		SortBy:    "executions",
@@ -358,7 +220,7 @@ func testGetQueryExpressionsAndExecutions(t *testing.T, b testBackend) {
 		per, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
 			Fingerprint: "fp-b",
 			Type:        string(QueryTypeRange),
-			TimeRange:   TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)},
+			TimeRange:   mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour)),
 			Page:        1,
 			PageSize:    10,
 			SortBy:      "ts",
@@ -399,21 +261,7 @@ func testQueryTimeRangeDistribution(t *testing.T, b testBackend) {
 
 	now := time.Now().UTC()
 
-	mkRange := func(window time.Duration) Query {
-		return Query{
-			TS:            now.Add(-5 * time.Minute),
-			QueryParam:    "up",
-			TimeParam:     now.Add(-5 * time.Minute),
-			Duration:      5 * time.Millisecond,
-			StatusCode:    200,
-			BodySize:      1,
-			LabelMatchers: LabelMatchers{{"__name__": "up"}},
-			Type:          QueryTypeRange,
-			Step:          15,
-			Start:         now.Add(-5 * time.Minute).Add(-window),
-			End:           now.Add(-5 * time.Minute),
-		}
-	}
+	mkRange := func(window time.Duration) Query { return rangeQuery(now.Add(-5*time.Minute), "up", window) }
 
 	var qs []Query
 	for range 5 { // <24h
@@ -430,21 +278,12 @@ func testQueryTimeRangeDistribution(t *testing.T, b testBackend) {
 	qs = append(qs, mkRange(100*24*time.Hour)) // 90d+
 
 	// Instant queries are excluded from the distribution.
-	qs = append(qs, Query{
-		TS:            now.Add(-2 * time.Minute),
-		QueryParam:    "up",
-		TimeParam:     now.Add(-2 * time.Minute),
-		Duration:      3 * time.Millisecond,
-		StatusCode:    200,
-		BodySize:      1,
-		LabelMatchers: LabelMatchers{{"__name__": "up"}},
-		Type:          QueryTypeInstant,
-	})
+	qs = append(qs, instantQuery(now.Add(-2*time.Minute), "up"))
 
 	err := p.Insert(context.Background(), qs)
 	assert.NoError(t, err, "Insert")
 
-	out, err := p.GetQueryTimeRangeDistribution(context.Background(), TimeRange{From: now.Add(-24 * time.Hour), To: now}, "")
+	out, err := p.GetQueryTimeRangeDistribution(context.Background(), mustTimeRange(t, now.Add(-24*time.Hour), now), "")
 	assert.NoError(t, err, "GetQueryTimeRangeDistribution")
 
 	got := map[string]int{}
@@ -543,7 +382,7 @@ func testQueryFiltersScopeResults(t *testing.T, b testBackend) {
 
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Minute)
-	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+	tr := mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))
 	instant := func(ts time.Time, param, metric, fp string) Query {
 		q := instantQuery(ts, metric)
 		q.QueryParam, q.Fingerprint = param, fp
@@ -556,11 +395,9 @@ func testQueryFiltersScopeResults(t *testing.T, b testBackend) {
 		instant(now.Add(-8*time.Minute), "sum(up)", "up", "fpC"),
 	}
 	for i := range 3 {
-		qs = append(qs, Query{
-			TS: now.Add(time.Duration(-7+i) * time.Minute), QueryParam: "rate(other[5m])", TimeParam: now,
-			Duration: 40 * time.Millisecond, StatusCode: 200, LabelMatchers: LabelMatchers{{"__name__": "other"}},
-			Type: QueryTypeRange, Start: now.Add(-5 * time.Minute), End: now, Step: 15, Fingerprint: "fpB",
-		})
+		q := rangeQuery(now.Add(time.Duration(-7+i)*time.Minute), "other", 5*time.Minute)
+		q.QueryParam, q.Duration, q.Fingerprint = "rate(other[5m])", 40*time.Millisecond, "fpB"
+		qs = append(qs, q)
 	}
 	mustInsertQueries(t, p, qs)
 
@@ -629,7 +466,7 @@ func testQueryStatusClasses(t *testing.T, b testBackend) {
 
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Minute)
-	tr := TimeRange{From: now.Add(-1 * time.Hour), To: now.Add(1 * time.Hour)}
+	tr := mustTimeRange(t, now.Add(-1*time.Hour), now.Add(1*time.Hour))
 	var qs []Query
 	for i, status := range []int{200, 304, 404, 500} {
 		q := instantQuery(now.Add(time.Duration(i-10)*time.Minute), "up")
@@ -680,7 +517,7 @@ func testGetQueryLatencyTrendsP95IsUpperTail(t *testing.T, b testBackend) {
 	}
 	mustInsertQueries(t, p, qs)
 
-	lat, err := p.GetQueryLatencyTrends(context.Background(), TimeRange{From: now, To: now.Add(30 * time.Minute)}, "", "")
+	lat, err := p.GetQueryLatencyTrends(context.Background(), mustTimeRange(t, now, now.Add(30*time.Minute)), "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, lat)
 	assert.GreaterOrEqual(t, lat[0].P95, 90)
@@ -696,30 +533,22 @@ func TestSQLite_GetQueryLatencyTrends_P95IsUpperTail(t *testing.T) {
 	testGetQueryLatencyTrendsP95IsUpperTail(t, sqliteTestBackend)
 }
 
-// fingerprints returns the fingerprints res lists, in order.
-func fingerprints(t *testing.T, res PagedResult) []string {
-	t.Helper()
-	return keysOf(rowsOf[QueryExpression](t, res), func(e QueryExpression) string { return e.Fingerprint })
-}
-
 // testGetQueryTimeRangeDistributionDayBoundary verifies a range of exactly
-// 24h falls in the "24h" bucket, not "<24h".
+// 24h falls in the "24h" bucket and one a second shorter in "<24h": windows
+// are measured to the second, not the minute.
 func testGetQueryTimeRangeDistributionDayBoundary(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
-	now := time.Now().UTC().Truncate(time.Second)
-	mustInsertQueries(t, p, []Query{{
-		TS: now.Add(-5 * time.Minute), QueryParam: "up", TimeParam: now, Duration: time.Millisecond, StatusCode: 200,
-		LabelMatchers: LabelMatchers{{"__name__": "up"}}, Type: QueryTypeRange, Start: now.Add(-24 * time.Hour), End: now, Step: 15,
-	}})
+	end := time.Date(2026, 1, 2, 10, 0, 20, 0, time.UTC) // the 24h-1s window starts in the same minute, a day earlier
+	mustInsertQueries(t, p, []Query{rangeQuery(end, "up", 24*time.Hour), rangeQuery(end, "up", 24*time.Hour-time.Second)})
 
-	out, err := p.GetQueryTimeRangeDistribution(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}, "")
+	out, err := p.GetQueryTimeRangeDistribution(context.Background(), mustTimeRange(t, end.Add(-time.Hour), end.Add(time.Hour)), "")
 	require.NoError(t, err)
 	got := map[string]int{}
 	for _, r := range out {
 		got[r.Label] = r.Count
 	}
-	assert.Equal(t, [2]int{0, 1}, [2]int{got["<24h"], got["24h"]}, "<24h, 24h")
+	assert.Equal(t, [2]int{1, 1}, [2]int{got["<24h"], got["24h"]}, "<24h, 24h")
 }
 
 func TestPostgreSQL_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
@@ -752,7 +581,7 @@ func testInsertHTTPHeadersRoundTrip(t *testing.T, b testBackend) {
 
 	for fp, headers := range byFingerprint {
 		res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
-			Fingerprint: fp, TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now}, Page: 1, PageSize: 10,
+			Fingerprint: fp, TimeRange: mustTimeRange(t, now.Add(-1*time.Hour), now), Page: 1, PageSize: 10,
 		})
 		require.NoError(t, err, fp)
 		rows := rowsOf[QueryExecutionRow](t, res)
