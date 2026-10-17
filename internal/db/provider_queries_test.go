@@ -733,23 +733,36 @@ func TestSQLite_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
 }
 
 // testInsertHTTPHeadersRoundTrip verifies a query's HTTP headers are stored
-// and returned with its executions.
+// and returned with its executions, and a query inserted without headers
+// reads back with none rather than failing the read.
 func testInsertHTTPHeadersRoundTrip(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
 	now := time.Now().UTC().Truncate(time.Second)
-	headers := map[string]string{"X-Grafana-User": "alice", "X-Dashboard-Uid": "d1"}
-	q := instantQuery(now.Add(-5*time.Minute), "up")
-	q.Fingerprint, q.HTTPHeaders = "fp", headers
-	mustInsertQueries(t, p, []Query{q})
+	byFingerprint := map[string]map[string]string{
+		"with":  {"X-Grafana-User": "alice", "X-Dashboard-Uid": "d1"},
+		"nil":   nil,
+		"empty": {},
+	}
+	for fp, headers := range byFingerprint {
+		q := instantQuery(now.Add(-5*time.Minute), "up")
+		q.Fingerprint, q.HTTPHeaders = fp, headers
+		mustInsertQueries(t, p, []Query{q})
+	}
 
-	res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
-		Fingerprint: "fp", TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now}, Page: 1, PageSize: 10,
-	})
-	require.NoError(t, err)
-	rows := rowsOf[QueryExecutionRow](t, res)
-	require.Len(t, rows, 1)
-	assert.Equal(t, headers, rows[0].HTTPHeaders)
+	for fp, headers := range byFingerprint {
+		res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
+			Fingerprint: fp, TimeRange: TimeRange{From: now.Add(-1 * time.Hour), To: now}, Page: 1, PageSize: 10,
+		})
+		require.NoError(t, err, fp)
+		rows := rowsOf[QueryExecutionRow](t, res)
+		require.Len(t, rows, 1, fp)
+		if len(headers) == 0 {
+			assert.Empty(t, rows[0].HTTPHeaders, fp)
+		} else {
+			assert.Equal(t, headers, rows[0].HTTPHeaders, fp)
+		}
+	}
 }
 
 func TestPostgreSQL_Insert_HTTPHeadersRoundTrip(t *testing.T) {
