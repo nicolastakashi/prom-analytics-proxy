@@ -143,7 +143,7 @@ func testRefreshMetricsUsageSummaryAndGetSeriesMetadata(t *testing.T, b testBack
 		CreatedAt: now.Add(-15 * time.Minute),
 	}})
 
-	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), presenceWindow(t, now.Add(-1*time.Hour))))
 	assert.Equal(t, summaryRow{Alert: 1, Dashboard: 1, Query: 1}, mustSummaryRow(t, b, p, "up"))
 
 	res, err := p.GetSeriesMetadata(context.Background(), SeriesMetadataParams{
@@ -198,7 +198,7 @@ func testRefreshMetricsUsageSummaryExcludesStaleCatalogRows(t *testing.T, b test
 		instantQuery(now.Add(-time.Minute), "stale_metric"),
 	})
 
-	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now}))
+	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-time.Hour), now)))
 
 	fresh := mustSummaryRow(t, b, p, "fresh_metric")
 	assert.Greater(t, fresh.Query, 0, "fresh_metric should have been recomputed with real usage")
@@ -236,7 +236,7 @@ func testRefreshMetricsUsageSummaryExcludesOutOfWindowRulesUsage(t *testing.T, b
 
 	b.retireUsage(t, p, "RulesUsage", "serie", "out_of_window_metric")
 
-	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), presenceWindow(time.Now().UTC().AddDate(0, 0, -30))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), presenceWindow(t, time.Now().UTC().AddDate(0, 0, -30))))
 
 	inWindow := mustSummaryRow(t, b, p, "in_window_metric")
 	assert.Equal(t, summaryRow{Alert: 1, Record: 0, Dashboard: 0, Query: 0, Unused: false}, inWindow,
@@ -267,7 +267,7 @@ func testGetSeriesMetadataUsageFilters(t *testing.T, b testBackend) {
 	})
 	mustInsertQueries(t, p, []Query{instantQuery(now.Add(-5*time.Minute), "used_metric")})
 
-	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}))
+	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-1*time.Hour), now)))
 	// Catalogued after the only refresh run: never evaluated, so not unused.
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "never_evaluated_metric", Type: "gauge", Help: "never evaluated metric"}})
 
@@ -314,7 +314,7 @@ func testGetSeriesMetadataByNamesPopulatesIsUnused(t *testing.T, b testBackend) 
 		{Name: "evaluated_unused_metric", Type: "gauge", Help: "evaluated, confirmed unused"},
 	})
 	// No usage anywhere: the refresh confirms it unused.
-	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-1 * time.Hour), To: now}))
+	assert.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-1*time.Hour), now)))
 
 	// Catalogued after the only refresh run: never evaluated.
 	mustUpsertCatalog(t, p, []MetricCatalogItem{
@@ -429,7 +429,7 @@ func testRefreshMetricsUsageSummaryWarnsWhenAllRowsAreStale(t *testing.T, b test
 	defer slog.SetDefault(prevLogger)
 
 	now := time.Now().UTC()
-	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now}))
+	require.NoError(t, p.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-time.Hour), now)))
 
 	assert.Contains(t, logs.String(), "refresh summary touched no rows",
 		"expected a warning when the freshness filter matches zero rows against a non-empty catalog")
@@ -457,7 +457,7 @@ func testRefreshMetricsUsageSummaryNoWarnOnEmptyCatalog(t *testing.T, b testBack
 	defer slog.SetDefault(prevLogger)
 
 	now := time.Now().UTC()
-	err := p.RefreshMetricsUsageSummary(context.Background(), TimeRange{From: now.Add(-time.Hour), To: now})
+	err := p.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(t, now.Add(-time.Hour), now))
 	assert.NoError(t, err, "RefreshMetricsUsageSummary")
 
 	assert.NotContains(t, logs.String(), "refresh summary touched no rows",
@@ -484,7 +484,7 @@ func testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage(t *testing.T, b testB
 	now := time.Now().UTC()
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m", Type: "gauge", Help: "m"}})
 	mustInsertQueries(t, p, []Query{instantQuery(now.Add(-5*time.Minute), "m")})
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.Add(-1*time.Hour))))
 
 	b.markCatalogStale(t, p, "m")
 	mustUpsertCatalog(t, p, []MetricCatalogItem{{Name: "m", Type: "gauge", Help: "m"}})
@@ -492,7 +492,7 @@ func testUpsertMetricsCatalogResyncMarksFreshAndKeepsUsage(t *testing.T, b testB
 
 	// Usage that only a refresh treating m as fresh would count.
 	mustInsertRules(t, p, []RulesUsage{{Serie: "m", GroupName: "g", Name: "a", Expression: "m > 0", Kind: string(RuleUsageKindAlert), Labels: []string{}, CreatedAt: now}})
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.Add(-1*time.Hour))))
 	assert.Equal(t, summaryRow{Alert: 1, Query: 1}, mustSummaryRow(t, b, p, "m"), "the re-synced row is evaluated again")
 }
 
@@ -525,7 +525,7 @@ func testUsageReinsertExtendsPresence(t *testing.T, b testBackend) {
 	mustInsertRules(t, p, []RulesUsage{rule})
 	mustInsertDashboards(t, p, []DashboardUsage{dash})
 
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.AddDate(0, 0, -30))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.AddDate(0, 0, -30))))
 	assert.Equal(t, summaryRow{Alert: 1}, mustSummaryRow(t, b, p, "m_rule"))
 	assert.Equal(t, summaryRow{Dashboard: 1}, mustSummaryRow(t, b, p, "m_dash"))
 }
@@ -556,7 +556,7 @@ func testRefreshMetricsUsageSummaryHonorsUsageWindows(t *testing.T, b testBacken
 	b.retireUsage(t, p, "DashboardUsage", "serie", "m_old_dash")
 	mustInsertQueries(t, p, []Query{instantQuery(now.Add(time.Hour), "m_late_query")})
 
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.Add(-1*time.Hour))))
 	assert.Equal(t, summaryRow{Dashboard: 1}, mustSummaryRow(t, b, p, "m_dash"), "dashboard usage alone is usage")
 	assert.Equal(t, summaryRow{Unused: true}, mustSummaryRow(t, b, p, "m_old_dash"), "dashboard gone before the window")
 	assert.Equal(t, summaryRow{Unused: true}, mustSummaryRow(t, b, p, "m_late_query"), "query after the window")
@@ -584,7 +584,7 @@ func testSeriesMetadataJobScope(t *testing.T, b testBackend) {
 	mustUpsertJobIndex(t, p, []MetricJobIndexItem{{Name: "m1", Job: "a"}, {Name: "m2", Job: "b"}, {Name: "m3", Job: "a"}})
 	queried := now.Add(-5 * time.Minute)
 	mustInsertQueries(t, p, []Query{instantQuery(queried, "m3")})
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.Add(-1*time.Hour))))
 
 	res, err := p.GetSeriesMetadata(ctx, SeriesMetadataParams{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", Type: "all", Usage: SeriesMetadataUsageUnused, Job: "a"})
 	require.NoError(t, err)
@@ -628,7 +628,7 @@ func testGetSeriesMetadataOrdering(t *testing.T, b testBackend) {
 		}
 	}
 	mustInsertQueries(t, p, qs)
-	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(now.Add(-1*time.Hour))))
+	require.NoError(t, p.RefreshMetricsUsageSummary(ctx, presenceWindow(t, now.Add(-1*time.Hour))))
 
 	names := func(params SeriesMetadataParams) []string {
 		params.Page, params.PageSize = 1, 10

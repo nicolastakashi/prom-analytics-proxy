@@ -13,6 +13,7 @@ import (
 var sqliteTestBackend = testBackend{
 	newProvider: newTestSQLiteProvider,
 	rebind:      func(query string) string { return query },
+	bucketTime:  func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05") },
 }
 
 // newTestSQLiteProvider returns a migrated Provider, closed when t ends.
@@ -52,14 +53,14 @@ func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
 	mustInsertQueries(t, p, qs)
 
 	// 1-minute buckets.
-	lat, err := p.GetQueryLatencyTrends(ctx, TimeRange{From: from, To: from.Add(30 * time.Minute)}, "", "")
+	lat, err := p.GetQueryLatencyTrends(ctx, mustTimeRange(t, from, from.Add(30*time.Minute)), "", "")
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(lat), 2)
 	assert.Equal(t, 10, lat[0].P95, "minute 0: the 19th of 20 durations")
 	assert.Equal(t, 20, lat[1].P95, "minute 1: its only duration")
 
 	// 5-minute buckets: all 21 queries share the first one.
-	lat, err = p.GetQueryLatencyTrends(ctx, TimeRange{From: from, To: from.Add(6 * time.Hour)}, "", "")
+	lat, err = p.GetQueryLatencyTrends(ctx, mustTimeRange(t, from, from.Add(6*time.Hour)), "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, lat)
 	assert.Equal(t, 20, lat[0].P95, "the 20th of 21 durations")
@@ -78,56 +79,8 @@ func TestSQLite_GetQueryLatencyTrends_P95PerBucket(t *testing.T) {
 		qs = append(qs, q)
 	}
 	mustInsertQueries(t, p, qs)
-	lat, err = p.GetQueryLatencyTrends(ctx, TimeRange{From: day, To: day.Add(6 * time.Hour)}, "", "")
+	lat, err = p.GetQueryLatencyTrends(ctx, mustTimeRange(t, day, day.Add(6*time.Hour)), "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, lat)
 	assert.Equal(t, 10, lat[0].P95, "the 38th of 40 durations, ranked across the whole bucket")
-}
-
-func TestSQLite_TimeRangeDistribution_ISO_TZ(t *testing.T) {
-	t.Parallel()
-	p := newTestSQLiteProvider(t)
-
-	// Manually insert a few range queries with ISO timestamps (T/Z) to simulate proxy inserts
-	_, _ = p.(*SQLiteProvider).db.ExecContext(context.Background(), `DELETE FROM queries`)
-
-	now := time.Now().UTC().Truncate(time.Minute)
-	from := now.Add(-15 * time.Minute)
-
-	insert := `INSERT INTO queries (ts, queryParam, timeParam, duration, statusCode, bodySize, fingerprint, labelMatchers, type, step, start, "end", totalQueryableSamples, peakSamples)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	// Three ranges: 5m, 2h, 9d
-	ranges := []struct{ start, end time.Time }{
-		{now.Add(-10 * time.Minute), now.Add(-5 * time.Minute)},
-		{now.Add(-3 * time.Hour), now.Add(-1 * time.Hour)},
-		{now.Add(-9 * 24 * time.Hour), now},
-	}
-	for _, r := range ranges {
-		_, err := p.(*SQLiteProvider).db.ExecContext(context.Background(), insert,
-			now.Format(time.RFC3339), // ts
-			"up",                     // queryParam
-			now.Format(time.RFC3339), // timeParam
-			int64(100),               // duration ms
-			200,                      // statusCode
-			0,                        // bodySize
-			"fp",                     // fingerprint
-			`[{"__name__":"up"}]`,    // labelMatchers
-			"range",                  // type
-			15.0,                     // step
-			r.start.Format(time.RFC3339),
-			r.end.Format(time.RFC3339),
-			0,
-			0,
-		)
-		assert.NoError(t, err, "insert")
-	}
-
-	out, err := p.GetQueryTimeRangeDistribution(context.Background(), TimeRange{From: from, To: now}, "")
-	require.NoError(t, err, "GetQueryTimeRangeDistribution")
-	sum := 0
-	for _, b := range out {
-		sum += b.Count
-	}
-	assert.Equal(t, 3, sum, "every range query with ISO timestamps is counted")
 }

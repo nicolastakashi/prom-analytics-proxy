@@ -150,4 +150,5 @@ var postgreSQLTestBackend = testBackend{
 		}
 		return out.String()
 	},
+	bucketTime: func(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05Z") },
 }

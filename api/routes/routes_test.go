@@ -25,8 +25,9 @@ func TestSeriesMetadata_DBBacked(t *testing.T) {
 	defer func() { _ = provider.Close() }()
 
 	// Seed catalog directly
+	now := time.Now().UTC()
 	_ = provider.UpsertMetricsCatalog(context.Background(), []db.MetricCatalogItem{{Name: "up", Type: "gauge"}})
-	_ = provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{})
+	assert.NoError(t, provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{From: now.Add(-1 * time.Hour), To: now}))
 
 	upstream, _ := url.Parse("http://127.0.0.1")
 	reg := prometheus.NewRegistry()

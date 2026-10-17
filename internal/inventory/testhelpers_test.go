@@ -44,6 +44,8 @@ type fakePromAPI struct {
 
 	mu          sync.Mutex
 	queriedJobs []string // jobs Query was actually called for, in call order
+	// labelStart and labelEnd are the range LabelValues was last asked for.
+	labelStart, labelEnd time.Time
 }
 
 func (f *fakePromAPI) Metadata(ctx context.Context, _ string, _ string) (map[string][]v1.Metadata, error) {
@@ -58,7 +60,10 @@ func (f *fakePromAPI) Metadata(ctx context.Context, _ string, _ string) (map[str
 	}
 }
 
-func (f *fakePromAPI) LabelValues(ctx context.Context, _ string, _ []string, _, _ time.Time, _ ...v1.Option) (model.LabelValues, v1.Warnings, v1.Infos, error) {
+func (f *fakePromAPI) LabelValues(ctx context.Context, _ string, _ []string, start, end time.Time, _ ...v1.Option) (model.LabelValues, v1.Warnings, v1.Infos, error) {
+	f.mu.Lock()
+	f.labelStart, f.labelEnd = start, end
+	f.mu.Unlock()
 	select {
 	case <-time.After(f.labelDelay):
 		if f.labelErr != nil {
@@ -116,6 +121,8 @@ type fakeProvider struct {
 	summaryDelay     time.Duration // how long a real refresh would take
 	summaryCalls     int
 	summarySucceeded bool
+	// summaryFrom and summaryTo are the range the last refresh was given.
+	summaryFrom, summaryTo time.Time
 
 	jobIndexItems []db.MetricJobIndexItem
 	// upsertCalls counts job-index upserts attempted, which is what tells a
@@ -136,9 +143,10 @@ func (f *fakeProvider) UpsertMetricsCatalog(_ context.Context, _ []db.MetricCata
 	return nil
 }
 
-func (f *fakeProvider) RefreshMetricsUsageSummary(ctx context.Context, _ db.TimeRange) error {
+func (f *fakeProvider) RefreshMetricsUsageSummary(ctx context.Context, tr db.TimeRange) error {
 	f.mu.Lock()
 	f.summaryCalls++
+	f.summaryFrom, f.summaryTo = tr.From, tr.To
 	f.mu.Unlock()
 
 	select {
