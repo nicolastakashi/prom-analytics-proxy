@@ -109,6 +109,7 @@ func TestOTLPIngester_E2E_GRPC_FilterAndForward(t *testing.T) {
 	cancel()
 	select {
 	case <-time.After(5 * time.Second):
-	case <-errCh:
+	case err := <-errCh:
+		assert.NoError(t, err, "ingester must shut down cleanly")
 	}
 }
