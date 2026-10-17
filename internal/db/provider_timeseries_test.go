@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// seriesPoint is one bucket of a time series: its label and its value.
+// seriesPoint is one bucket of a time series: its start and its value.
 type seriesPoint struct {
-	time  string
+	time  time.Time
 	value float64
 }
 
@@ -54,9 +54,9 @@ func pointsOf[T any](rows []T, point func(T) seriesPoint) []seriesPoint {
 	return out
 }
 
-// nonZero returns the label and value of every bucket whose value is not 0.
-func nonZero(points []seriesPoint) map[string]float64 {
-	out := map[string]float64{}
+// nonZero returns the start and value of every bucket whose value is not 0.
+func nonZero(points []seriesPoint) map[time.Time]float64 {
+	out := map[time.Time]float64{}
 	for _, p := range points {
 		if p.value != 0 {
 			out[p.time] = p.value
@@ -65,10 +65,9 @@ func nonZero(points []seriesPoint) map[string]float64 {
 	return out
 }
 
-// testTimeSeriesPlaceEachQueryInItsBucket verifies each time series labels
-// its buckets with their start and counts a query in the bucket containing
-// it: on the range start, on a bucket start, and in a bucket's last
-// millisecond.
+// testTimeSeriesPlaceEachQueryInItsBucket verifies each time series gives
+// each bucket its start time and counts a query in the bucket containing it:
+// on the range start, on a bucket start, and in a bucket's last millisecond.
 func testTimeSeriesPlaceEachQueryInItsBucket(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
@@ -85,8 +84,8 @@ func testTimeSeriesPlaceEachQueryInItsBucket(t *testing.T, b testBackend) {
 	}
 	mustInsertQueries(t, p, qs)
 
-	first, bucket := b.bucketTime(from), b.bucketTime(from.Add(15*time.Minute))
-	want := map[string]map[string]float64{
+	first, bucket := from, from.Add(15*time.Minute)
+	want := map[string]map[time.Time]float64{
 		"Throughput":         {first: 1, bucket: 2},
 		"ErrorAnalysis":      {first: 1, bucket: 2},
 		"StatusDistribution": {first: 1, bucket: 2},
@@ -95,7 +94,7 @@ func testTimeSeriesPlaceEachQueryInItsBucket(t *testing.T, b testBackend) {
 	for _, s := range timeSeries {
 		points := s.read(t, p, tr)
 		require.Len(t, points, 61, s.name)
-		assert.Equal(t, [2]string{first, b.bucketTime(from.Add(time.Hour))}, [2]string{points[0].time, points[60].time}, "%s first and last bucket", s.name)
+		assert.Equal(t, [2]time.Time{first, from.Add(time.Hour)}, [2]time.Time{points[0].time, points[60].time}, "%s first and last bucket", s.name)
 		assert.Equal(t, want[s.name], nonZero(points), s.name)
 	}
 }
@@ -123,17 +122,17 @@ func testTimeSeriesBucketsStartAtRangeStartMinute(t *testing.T, b testBackend) {
 	mustInsertQueries(t, p, []Query{q})
 
 	tr := mustTimeRange(t, from, from.Add(12*time.Hour)) // 15-minute buckets
-	first := b.bucketTime(time.Date(2026, 1, 2, 10, 7, 0, 0, time.UTC))
+	first := time.Date(2026, 1, 2, 10, 7, 0, 0, time.UTC)
 	for _, s := range timeSeries {
 		points := s.read(t, p, tr)
 		require.Len(t, points, 49, s.name)
-		assert.Equal(t, [2]string{first, b.bucketTime(time.Date(2026, 1, 2, 10, 22, 0, 0, time.UTC))},
-			[2]string{points[0].time, points[1].time}, "%s first two buckets", s.name)
+		assert.Equal(t, [2]time.Time{first, time.Date(2026, 1, 2, 10, 22, 0, 0, time.UTC)},
+			[2]time.Time{points[0].time, points[1].time}, "%s first two buckets", s.name)
 		want := 1.0
 		if s.duration {
 			want = 10
 		}
-		assert.Equal(t, map[string]float64{first: want}, nonZero(points), s.name)
+		assert.Equal(t, map[time.Time]float64{first: want}, nonZero(points), s.name)
 	}
 }
 
@@ -176,8 +175,8 @@ func testTimeSeriesBucketWidthFollowsRangeSpan(t *testing.T, b testBackend) {
 			for _, s := range timeSeries {
 				points := s.read(t, p, mustTimeRange(t, from, from.Add(tier.span)))
 				require.Len(t, points, tier.buckets, s.name)
-				assert.Equal(t, [2]string{b.bucketTime(from), b.bucketTime(from.Add(tier.width))},
-					[2]string{points[0].time, points[1].time}, "%s first two buckets", s.name)
+				assert.Equal(t, [2]time.Time{from, from.Add(tier.width)},
+					[2]time.Time{points[0].time, points[1].time}, "%s first two buckets", s.name)
 				assert.Empty(t, nonZero(points), s.name)
 			}
 		})

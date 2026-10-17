@@ -72,26 +72,30 @@ type QueriesBySerieNameResult struct {
 }
 
 type QueryStatusDistributionResult struct {
-	Time      string `json:"time"`
-	Status2xx int    `json:"2xx"`
-	Status4xx int    `json:"4xx"`
-	Status5xx int    `json:"5xx"`
+	// Time is the bucket's start, in UTC.
+	Time      time.Time `json:"time"`
+	Status2xx int       `json:"2xx"`
+	Status4xx int       `json:"4xx"`
+	Status5xx int       `json:"5xx"`
 }
 
 type QueryLatencyTrendsResult struct {
 	Value float64 `json:"value"`
 	P95   int     `json:"p95"`
-	Time  string  `json:"time"`
+	// Time is the bucket's start, in UTC.
+	Time time.Time `json:"time"`
 }
 
 type QueryThroughputAnalysisResult struct {
 	Value float64 `json:"value"`
-	Time  string  `json:"time"`
+	// Time is the bucket's start, in UTC.
+	Time time.Time `json:"time"`
 }
 
 type QueryErrorAnalysisResult struct {
-	Time  string  `json:"time"`
-	Value float64 `json:"value"`
+	// Time is the bucket's start, in UTC.
+	Time  time.Time `json:"time"`
+	Value float64   `json:"value"`
 }
 
 // QueryTimeRangeDistributionResult represents a bucketed count of range query window sizes.

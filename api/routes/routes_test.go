@@ -515,3 +515,44 @@ func errorMessage(t *testing.T, w *httptest.ResponseRecorder) string {
 	}
 	return body.Error
 }
+
+// TestQueryThroughput_BucketTimesAreRFC3339UTC verifies time-series bucket
+// times reach the client as RFC 3339 UTC times.
+func TestQueryThroughput_BucketTimesAreRFC3339UTC(t *testing.T) {
+	t.Parallel()
+	provider, err := db.GetDbProvider(context.Background(), db.SQLite)
+	if err != nil {
+		t.Skipf("sqlite provider unavailable: %v", err)
+	}
+	defer func() { _ = provider.Close() }()
+	assert.NoError(t, provider.Insert(context.Background(), []db.Query{{
+		TS: time.Date(2026, 1, 2, 10, 15, 30, 0, time.UTC), QueryParam: "up", Duration: time.Millisecond, StatusCode: 200,
+		LabelMatchers: db.LabelMatchers{{"__name__": "up"}}, Type: db.QueryTypeInstant,
+	}}))
+
+	r := newTestRouter(t, provider)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/query/throughput?from=2026-01-02T10:00:00Z&to=2026-01-02T11:00:00Z", nil))
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	var buckets []struct {
+		Time  string  `json:"time"`
+		Value float64 `json:"value"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &buckets); err != nil {
+		t.Fatalf("decode: %v, body=%s", err, w.Body.String())
+	}
+	if len(buckets) == 0 {
+		t.Fatalf("no buckets, body=%s", w.Body.String())
+	}
+	assert.Equal(t, "2026-01-02T10:00:00Z", buckets[0].Time, "first bucket")
+	var counted []string
+	for _, b := range buckets {
+		if b.Value > 0 {
+			counted = append(counted, b.Time)
+		}
+	}
+	assert.Equal(t, []string{"2026-01-02T10:15:00Z"}, counted)
+}
