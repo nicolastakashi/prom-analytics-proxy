@@ -562,8 +562,9 @@ func TestSQLite_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
 }
 
 // testInsertHTTPHeadersRoundTrip verifies a query's HTTP headers are stored
-// and returned with its executions, and a query inserted without headers
-// reads back with none rather than failing the read.
+// and returned with its executions, and a query inserted without headers, or
+// stored with NULL headers, reads back with none rather than failing the
+// read.
 func testInsertHTTPHeadersRoundTrip(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
@@ -572,12 +573,14 @@ func testInsertHTTPHeadersRoundTrip(t *testing.T, b testBackend) {
 		"with":  {"X-Grafana-User": "alice", "X-Dashboard-Uid": "d1"},
 		"nil":   nil,
 		"empty": {},
+		"null":  nil,
 	}
 	for fp, headers := range byFingerprint {
 		q := instantQuery(now.Add(-5*time.Minute), "up")
 		q.Fingerprint, q.HTTPHeaders = fp, headers
 		mustInsertQueries(t, p, []Query{q})
 	}
+	b.mustExec(t, p, `UPDATE queries SET httpHeaders = NULL WHERE fingerprint = ?`, "null")
 
 	for fp, headers := range byFingerprint {
 		res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{

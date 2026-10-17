@@ -28,7 +28,27 @@ func CloseResource(closer io.Closer) {
 	}
 }
 
-// ScanSingleRow scans a single row with proper error handling
+// ScanRows scans every row of rows with scan, then closes rows. It returns an
+// empty slice rather than nil when there are no rows.
+func ScanRows[T any](rows *sql.Rows, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	defer CloseResource(rows)
+
+	out := []T{}
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, ErrorWithOperation(err, "scanning row")
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, ErrorWithOperation(err, "row iteration")
+	}
+	return out, nil
+}
+
+// ScanSingleRow scans the first row of rows into dest, then closes rows. It
+// returns ErrNoResults when there is no row.
 func ScanSingleRow(rows *sql.Rows, dest ...interface{}) error {
 	defer CloseResource(rows)
 
