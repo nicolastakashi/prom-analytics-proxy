@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -37,40 +38,40 @@ func (stubReporter) CycleStarted(context.Context, context.CancelFunc, time.Durat
 // exists so a strategy that acts on reported cycles gets to see them, and
 // nothing else in this package would notice the plumbing being cut.
 func TestElector_Run_HandsTheStrategysReporterToFn(t *testing.T) {
-	want := stubReporter{}
-	el := newTestElector(&reporterStrategy{reporter: want}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		want := stubReporter{}
+		el := newTestElector(&reporterStrategy{reporter: want}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	got := make(chan CycleReporter, 1)
-	require.NoError(t, el.Run(ctx, "reporter-plumbing-test", func(_ context.Context, reporter CycleReporter) {
-		got <- reporter
-		cancel() // one term is all this needs
-	}))
+		got := make(chan CycleReporter, 1)
+		require.NoError(t, el.Run(ctx, "reporter-plumbing-test", func(_ context.Context, reporter CycleReporter) {
+			got <- reporter
+			cancel() // one term is all this needs
+		}))
 
-	select {
-	case reporter := <-got:
+		reporter := mustReceive(t, got, "fn was never called, so nothing was proven about the reporter it would have received")
 		assert.Equal(t, want, reporter, "fn must receive the reporter the strategy returned, not a substitute")
-	default:
-		t.Fatal("fn was never called, so nothing was proven about the reporter it would have received")
-	}
+	})
 }
 
 // TestElector_Run_NilReporterFromStrategyReachesFnAsNil proves a strategy
 // with nothing to coordinate (advisory-lock today) leaves fn with a nil
 // reporter rather than anything it would have to guard against.
 func TestElector_Run_NilReporterFromStrategyReachesFnAsNil(t *testing.T) {
-	el := newTestElector(&reporterStrategy{reporter: nil}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		el := newTestElector(&reporterStrategy{reporter: nil}, backoffConfig{initial: time.Millisecond, max: 2 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	called := false
-	require.NoError(t, el.Run(ctx, "nil-reporter-test", func(_ context.Context, reporter CycleReporter) {
-		called = true
-		assert.Nil(t, reporter)
-		cancel()
-	}))
-	assert.True(t, called, "fn must have run for this to prove anything")
+		called := false
+		require.NoError(t, el.Run(ctx, "nil-reporter-test", func(_ context.Context, reporter CycleReporter) {
+			called = true
+			assert.Nil(t, reporter)
+			cancel()
+		}))
+		assert.True(t, called, "fn must have run for this to prove anything")
+	})
 }

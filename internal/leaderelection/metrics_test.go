@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -15,33 +16,31 @@ import (
 // be 1 while fn runs and 0 after Run returns, and
 // leaderelection_transitions_total{to="leader"} must have incremented.
 func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
-	elector := newTestElector(&releaseTrackingStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		elector := newTestElector(&releaseTrackingStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
 
-	fnRunning := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
+		fnRunning := make(chan struct{})
+		ctx, cancel := context.WithCancel(context.Background())
 
-	done := make(chan error, 1)
-	go func() {
-		done <- elector.Run(ctx, "metrics-test", func(fnCtx context.Context, _ CycleReporter) {
-			close(fnRunning)
-			<-fnCtx.Done()
-		})
-	}()
+		done := make(chan error, 1)
+		go func() {
+			done <- elector.Run(ctx, "metrics-test", func(fnCtx context.Context, _ CycleReporter) {
+				close(fnRunning)
+				<-fnCtx.Done()
+			})
+		}()
 
-	select {
-	case <-fnRunning:
-	case <-time.After(time.Second):
-		t.Fatal("fn was never invoked")
-	}
+		mustReceive(t, fnRunning, "fn was never invoked")
 
-	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
-	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "leader")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "leader")))
 
-	cancel()
-	assert.NoError(t, <-done)
+		cancel()
+		assert.NoError(t, <-done)
 
-	assert.Equal(t, float64(0), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
-	assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "follower")))
+		assert.Equal(t, float64(0), testutil.ToFloat64(elector.m.isLeader.WithLabelValues("metrics-test")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(elector.m.transitions.WithLabelValues("metrics-test", "follower")))
+	})
 }
 
 // TestNewMetrics_NilRegistererDefaultsToPrometheusDefault proves the
@@ -54,28 +53,30 @@ func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
 // without the explicit nil-check this test targets, so this also
 // incidentally guards against ever removing that check as "redundant".
 func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
-	m := newMetrics(nil)
-	t.Cleanup(func() {
-		prometheus.Unregister(m.isLeader)
-		prometheus.Unregister(m.transitions)
-	})
-	// A GaugeVec with no label combination ever touched reports no samples
-	// at all, regardless of which registry it's in — Gather() would find
-	// nothing either way, which would make this test pass for the wrong
-	// reason. Touching one first makes the check meaningful.
-	m.isLeader.WithLabelValues("nil-registerer-test").Set(1)
+	synctest.Test(t, func(t *testing.T) {
+		m := newMetrics(nil)
+		t.Cleanup(func() {
+			prometheus.Unregister(m.isLeader)
+			prometheus.Unregister(m.transitions)
+		})
+		// A GaugeVec with no label combination ever touched reports no samples
+		// at all, regardless of which registry it's in — Gather() would find
+		// nothing either way, which would make this test pass for the wrong
+		// reason. Touching one first makes the check meaningful.
+		m.isLeader.WithLabelValues("nil-registerer-test").Set(1)
 
-	mfs, err := prometheus.DefaultGatherer.Gather()
-	assert.NoError(t, err)
+		mfs, err := prometheus.DefaultGatherer.Gather()
+		assert.NoError(t, err)
 
-	var found bool
-	for _, mf := range mfs {
-		if mf.GetName() == "leaderelection_is_leader" {
-			found = true
-			break
+		var found bool
+		for _, mf := range mfs {
+			if mf.GetName() == "leaderelection_is_leader" {
+				found = true
+				break
+			}
 		}
-	}
-	assert.True(t, found, "newMetrics(nil) must register against prometheus.DefaultRegisterer, not silently register nowhere scrapable")
+		assert.True(t, found, "newMetrics(nil) must register against prometheus.DefaultRegisterer, not silently register nowhere scrapable")
+	})
 }
 
 // TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader
@@ -87,33 +88,35 @@ func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
 // WithLabelValues, which would create the series as a side effect of the
 // assertion itself and pass even without the fix.
 func TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader(t *testing.T) {
-	strat := &recordingStrategy{} // returnErr == nil: never grants leadership
-	elector, reg := newTestElectorWithRegistry(strat, backoffConfig{initial: 5 * time.Millisecond, max: 5 * time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		strat := &recordingStrategy{} // returnErr == nil: never grants leadership
+		elector, reg := newTestElectorWithRegistry(strat, backoffConfig{initial: 5 * time.Millisecond, max: 5 * time.Millisecond})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-	_ = elector.Run(ctx, "zero-init-test", func(context.Context, CycleReporter) {
-		t.Fatal("fn must never run: this strategy never grants leadership")
-	})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer cancel()
+		_ = elector.Run(ctx, "zero-init-test", func(context.Context, CycleReporter) {
+			t.Fatal("fn must never run: this strategy never grants leadership")
+		})
 
-	mfs, err := reg.Gather()
-	assert.NoError(t, err)
+		mfs, err := reg.Gather()
+		assert.NoError(t, err)
 
-	var value *float64
-	for _, mf := range mfs {
-		if mf.GetName() != "leaderelection_is_leader" {
-			continue
-		}
-		for _, m := range mf.GetMetric() {
-			for _, l := range m.GetLabel() {
-				if l.GetName() == "lease_name" && l.GetValue() == "zero-init-test" {
-					v := m.GetGauge().GetValue()
-					value = &v
+		var value *float64
+		for _, mf := range mfs {
+			if mf.GetName() != "leaderelection_is_leader" {
+				continue
+			}
+			for _, m := range mf.GetMetric() {
+				for _, l := range m.GetLabel() {
+					if l.GetName() == "lease_name" && l.GetValue() == "zero-init-test" {
+						v := m.GetGauge().GetValue()
+						value = &v
+					}
 				}
 			}
 		}
-	}
-	if assert.NotNil(t, value, "a follower that never won an election must still export a series for its lease, not none at all") {
-		assert.Equal(t, float64(0), *value)
-	}
+		if assert.NotNil(t, value, "a follower that never won an election must still export a series for its lease, not none at all") {
+			assert.Equal(t, float64(0), *value)
+		}
+	})
 }
