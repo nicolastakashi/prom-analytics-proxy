@@ -57,10 +57,13 @@ func presenceWindow(t testing.TB, from time.Time) TimeRange {
 	return mustTimeRange(t, from, time.Now().UTC().Add(time.Minute))
 }
 
-// mustTimeRange is the TimeRange from from to to.
+// mustTimeRange is the TimeRange from from to to, failing t if it is not a
+// valid one.
 func mustTimeRange(t testing.TB, from, to time.Time) TimeRange {
 	t.Helper()
-	return TimeRange{From: from, To: to}
+	tr, err := NewTimeRange(from, to)
+	require.NoError(t, err)
+	return tr
 }
 
 // instantQuery is a successful 1ms instant query on metric at ts. QueryParam

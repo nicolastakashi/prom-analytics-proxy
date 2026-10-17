@@ -33,8 +33,8 @@ func (p *benchDBProvider) GetSeriesMetadataByNames(_ context.Context, _ []string
 	return p.data, nil
 }
 
-func (p *benchDBProvider) Close() error                    { return nil }
-func (p *benchDBProvider) WithDB(_ func(*sql.DB))          {}
+func (p *benchDBProvider) Close() error                                 { return nil }
+func (p *benchDBProvider) WithDB(_ func(*sql.DB))                       {}
 func (p *benchDBProvider) Insert(_ context.Context, _ []db.Query) error { return nil }
 func (p *benchDBProvider) InsertRulesUsage(_ context.Context, _ []db.RulesUsage) error {
 	return nil
@@ -227,10 +227,7 @@ func seedSummaryUsedRows(b *testing.B, provider db.Provider, fromIdx, toIdx int)
 		b.Fatalf("InsertRulesUsage: %v", err)
 	}
 
-	tr := db.TimeRange{
-		From: time.Now().Add(-time.Hour),
-		To:   time.Now().Add(time.Hour),
-	}
+	tr := mustTimeRange(b, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if err := provider.RefreshMetricsUsageSummary(ctx, tr); err != nil {
 		b.Fatalf("RefreshMetricsUsageSummary: %v", err)
 	}
@@ -711,10 +708,7 @@ func BenchmarkSeriesMetadataUnused_SQLite_JobScopedScaleUp(b *testing.B) {
 			// to is_unused=FALSE (unevaluated) precisely so it can't be
 			// mistaken for a confirmed-unused row. See
 			// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570.
-			if err := provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{
-				From: time.Now().Add(-time.Hour),
-				To:   time.Now().Add(time.Hour),
-			}); err != nil {
+			if err := provider.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(b, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))); err != nil {
 				b.Fatalf("RefreshMetricsUsageSummary: %v", err)
 			}
 
@@ -773,10 +767,7 @@ func BenchmarkSeriesMetadataUnused_PostgreSQL_JobScopedScaleUp(b *testing.B) {
 			// See the SQLite JobScopedScaleUp benchmark's comment: this
 			// evaluates the whole catalog for real instead of relying on the
 			// (now unevaluated-by-default) placeholder rows.
-			if err := provider.RefreshMetricsUsageSummary(context.Background(), db.TimeRange{
-				From: time.Now().Add(-time.Hour),
-				To:   time.Now().Add(time.Hour),
-			}); err != nil {
+			if err := provider.RefreshMetricsUsageSummary(context.Background(), mustTimeRange(b, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))); err != nil {
 				b.Fatalf("RefreshMetricsUsageSummary: %v", err)
 			}
 
