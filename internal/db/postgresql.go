@@ -406,10 +406,11 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
+	from, to := params.TimeRange.Format(ISOTimeFormat)
 	args := []interface{}{
 		metricMatcherJSON(params.SerieName),
-		params.TimeRange.From(),
-		params.TimeRange.To(),
+		from,
+		to,
 		params.Filter,
 		params.PageSize,
 		(params.Page - 1) * params.PageSize,
@@ -1086,7 +1087,7 @@ func (p *PostGreSQLProvider) UpsertMetricsCatalog(ctx context.Context, items []M
 	//
 	// last_synced_at is stored as TIMESTAMP WITHOUT TIME ZONE, so a bare NOW()
 	// lands in the server session's time zone while RefreshMetricsUsageSummary
-	// compares it against tr.From().UTC() (see PrepareTimeRange). AT TIME ZONE
+	// compares it against the range's From in UTC. AT TIME ZONE
 	// 'UTC' pins the written value to UTC so the two stay in the same clock
 	// domain regardless of session TimeZone.
 	if _, err := tx.ExecContext(ctx, `
@@ -1192,7 +1193,7 @@ func (p *PostGreSQLProvider) RefreshMetricsUsageSummary(ctx context.Context, tr 
 	if tr.IsZero() {
 		return ErrTimeRangeRequired
 	}
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 	res, err := p.db.ExecContext(ctx, refreshMetricsUsageSummaryQueryPostgreSQL, from, to)
 	if err != nil {
 		return fmt.Errorf("refresh summary: %w", err)
@@ -1263,7 +1264,7 @@ func (p *PostGreSQLProvider) GetQueryTypes(ctx context.Context, tr TimeRange, fi
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
-	startTime, endTime := PrepareTimeRange(tr, "postgresql")
+	startTime, endTime := tr.Format(ISOTimeFormat)
 
 	query := `
 		WITH stats AS (
@@ -1389,7 +1390,7 @@ func (p *PostGreSQLProvider) GetQueryStatusDistribution(ctx context.Context, tr 
 		return nil, ErrTimeRangeRequired
 	}
 	interval := GetInterval(tr.From(), tr.To(), "postgresql")
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 
 	query := `
 	WITH
@@ -1428,7 +1429,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 		return nil, ErrTimeRangeRequired
 	}
 	interval := GetInterval(tr.From(), tr.To(), "postgresql")
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 
 	query := `
 	WITH
@@ -1437,10 +1438,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 		SELECT
 			` + pgTimeBucket + ` AS bucket,
 			ROUND(AVG(duration)::numeric, 2)                 AS avg_duration,
-			ROUND(
-				percentile_cont(0.95) WITHIN GROUP (ORDER BY duration)
-				::numeric, 2
-			)                                                AS p95
+			percentile_disc(0.95) WITHIN GROUP (ORDER BY duration) AS p95
 		FROM   queries
 		WHERE  ts >= $1
 		AND  ts <  $3
@@ -1461,13 +1459,7 @@ func (p *PostGreSQLProvider) GetQueryLatencyTrends(ctx context.Context, tr TimeR
 	if err != nil {
 		return nil, err
 	}
-	return ScanRows(rows, func(row *sql.Rows) (QueryLatencyTrendsResult, error) {
-		var result QueryLatencyTrendsResult
-		var p95 float64
-		err := row.Scan((*bucketTime)(&result.Time), &result.Value, &p95)
-		result.P95 = int(p95)
-		return result, err
-	})
+	return ScanRows(rows, scanQueryLatencyTrends)
 }
 
 func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr TimeRange) ([]QueryThroughputAnalysisResult, error) {
@@ -1475,7 +1467,7 @@ func (p *PostGreSQLProvider) GetQueryThroughputAnalysis(ctx context.Context, tr 
 		return nil, ErrTimeRangeRequired
 	}
 	interval := GetInterval(tr.From(), tr.To(), "postgresql")
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 
 	query := `
 	WITH
@@ -1509,7 +1501,7 @@ func (p *PostGreSQLProvider) GetQueryErrorAnalysis(ctx context.Context, tr TimeR
 		return nil, ErrTimeRangeRequired
 	}
 	interval := GetInterval(tr.From(), tr.To(), "postgresql")
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 
 	query := `
 	WITH
@@ -1545,16 +1537,16 @@ func (p *PostGreSQLProvider) GetQueryTimeRangeDistribution(ctx context.Context, 
 	if tr.IsZero() {
 		return nil, ErrTimeRangeRequired
 	}
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 
 	query := `
     WITH filtered AS (
-        SELECT EXTRACT(EPOCH FROM ("end" - start))::bigint AS seconds
+        SELECT EXTRACT(EPOCH FROM (date_trunc('second', "end") - date_trunc('second', start)))::bigint AS seconds
         FROM   queries
         WHERE  ts BETWEEN $1 AND $2
         AND    ($3 = '' OR fingerprint = $3)
         AND    type = 'range'
-        AND    start IS NOT NULL AND "end" IS NOT NULL AND "end" > start
+        AND    start IS NOT NULL AND "end" IS NOT NULL AND "end" >= start
     ), total AS (
         SELECT COUNT(*) AS total FROM filtered
     ), buckets AS (
@@ -1725,7 +1717,7 @@ func (p *PostGreSQLProvider) GetMetricStatistics(ctx context.Context, metricName
 	CROSS  JOIN dash_stats ds;
 	`
 
-	from, to := PrepareTimeRange(tr, "postgresql")
+	from, to := tr.Format(ISOTimeFormat)
 	rows, err := ExecuteQuery(ctx, p.db, query,
 		from, to,
 		metricName,

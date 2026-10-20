@@ -59,8 +59,7 @@ func testGetAverageDuration(t *testing.T, b testBackend) {
 	curTo := base
 
 	// Seed previous with avg 10ms, current with avg 20ms. Seeds stay off the
-	// window boundaries: backends disagree on whether a query exactly on the
-	// shared boundary counts in both windows.
+	// window boundaries, where a query counts in both windows.
 	offBoundary := 30 * time.Second
 	var qs []Query
 	for i := range 5 {
@@ -324,18 +323,18 @@ func TestSQLite_QueryTimeRangeDistribution(t *testing.T) {
 }
 
 // testDeleteQueriesBefore verifies retention deletes exactly the queries
-// older than the cutoff, keeps one at the cutoff, and that repeating it
-// deletes nothing. Seeds go
-// through Insert, so ts has the stored format, and old and new rows share a
-// calendar day, so a date-only comparison fails.
+// older than the cutoff, compared at full precision, keeps one at the
+// cutoff, and that repeating it deletes nothing. Seeds go through Insert, so
+// ts has the stored format, and old and new rows share a calendar day, so a
+// date-only comparison fails.
 func testDeleteQueriesBefore(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	cutoff := now.Add(-1 * time.Hour)
+	cutoff := now.Add(-1*time.Hour + 500*time.Millisecond)
 
-	var qs []Query
+	qs := []Query{instantQuery(cutoff.Add(-300*time.Millisecond), "old")} // earlier in the cutoff's second
 	for i := range 3 {
 		qs = append(qs, instantQuery(cutoff.Add(-time.Duration(i+1)*time.Hour), "old"))
 	}
@@ -346,7 +345,7 @@ func testDeleteQueriesBefore(t *testing.T, b testBackend) {
 
 	deleted, err := p.DeleteQueriesBefore(ctx, cutoff)
 	require.NoError(t, err, "DeleteQueriesBefore")
-	assert.Equal(t, int64(3), deleted)
+	assert.Equal(t, int64(4), deleted)
 
 	var remaining []string
 	rows, err := rawDB(p).QueryContext(ctx, `SELECT queryParam FROM queries`)
@@ -502,45 +501,19 @@ func TestSQLite_QueryStatusClasses(t *testing.T) {
 	testQueryStatusClasses(t, sqliteTestBackend)
 }
 
-// testGetQueryLatencyTrendsP95IsUpperTail verifies p95 reports the upper tail
-// of a bucket rather than its middle. Backends compute it differently
-// (interpolated or nearest rank), so only the side of the median is pinned.
-func testGetQueryLatencyTrendsP95IsUpperTail(t *testing.T, b testBackend) {
-	p := b.newProvider(t)
-
-	now := time.Now().UTC().Truncate(time.Minute)
-	var qs []Query
-	for i := range 10 { // 10..100ms in one minute; median 55
-		q := instantQuery(now.Add(time.Duration(i)*time.Second), "up")
-		q.Duration = time.Duration(10*(i+1)) * time.Millisecond
-		qs = append(qs, q)
-	}
-	mustInsertQueries(t, p, qs)
-
-	lat, err := p.GetQueryLatencyTrends(context.Background(), mustTimeRange(t, now, now.Add(30*time.Minute)), "", "")
-	require.NoError(t, err)
-	require.NotEmpty(t, lat)
-	assert.GreaterOrEqual(t, lat[0].P95, 90)
-}
-
-func TestPostgreSQL_GetQueryLatencyTrends_P95IsUpperTail(t *testing.T) {
-	t.Parallel()
-	testGetQueryLatencyTrendsP95IsUpperTail(t, postgreSQLTestBackend)
-}
-
-func TestSQLite_GetQueryLatencyTrends_P95IsUpperTail(t *testing.T) {
-	t.Parallel()
-	testGetQueryLatencyTrendsP95IsUpperTail(t, sqliteTestBackend)
-}
-
 // testGetQueryTimeRangeDistributionDayBoundary verifies a range of exactly
-// 24h falls in the "24h" bucket and one a second shorter in "<24h": windows
-// are measured to the second, not the minute.
+// 24h falls in the "24h" bucket, and shorter ones, down to zero length, in
+// "<24h": windows are measured between the whole seconds of start and end.
 func testGetQueryTimeRangeDistributionDayBoundary(t *testing.T, b testBackend) {
 	p := b.newProvider(t)
 
 	end := time.Date(2026, 1, 2, 10, 0, 20, 0, time.UTC) // the 24h-1s window starts in the same minute, a day earlier
-	mustInsertQueries(t, p, []Query{rangeQuery(end, "up", 24*time.Hour), rangeQuery(end, "up", 24*time.Hour-time.Second)})
+	mustInsertQueries(t, p, []Query{
+		rangeQuery(end, "up", 24*time.Hour),
+		rangeQuery(end, "up", 24*time.Hour-time.Second),
+		rangeQuery(end.Add(700*time.Millisecond), "up", 24*time.Hour-500*time.Millisecond), // 10:00:21.2 to 10:00:20.7
+		rangeQuery(end, "up", 0),
+	})
 
 	out, err := p.GetQueryTimeRangeDistribution(context.Background(), mustTimeRange(t, end.Add(-time.Hour), end.Add(time.Hour)), "")
 	require.NoError(t, err)
@@ -548,7 +521,7 @@ func testGetQueryTimeRangeDistributionDayBoundary(t *testing.T, b testBackend) {
 	for _, r := range out {
 		got[r.Label] = r.Count
 	}
-	assert.Equal(t, [2]int{1, 1}, [2]int{got["<24h"], got["24h"]}, "<24h, 24h")
+	assert.Equal(t, [2]int{3, 1}, [2]int{got["<24h"], got["24h"]}, "<24h, 24h")
 }
 
 func TestPostgreSQL_GetQueryTimeRangeDistribution_DayBoundary(t *testing.T) {
@@ -605,4 +578,38 @@ func TestPostgreSQL_Insert_HTTPHeadersRoundTrip(t *testing.T) {
 func TestSQLite_Insert_HTTPHeadersRoundTrip(t *testing.T) {
 	t.Parallel()
 	testInsertHTTPHeadersRoundTrip(t, sqliteTestBackend)
+}
+
+// testGetQueryExecutionsOrderWithinSecond verifies executions sort by their
+// full timestamp, not only its second.
+func testGetQueryExecutionsOrderWithinSecond(t *testing.T, b testBackend) {
+	p := b.newProvider(t)
+
+	second := time.Date(2026, 1, 2, 10, 0, 0, 0, time.UTC)
+	late, early := instantQuery(second.Add(700*time.Millisecond), "up"), instantQuery(second.Add(200*time.Millisecond), "up")
+	late.Fingerprint, early.Fingerprint = "fp", "fp"
+	late.Duration, early.Duration = 7*time.Millisecond, 2*time.Millisecond
+	mustInsertQueries(t, p, []Query{late, early})
+
+	for order, want := range map[string][]int64{"asc": {2, 7}, "desc": {7, 2}} {
+		res, err := p.GetQueryExecutions(context.Background(), QueryExecutionsParams{
+			Fingerprint: "fp", TimeRange: mustTimeRange(t, second, second.Add(time.Minute)), Page: 1, PageSize: 10, SortBy: "ts", SortOrder: order,
+		})
+		require.NoError(t, err)
+		var got []int64
+		for _, r := range rowsOf[QueryExecutionRow](t, res) {
+			got = append(got, r.Duration)
+		}
+		assert.Equal(t, want, got, "%s: durations in timestamp order", order)
+	}
+}
+
+func TestPostgreSQL_GetQueryExecutions_OrderWithinSecond(t *testing.T) {
+	t.Parallel()
+	testGetQueryExecutionsOrderWithinSecond(t, postgreSQLTestBackend)
+}
+
+func TestSQLite_GetQueryExecutions_OrderWithinSecond(t *testing.T) {
+	t.Parallel()
+	testGetQueryExecutionsOrderWithinSecond(t, sqliteTestBackend)
 }

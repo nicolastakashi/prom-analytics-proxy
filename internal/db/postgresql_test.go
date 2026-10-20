@@ -89,7 +89,7 @@ func TestNewPostgreSQLProvider_DoesNotMutateGlobalConfig(t *testing.T) {
 
 // TestPostgreSQL_UpsertMetricsCatalog_LastSyncedAtIsUTC guards last_synced_at
 // staying in the same clock domain as the $1 bound RefreshMetricsUsageSummary
-// compares it against (tr.From().UTC(), via PrepareTimeRange): last_synced_at is
+// compares it against (the range's From in UTC): last_synced_at is
 // TIMESTAMP WITHOUT TIME ZONE, so a bare NOW() lands in the writing session's
 // TimeZone instead of UTC, silently turning the freshness filter into a
 // permanent no-op on any server whose TimeZone isn't UTC. The server's

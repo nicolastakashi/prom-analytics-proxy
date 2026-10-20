@@ -36,14 +36,20 @@ func (b testBackend) markCatalogStale(t testing.TB, p Provider, name string) {
 		time.Now().UTC().AddDate(0, 0, -90).Format(SQLiteTimeFormat), name)
 }
 
+// setPresence sets the presence of table's rows whose column equals value to
+// first..last. Insert*Usage stamps presence at call time, so any other
+// presence can only be seeded this way.
+func (b testBackend) setPresence(t testing.TB, p Provider, table, column, value string, first, last time.Time) {
+	t.Helper()
+	b.mustExec(t, p, `UPDATE `+table+` SET first_seen_at = ?, last_seen_at = ? WHERE `+column+` = ?`, first, last, value)
+}
+
 // retireUsage moves the presence of table's rows whose column equals value
-// to 100..99 days ago. Insert*Usage stamps presence at call time, so usage
-// that ended long ago can only be seeded this way.
+// to 100..99 days ago.
 func (b testBackend) retireUsage(t testing.TB, p Provider, table, column, value string) {
 	t.Helper()
 	now := time.Now().UTC()
-	b.mustExec(t, p, `UPDATE `+table+` SET first_seen_at = ?, last_seen_at = ? WHERE `+column+` = ?`,
-		now.AddDate(0, 0, -100), now.AddDate(0, 0, -99), value)
+	b.setPresence(t, p, table, column, value, now.AddDate(0, 0, -100), now.AddDate(0, 0, -99))
 }
 
 // presenceWindow spans from to a minute past now, covering usage presence
