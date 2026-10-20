@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -253,6 +253,19 @@ func assertStatementLevelTriggerAbortsAndRollsBack(
 	err = pg.db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", targetTable)).Scan(&count)
 	require.NoError(t, err, "count rows in %s", targetTable)
 	assert.Equal(t, 0, count, "no rows should be committed in %s - the transaction must have rolled back", targetTable)
+}
+
+// TestPostgreSQL_StatementTimeoutSparesMigrations verifies a statement
+// timeout far shorter than any migration still lets a provider migrate a new
+// database, while the provider's own queries stay bound by it.
+func TestPostgreSQL_StatementTimeoutSparesMigrations(t *testing.T) {
+	t.Parallel()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, time.Millisecond)
+
+	_, err := p.(*PostGreSQLProvider).db.ExecContext(context.Background(), "SELECT pg_sleep(0.1)")
+	var pqErr *pq.Error
+	require.ErrorAs(t, err, &pqErr, "queries must stay bound by the statement timeout")
+	assert.Equal(t, "57014", string(pqErr.Code), "query_canceled")
 }
 
 // TestPostgreSQL_Insert_StatementTimeoutRollsBack guards the acceptance

@@ -209,8 +209,8 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 			ms,
 		)
 	}
-	psqlInfo := fmt.Sprintf(
-		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy%s",
+	baseDSN := fmt.Sprintf(
+		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy",
 		postgresConfig.Addr,
 		postgresConfig.Port,
 		postgresConfig.User,
@@ -218,10 +218,9 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 		postgresConfig.Database,
 		postgresConfig.SSLMode,
 		int(postgresConfig.DialTimeout.Seconds()),
-		statementTimeoutOpt,
 	)
 
-	db, err := otelsql.Open("postgres", psqlInfo, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
+	db, err := otelsql.Open("postgres", baseDSN+statementTimeoutOpt, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
 	if err != nil {
 		return nil, ConnectionError(err, "PostgreSQL", "failed to open connection")
 	}
@@ -254,8 +253,19 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 		return nil, ConnectionError(err, "PostgreSQL", "failed to ping database")
 	}
 
-	// Run embedded migrations (PostgreSQL dialect)
-	if err := runMigrations(ctx, db, "postgres"); err != nil {
+	// statement_timeout bounds the proxy's own queries, not schema changes: a
+	// migration it cancels part way, such as CREATE INDEX CONCURRENTLY, leaves
+	// an INVALID index behind that IF NOT EXISTS then skips on every retry.
+	// Migrations therefore run on their own pool, opened without it.
+	migrationDB := db
+	if statementTimeoutOpt != "" {
+		migrationDB, err = otelsql.Open("postgres", baseDSN, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
+		if err != nil {
+			return nil, ConnectionError(err, "PostgreSQL", "failed to open migration connection")
+		}
+		defer CloseResource(migrationDB)
+	}
+	if err := runMigrations(ctx, migrationDB, "postgres"); err != nil {
 		return nil, SchemaError(err, "migration", "postgres")
 	}
 
