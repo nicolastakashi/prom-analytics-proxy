@@ -2,8 +2,6 @@ package leaderelection
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -11,66 +9,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-// newTestPostgresDB spins up a disposable PostgreSQL using Testcontainers and
-// returns a live *sql.DB: this package has no dependency on internal/db, so
-// there's no Provider abstraction to build here, just the raw connection.
-func newTestPostgresDB(t *testing.T) *sql.DB {
-	t.Helper()
-
-	ctx := context.Background()
-
-	pgContainer, err := postgres.Run(ctx, "postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		// Docker not available in this environment; skip tests gracefully.
-		t.Skipf("Skipping leaderelection PostgreSQL tests (Docker not available): %v", err)
-	}
-	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
-
-	host, err := pgContainer.Host(ctx)
-	require.NoError(t, err, "container host") // every subsequent step needs a valid host
-	port, err := pgContainer.MappedPort(ctx, "5432/tcp")
-	require.NoError(t, err, "container port")
-
-	dsn := fmt.Sprintf("host=%s port=%s user=testuser password=testpass dbname=testdb sslmode=disable", host, port.Port())
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err, "open postgres connection")
-	t.Cleanup(func() { _ = db.Close() })
-
-	require.NoError(t, db.PingContext(ctx), "ping postgres") // a test built on a dead db is not worth continuing
-
-	// leader_leases is normally created by internal/db's own migrations
-	// (internal/db/migrations/postgresql/0015_leader_leases.sql), which
-	// this package intentionally doesn't depend on — so tests create it
-	// directly here instead. Keep this DDL in sync with that file if the
-	// schema ever changes.
-	_, err = db.ExecContext(ctx, `
-		CREATE SEQUENCE IF NOT EXISTS leader_lease_fence_token_seq;
-		CREATE TABLE IF NOT EXISTS leader_leases (
-			lease_name  TEXT PRIMARY KEY,
-			holder_id   TEXT NOT NULL,
-			fence_token BIGINT NOT NULL DEFAULT nextval('leader_lease_fence_token_seq'),
-			expires_at  TIMESTAMPTZ NOT NULL
-		);
-		ALTER SEQUENCE leader_lease_fence_token_seq OWNED BY leader_leases.fence_token`)
-	require.NoError(t, err, "create leader_leases table")
-
-	return db
-}
 
 // mustReceive returns the value ch holds once every goroutine in the
 // synctest bubble has settled, failing t if it holds none.
@@ -129,6 +70,17 @@ func (s *releaseTrackingStrategy) acquireOrHold(ctx context.Context, _ string) (
 		s.released.Store(true)
 	}
 	return acquisition{leaderCtx: leaderCtx, release: release}, true, nil
+}
+
+// captureDefaultLogs routes the process-wide default logger to a recorder
+// until t ends. Callers must not run in parallel.
+func captureDefaultLogs(t testing.TB) *recordingHandler {
+	t.Helper()
+	h := &recordingHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return h
 }
 
 // recordingHandler is a hand-written slog.Handler fake that records every

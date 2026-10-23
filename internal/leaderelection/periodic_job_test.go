@@ -16,6 +16,7 @@ import (
 // doesn't wait out the first interval before doing any work, then keeps
 // calling cycle repeatedly for as long as ctx is alive.
 func TestPeriodicJob_CallsCycleImmediatelyThenOnEachTick(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		var calls atomic.Int32
 		job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {
@@ -34,6 +35,7 @@ func TestPeriodicJob_CallsCycleImmediatelyThenOnEachTick(t *testing.T) {
 // invocation reports itself, with a usable cancel and the configured
 // budget - not just the first one.
 func TestPeriodicJob_ReportsEachCycleToReporter(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		reporter := &recordingReporter{}
 		job := PeriodicJob(10*time.Millisecond, 42*time.Second, func(context.Context) {})
@@ -59,6 +61,7 @@ func TestPeriodicJob_ReportsEachCycleToReporter(t *testing.T) {
 // ticks until something cancels it, which is exactly what this proves
 // recovers cleanly.
 func TestPeriodicJob_CancelingOneCycleDoesNotStopTheLoop(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		var calls atomic.Int32
 		firstCycleCanceled := make(chan struct{})
@@ -102,6 +105,7 @@ func TestPeriodicJob_CancelingOneCycleDoesNotStopTheLoop(t *testing.T) {
 // TestPeriodicJob_NilReporter_DoesNotPanic proves nil is a genuinely valid
 // reporter, not something callers must guard against themselves.
 func TestPeriodicJob_NilReporter_DoesNotPanic(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		job := PeriodicJob(10*time.Millisecond, time.Hour, func(context.Context) {})
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
@@ -114,6 +118,7 @@ func TestPeriodicJob_NilReporter_DoesNotPanic(t *testing.T) {
 // TestPeriodicJob_StopsWhenOuterCtxCanceled proves the loop actually exits
 // (doesn't leak) once its outer ctx ends.
 func TestPeriodicJob_StopsWhenOuterCtxCanceled(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		job := PeriodicJob(5*time.Millisecond, time.Hour, func(context.Context) {})
 		ctx, cancel := context.WithCancel(context.Background())
@@ -175,6 +180,7 @@ func (r *recordingReporter) reported() []reportedCycle {
 // outside the bound unlikely to go unnoticed. Fake time makes the
 // repetition free.
 func TestPeriodicJob_TickStaysWithinTwentyPercentJitterOfTheInterval(t *testing.T) {
+	t.Parallel()
 	const (
 		interval  = 10 * time.Minute
 		cycles    = 3
@@ -217,6 +223,7 @@ func TestPeriodicJob_TickStaysWithinTwentyPercentJitterOfTheInterval(t *testing.
 // interval below 5ns leaves 20% of it under a nanosecond, and the floor is
 // what keeps that from panicking.
 func TestPeriodicJob_IntervalTooSmallToJitter(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -248,6 +255,7 @@ func TestPeriodicJob_IntervalTooSmallToJitter(t *testing.T) {
 // running, and any budget check on the finished one fires against a job
 // that is doing nothing wrong.
 func TestPeriodicJob_ReportedContextEndsExactlyWhenItsCycleDoes(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		reporter := &recordingReporter{}
 		const cycles = 3
@@ -287,6 +295,7 @@ func TestPeriodicJob_ReportedContextEndsExactlyWhenItsCycleDoes(t *testing.T) {
 // Elector.Run's release-then-repanic path is what handles it, and it can
 // only do that if the panic reaches it.
 func TestPeriodicJob_PanickingCycleEndsItsReportedContextAndPropagates(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		reporter := &recordingReporter{}
 		job := PeriodicJob(time.Hour, time.Minute, func(context.Context) {

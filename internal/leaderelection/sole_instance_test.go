@@ -18,6 +18,7 @@ import (
 // ends - at which point Run returns nil, the same as any other Elector
 // stopping for that reason.
 func TestSoleInstance_HoldsLeadershipUntilItsContextEnds(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		el := NewSoleInstance(prometheus.NewRegistry())
 
@@ -48,6 +49,7 @@ func TestSoleInstance_HoldsLeadershipUntilItsContextEnds(t *testing.T) {
 // directly. A fleet-wide "no leader for this lease" panel has to see these
 // replicas too.
 func TestSoleInstance_ReportsLeadershipInMetrics(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		el := NewSoleInstance(prometheus.NewRegistry())
 		e, ok := el.(*elector)
@@ -81,6 +83,7 @@ func TestSoleInstance_ReportsLeadershipInMetrics(t *testing.T) {
 // exits on its own) leaves Run free to hand leadership straight back,
 // since there is never anything to contend with.
 func TestSoleInstance_ReacquiresWithoutBackoffUntilItsContextEnds(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		el := NewSoleInstance(prometheus.NewRegistry())
 

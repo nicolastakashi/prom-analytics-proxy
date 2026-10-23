@@ -19,6 +19,7 @@ import (
 // *same still-open* *sql.DB — a release relying only on conn.Close() would
 // still show the lock held at this point.
 func TestAdvisoryStrategy_ReleasesLockExplicitly_NotJustViaConnClose(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	strat := newAdvisoryLockStrategy(db)
 
@@ -31,7 +32,8 @@ func TestAdvisoryStrategy_ReleasesLockExplicitly_NotJustViaConnClose(t *testing.
 	release()
 
 	var count int
-	err = db.QueryRowContext(ctx, "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'").Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM pg_locks
+		WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`).Scan(&count)
 	require.NoError(t, err) // count is meaningless if the query itself failed
 	assert.Equal(t, 0, count, "advisory lock must be released via pg_advisory_unlock, not left to connection-pool GC")
 }

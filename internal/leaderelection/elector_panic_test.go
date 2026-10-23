@@ -19,6 +19,7 @@ import (
 // only guarantees the lock is released first, not that panics are
 // swallowed.
 func TestElector_Run_ReleasesLock_WhenFnPanics(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		strat := &releaseTrackingStrategy{}
 		elector := newTestElector(strat, backoffConfig{initial: 5 * time.Millisecond})

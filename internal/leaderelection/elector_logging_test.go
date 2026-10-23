@@ -20,11 +20,9 @@ import (
 // life of the process with nothing in the logs or metrics to distinguish
 // that from the normal "another replica is leader".
 func TestElector_Run_LogsErrorsFromAcquireOrHold(t *testing.T) {
+	// Not parallel: swaps the process-wide default logger.
 	synctest.Test(t, func(t *testing.T) {
-		handler := &recordingHandler{}
-		prev := slog.Default()
-		slog.SetDefault(slog.New(handler))
-		t.Cleanup(func() { slog.SetDefault(prev) })
+		handler := captureDefaultLogs(t)
 
 		strat := &recordingStrategy{returnErr: errors.New("simulated transient error")}
 		elector := newTestElector(strat, backoffConfig{initial: 5 * time.Millisecond, max: 10 * time.Millisecond})

@@ -20,6 +20,7 @@ import (
 // PeriodicJob wiring (not a hand-rolled fn calling CycleStarted directly)
 // since that's what every actual caller uses.
 func TestElector_Run_PeriodicJob_CycleOverBudget_CancelsAndStepsDown(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	const ttl = time.Hour // never approached: isolates the budget check from ordinary TTL expiry
 	const renewInterval = 5 * time.Millisecond
@@ -64,6 +65,7 @@ func TestElector_Run_PeriodicJob_CycleOverBudget_CancelsAndStepsDown(t *testing.
 // check above isn't just "cancel eventually regardless" - a cycle that
 // finishes comfortably inside its declared budget must not be touched.
 func TestElector_Run_PeriodicJob_CycleWithinBudget_IsNotCanceled(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	const ttl = time.Hour
 	const renewInterval = 5 * time.Millisecond
@@ -99,6 +101,7 @@ func TestElector_Run_PeriodicJob_CycleWithinBudget_IsNotCanceled(t *testing.T) {
 // so a hung fn's lease still renews for as long as the process is alive,
 // unaffected by anything in this file.
 func TestElector_Run_RawFnIgnoringReporter_IsUnaffectedByBudgetEnforcement(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	const ttl = 60 * time.Millisecond
 	const renewInterval = 15 * time.Millisecond
@@ -144,6 +147,7 @@ func TestElector_Run_RawFnIgnoringReporter_IsUnaffectedByBudgetEnforcement(t *te
 // every single cycle, and stepping down each time would flap leadership
 // indefinitely while running extra cycles on every re-acquisition.
 func TestWatchdog_FinishedCycleIdlePastItsBudget_KeepsLeadership(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 5 * time.Millisecond
 		const ttl = time.Hour // never approached: isolates the budget check
@@ -177,6 +181,7 @@ func TestWatchdog_FinishedCycleIdlePastItsBudget_KeepsLeadership(t *testing.T) {
 // is exactly what this check exists to catch, and the distinction from the
 // finished cycle above is the reported cycle's own context.
 func TestWatchdog_RunningCycleOverBudget_CancelsAndStepsDown(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const renewInterval = 5 * time.Millisecond
 		const ttl = time.Hour
