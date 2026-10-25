@@ -192,11 +192,12 @@ The [`kube`](../examples/kube/) directory contains an opinionated set of Kuberne
   -insert-buffer-size 500
 ```
 
-> Note the possibility to use environment variables for sensitive data like passwords.
-> Following variables can be set in the environment instead of passing via command line:
-> - POSTGRESQL_USER
-> - POSTGRESQL_PASSWORD
-> - POSTGRESQL_DATABASE
+> Sensitive values like passwords can be passed as environment variables instead of flags, for example:
+> - PROM_ANALYTICS_PROXY_POSTGRESQL_USER
+> - PROM_ANALYTICS_PROXY_POSTGRESQL_PASSWORD
+> - PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE
+>
+> Every flag has one, see `--help`. The old POSTGRESQL_USER, POSTGRESQL_PASSWORD and POSTGRESQL_DATABASE variables still work.
 
 #### Using a Configuration File
 
