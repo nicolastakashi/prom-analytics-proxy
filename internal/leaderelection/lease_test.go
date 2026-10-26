@@ -17,6 +17,7 @@ import (
 // operates on its own lease name, so nothing here needs isolation beyond
 // that, and there's no reason to pay for a separate container per check.
 func TestLeaseStrategy_Lifecycle(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 
 	t.Run("AcquireWhenFree_Succeeds", func(t *testing.T) {
@@ -150,10 +151,8 @@ func TestLeaseStrategy_Lifecycle(t *testing.T) {
 // Kept out of TestLeaseStrategy_Lifecycle's shared container: this test
 // closes the DB itself, which would take every other subtest down with it.
 func TestLeaseStrategy_Release_LogsWarningWhenExpiryUpdateFails(t *testing.T) {
-	handler := &recordingHandler{}
-	prev := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	// Not parallel: swaps the process-wide default logger.
+	handler := captureDefaultLogs(t)
 
 	db := newTestPostgresDB(t)
 	strat := newLeaseStrategy(db, time.Second, noRenewal)

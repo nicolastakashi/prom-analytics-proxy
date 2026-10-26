@@ -37,6 +37,7 @@ func (f *flakyConnGetter) Conn(ctx context.Context) (*sql.Conn, error) {
 // silent, permanent return: Elector.Run must retry past it instead, and
 // must never return before ctx is canceled.
 func TestAdvisoryElector_RetriesAfterTransientConnError_DoesNotReturnSilently(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	flaky := &flakyConnGetter{real: db, failsLeft: 1}
 	elector := newTestElector(newAdvisoryLockStrategy(flaky), backoffConfig{initial: 10 * time.Millisecond, max: 20 * time.Millisecond})

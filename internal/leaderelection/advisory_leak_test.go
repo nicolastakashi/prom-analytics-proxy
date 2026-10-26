@@ -18,6 +18,7 @@ import (
 // real, observable resource guarantee — not a spy on whether conn.Close()
 // was called.
 func TestAdvisoryStrategy_RepeatedOperations_DoNotLeakConnections(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 
 	// Contention exercises the not-leader branch — the single

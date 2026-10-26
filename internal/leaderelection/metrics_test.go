@@ -16,6 +16,7 @@ import (
 // be 1 while fn runs and 0 after Run returns, and
 // leaderelection_transitions_total{to="leader"} must have incremented.
 func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		elector := newTestElector(&releaseTrackingStrategy{}, backoffConfig{initial: 5 * time.Millisecond})
 
@@ -53,6 +54,7 @@ func TestElector_Run_UpdatesIsLeaderGaugeAndTransitionCounter(t *testing.T) {
 // without the explicit nil-check this test targets, so this also
 // incidentally guards against ever removing that check as "redundant".
 func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
+	// Not parallel: registers against the process-wide default registerer.
 	synctest.Test(t, func(t *testing.T) {
 		m := newMetrics(nil)
 		t.Cleanup(func() {
@@ -88,6 +90,7 @@ func TestNewMetrics_NilRegistererDefaultsToPrometheusDefault(t *testing.T) {
 // WithLabelValues, which would create the series as a side effect of the
 // assertion itself and pass even without the fix.
 func TestElector_Run_InitializesIsLeaderGaugeToZero_EvenIfNeverElectedLeader(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		strat := &recordingStrategy{} // returnErr == nil: never grants leadership
 		elector, reg := newTestElectorWithRegistry(strat, backoffConfig{initial: 5 * time.Millisecond, max: 5 * time.Millisecond})
