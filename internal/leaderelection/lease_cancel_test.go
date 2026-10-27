@@ -17,6 +17,7 @@ import (
 // different holder — rather than waiting for a real TTL expiry, keeping
 // the test fast and deterministic instead of timing-dependent.
 func TestElector_Run_CancelsFnContextPromptlyWhenLeaseLost(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	const renewInterval = 20 * time.Millisecond
 

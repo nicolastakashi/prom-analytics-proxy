@@ -22,6 +22,7 @@ import (
 // failing — a fixed sleep near the TTL boundary would be exactly the kind
 // of test that flakes under CI load.
 func TestLeaseStrategy_FailoverAfterUngracefulDeath(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 	const ttl = 150 * time.Millisecond
 

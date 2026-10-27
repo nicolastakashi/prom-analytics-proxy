@@ -7,6 +7,7 @@ import (
 )
 
 func TestLockKeyFor_DeterministicAndStable(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, lockKeyFor("some-name"), lockKeyFor("some-name"), "same input must produce the same key across calls")
 	assert.NotEqual(t, lockKeyFor("name-a"), lockKeyFor("name-b"), "different names must (in practice) produce different keys")
 }
@@ -18,11 +19,13 @@ func TestLockKeyFor_DeterministicAndStable(t *testing.T) {
 // replica would otherwise compute different keys for the same logical lease
 // and briefly both believe they're the sole leader.
 func TestLockKeyFor_PinsExistingProductionKeys(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, int64(0x6d657472696373), lockKeyFor("metric-analytics-inventory"))
 	assert.Equal(t, int64(0x726574656e74696f), lockKeyFor("metric-analytics-retention"))
 }
 
 func TestLockKeyFor_FallsBackToHashForUnknownNames(t *testing.T) {
+	t.Parallel()
 	// Any other name must still be deterministic, just not one of the pinned
 	// constants above.
 	key := lockKeyFor("some-future-lease-name")

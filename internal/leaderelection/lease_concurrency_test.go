@@ -38,6 +38,7 @@ import (
 // than one distinct holder actually won is what makes that failure mode
 // visible instead of silently passing vacuously.
 func TestLeaseStrategy_ConcurrentGoroutines_FenceTokensNeverReusedAcrossHolders(t *testing.T) {
+	t.Parallel()
 	db := newTestPostgresDB(t)
 
 	const n = 12
