@@ -205,7 +205,29 @@ The project is organized into two main components:
 
 ## Configuration
 
-The application can be configured through command-line flags or a configuration file. Here are the key configuration options:
+The application can be configured through command-line flags, environment variables or a configuration file. Here are the key configuration options:
+
+### Environment Variables
+
+Every flag can also be set with an environment variable. Take the flag name, uppercase it, replace `-` with `_` and add the `PROM_ANALYTICS_PROXY_` prefix:
+
+```shell
+export PROM_ANALYTICS_PROXY_UPSTREAM=http://prometheus:9090
+export PROM_ANALYTICS_PROXY_DATABASE_PROVIDER=sqlite
+./bin/prom-analytics-proxy api
+```
+
+Run `--help` to see the variable for each flag. Empty variables are ignored, and an invalid value stops the proxy at startup.
+
+If a setting is defined in more than one place, the one on the right wins:
+
+```
+defaults < config file < environment variables < command-line flags
+```
+
+**Note:** previously the config file took precedence over command-line flags.
+
+The old `POSTGRESQL_USER`, `POSTGRESQL_PASSWORD` and `POSTGRESQL_DATABASE` variables still work, but the prefixed ones are preferred.
 
 ### Basic Configuration
 
@@ -250,225 +272,225 @@ Commands:
 
 Flags (api):
   -config-file string
-    	Path to the configuration file, it takes precedence over the command line flags.
+    	Path to the configuration file. Environment variables and command line flags take precedence over it. (env PROM_ANALYTICS_PROXY_CONFIG_FILE)
   -database-provider string
-    	The provider of database to use for storing query data. Supported values: postgresql, sqlite.
+    	The provider of database to use for storing query data. Supported values: postgresql, sqlite. (env PROM_ANALYTICS_PROXY_DATABASE_PROVIDER)
   -include-query-stats
-    	Request query stats from the upstream prometheus API. (default true)
+    	Request query stats from the upstream prometheus API. (env PROM_ANALYTICS_PROXY_INCLUDE_QUERY_STATS) (default true)
   -insecure-listen-address string
-    	The address the prom-analytics-proxy proxy HTTP server should listen on. (default ":9091")
+    	The address the prom-analytics-proxy proxy HTTP server should listen on. (env PROM_ANALYTICS_PROXY_INSECURE_LISTEN_ADDRESS) (default ":9091")
   -insert-batch-size int
-    	Batch size for inserting queries into the database. (default 10)
+    	Batch size for inserting queries into the database. (env PROM_ANALYTICS_PROXY_INSERT_BATCH_SIZE) (default 10)
   -insert-buffer-size int
-    	Buffer size for the insert channel. (default 100)
+    	Buffer size for the insert channel. (env PROM_ANALYTICS_PROXY_INSERT_BUFFER_SIZE) (default 100)
   -insert-flush-interval duration
-    	Flush interval for inserting queries into the database. (default 5s)
+    	Flush interval for inserting queries into the database. (env PROM_ANALYTICS_PROXY_INSERT_FLUSH_INTERVAL) (default 5s)
   -insert-grace-period duration
-    	Grace period to insert pending queries after program shutdown. (default 5s)
+    	Grace period to insert pending queries after program shutdown. (env PROM_ANALYTICS_PROXY_INSERT_GRACE_PERIOD) (default 5s)
   -insert-timeout duration
-    	Timeout to insert a query into the database. (default 1s)
+    	Timeout to insert a query into the database. (env PROM_ANALYTICS_PROXY_INSERT_TIMEOUT) (default 1s)
   -inventory-enabled
-    	Enable the metrics inventory syncer (default true)
+    	Enable the metrics inventory syncer (env PROM_ANALYTICS_PROXY_INVENTORY_ENABLED) (default true)
   -inventory-job-index-label-timeout duration
-    	Timeout for job label values collection (default 30s)
+    	Timeout for job label values collection (env PROM_ANALYTICS_PROXY_INVENTORY_JOB_INDEX_LABEL_TIMEOUT) (default 30s)
   -inventory-job-index-per-job-timeout duration
-    	Timeout for processing each individual job (default 30s)
+    	Timeout for processing each individual job (env PROM_ANALYTICS_PROXY_INVENTORY_JOB_INDEX_PER_JOB_TIMEOUT) (default 30s)
   -inventory-job-index-timeout duration
-    	Timeout for the job index step as a whole (job label fetch plus every job processed) (default 3m30s)
+    	Timeout for the job index step as a whole (job label fetch plus every job processed) (env PROM_ANALYTICS_PROXY_INVENTORY_JOB_INDEX_TIMEOUT) (default 3m30s)
   -inventory-job-index-workers int
-    	Number of worker goroutines for job index processing (default 10)
+    	Number of worker goroutines for job index processing (env PROM_ANALYTICS_PROXY_INVENTORY_JOB_INDEX_WORKERS) (default 10)
   -inventory-metadata-sync-enabled
-    	Enable Prometheus metadata sync to populate metrics catalog (disable when OTLP ingester handles catalog population) (default true)
+    	Enable Prometheus metadata sync to populate metrics catalog (disable when OTLP ingester handles catalog population) (env PROM_ANALYTICS_PROXY_INVENTORY_METADATA_SYNC_ENABLED) (default true)
   -inventory-metadata-timeout duration
-    	Timeout for metadata collection step (default 30s)
+    	Timeout for metadata collection step (env PROM_ANALYTICS_PROXY_INVENTORY_METADATA_TIMEOUT) (default 30s)
   -inventory-run-timeout duration
-    	Timeout for the entire inventory sync run (default 5m0s)
+    	Timeout for the entire inventory sync run (env PROM_ANALYTICS_PROXY_INVENTORY_RUN_TIMEOUT) (default 5m0s)
   -inventory-summary-timeout duration
-    	Timeout for summary refresh step (default 30s)
+    	Timeout for summary refresh step (env PROM_ANALYTICS_PROXY_INVENTORY_SUMMARY_TIMEOUT) (default 30s)
   -inventory-sync-interval duration
-    	Interval between inventory sync runs (default 10m0s)
+    	Interval between inventory sync runs (env PROM_ANALYTICS_PROXY_INVENTORY_SYNC_INTERVAL) (default 10m0s)
   -inventory-time-window duration
-    	Time window for inventory data collection (default 720h0m0s)
+    	Time window for inventory data collection (env PROM_ANALYTICS_PROXY_INVENTORY_TIME_WINDOW) (default 720h0m0s)
   -leader-election-lease-ttl duration
-    	Lease TTL (lease strategy only) (default 15s)
+    	Lease TTL (lease strategy only) (env PROM_ANALYTICS_PROXY_LEADER_ELECTION_LEASE_TTL) (default 15s)
   -leader-election-renew-interval duration
-    	Lease renewal interval; must be less than the lease TTL (lease strategy only) (default 5s)
+    	Lease renewal interval; must be less than the lease TTL (lease strategy only) (env PROM_ANALYTICS_PROXY_LEADER_ELECTION_RENEW_INTERVAL) (default 5s)
   -leader-election-strategy string
-    	Leader election strategy for the inventory syncer and retention worker when using PostgreSQL. Supported: advisory-lock, lease. (default "advisory-lock")
+    	Leader election strategy for the inventory syncer and retention worker when using PostgreSQL. Supported: advisory-lock, lease. (env PROM_ANALYTICS_PROXY_LEADER_ELECTION_STRATEGY) (default "advisory-lock")
   -log-format string
-    	Log format (text, json) (default "text")
+    	Log format (text, json) (env PROM_ANALYTICS_PROXY_LOG_FORMAT) (default "text")
   -log-level string
-    	Log level (default "INFO")
+    	Log level (env PROM_ANALYTICS_PROXY_LOG_LEVEL) (default "INFO")
   -memory-limit-enabled
-    	Enable automatic GOMEMLIMIT management via automemlimit
+    	Enable automatic GOMEMLIMIT management via automemlimit (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_ENABLED)
   -memory-limit-ratio float
-    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (default 0.9)
+    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_RATIO) (default 0.9)
   -memory-limit-refresh-interval duration
-    	Interval for refreshing the computed memory limit (0 disables refresh) (default 1m0s)
+    	Interval for refreshing the computed memory limit (0 disables refresh) (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_REFRESH_INTERVAL) (default 1m0s)
   -metadata-limit uint
-    	The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit)
+    	The maximum number of metric metadata entries to retrieve from the upstream prometheus API. (default 0 which means no limit) (env PROM_ANALYTICS_PROXY_METADATA_LIMIT)
   -postgresql-addr string
-    	Address of the postgresql server. (default "localhost")
+    	Address of the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_ADDR) (default "localhost")
   -postgresql-conn-max-idle-time duration
-    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m).
+    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m). (env PROM_ANALYTICS_PROXY_POSTGRESQL_CONN_MAX_IDLE_TIME)
   -postgresql-conn-max-lifetime duration
-    	Maximum amount of time a connection may be reused (0 = use default 30m).
+    	Maximum amount of time a connection may be reused (0 = use default 30m). (env PROM_ANALYTICS_PROXY_POSTGRESQL_CONN_MAX_LIFETIME)
   -postgresql-database string
-    	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
+    	Database for the postgresql server. The legacy POSTGRESQL_DATABASE env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE)
   -postgresql-dial-timeout duration
-    	Timeout to dial postgresql. (default 5s)
+    	Timeout to dial postgresql. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
   -postgresql-max-idle-conns int
-    	Maximum number of idle connections in the pool (0 = use default 10).
+    	Maximum number of idle connections in the pool (0 = use default 10). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_IDLE_CONNS)
   -postgresql-max-open-conns int
-    	Maximum number of open connections to the database (0 = use default 20).
+    	Maximum number of open connections to the database (0 = use default 20). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_OPEN_CONNS)
   -postgresql-password string
-    	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
+    	Password for the postgresql server. The legacy POSTGRESQL_PASSWORD env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_PASSWORD)
   -postgresql-port int
-    	Port of the postgresql server. (default 5432)
+    	Port of the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_PORT) (default 5432)
   -postgresql-sslmode string
-    	SSL mode for the postgresql server. (default "disable")
+    	SSL mode for the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_SSLMODE) (default "disable")
   -postgresql-statement-timeout duration
-    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.
+    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables. (env PROM_ANALYTICS_PROXY_POSTGRESQL_STATEMENT_TIMEOUT)
   -postgresql-user string
-    	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+    	Username for the postgresql server. The legacy POSTGRESQL_USER env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_USER)
   -push-metrics-usage-timeout duration
-    	Timeout for PushMetricsUsage API endpoint (default 30s). (default 30s)
+    	Timeout for PushMetricsUsage API endpoint (default 30s). (env PROM_ANALYTICS_PROXY_PUSH_METRICS_USAGE_TIMEOUT) (default 30s)
   -retention-enabled
-    	Enable the retention worker to delete old data
+    	Enable the retention worker to delete old data (env PROM_ANALYTICS_PROXY_RETENTION_ENABLED)
   -retention-interval duration
-    	Interval between retention runs (default 1h0m0s)
+    	Interval between retention runs (env PROM_ANALYTICS_PROXY_RETENTION_INTERVAL) (default 1h0m0s)
   -retention-queries-max-age duration
-    	Maximum age for queries before deletion (default 720h0m0s)
+    	Maximum age for queries before deletion (env PROM_ANALYTICS_PROXY_RETENTION_QUERIES_MAX_AGE) (default 720h0m0s)
   -retention-run-timeout duration
-    	Timeout for each retention run (default 5m0s)
+    	Timeout for each retention run (env PROM_ANALYTICS_PROXY_RETENTION_RUN_TIMEOUT) (default 5m0s)
   -series-limit uint
-    	The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit)
+    	The maximum number of series to retrieve from the upstream prometheus API. (default 0 which means no limit) (env PROM_ANALYTICS_PROXY_SERIES_LIMIT)
   -sqlite-database-path string
-    	Path to the sqlite database. (default "prom-analytics-proxy.db")
+    	Path to the sqlite database. (env PROM_ANALYTICS_PROXY_SQLITE_DATABASE_PATH) (default "prom-analytics-proxy.db")
   -upstream string
-    	The URL of the upstream prometheus API.
+    	The URL of the upstream prometheus API. (env PROM_ANALYTICS_PROXY_UPSTREAM)
 
 Flags (metrics ingester):
   -config-file string
-    	Path to the configuration file, it takes precedence over the command line flags.
+    	Path to the configuration file. Environment variables and command line flags take precedence over it. (env PROM_ANALYTICS_PROXY_CONFIG_FILE)
   -database-provider string
-    	The provider of database to use for retrieving query data. Supported values: postgresql, sqlite.
+    	The provider of database to use for retrieving query data. Supported values: postgresql, sqlite. (env PROM_ANALYTICS_PROXY_DATABASE_PROVIDER)
   -ingester-allowed-jobs value
-    	Comma-separated list of allowed jobs to ingest metrics from
+    	Comma-separated list of allowed jobs to ingest metrics from (env PROM_ANALYTICS_PROXY_INGESTER_ALLOWED_JOBS)
   -ingester-cache-addr string
-    	Cache server address (host:port)
+    	Cache server address (host:port) (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_ADDR)
   -ingester-cache-batch-size int
-    	Max commands per DoMulti batch (default 100)
+    	Max commands per DoMulti batch (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_BATCH_SIZE) (default 100)
   -ingester-cache-conn-write-timeout duration
-    	Read/write timeout for Redis connections (default 10s)
+    	Read/write timeout for Redis connections (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_CONN_WRITE_TIMEOUT) (default 10s)
   -ingester-cache-db int
-    	Cache database number
+    	Cache database number (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_DB)
   -ingester-cache-dial-timeout duration
-    	TCP dial timeout for Redis connections (default 5s)
+    	TCP dial timeout for Redis connections (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_DIAL_TIMEOUT) (default 5s)
   -ingester-cache-enabled
-    	Enable metric usage caching
+    	Enable metric usage caching (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_ENABLED)
   -ingester-cache-operation-timeout duration
-    	Timeout for cache get/set operations (default 200ms)
+    	Timeout for cache get/set operations (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_OPERATION_TIMEOUT) (default 200ms)
   -ingester-cache-password string
-    	Cache password (optional)
+    	Cache password (optional) (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_PASSWORD)
   -ingester-cache-unused-ttl duration
-    	TTL for caching 'unused' metric states (default 2m0s)
+    	TTL for caching 'unused' metric states (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_UNUSED_TTL) (default 2m0s)
   -ingester-cache-used-only
-    	Only cache 'used' states, never cache 'unused' states
+    	Only cache 'used' states, never cache 'unused' states (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_USED_ONLY)
   -ingester-cache-used-ttl duration
-    	TTL for caching 'used' metric states (default 1h0m0s)
+    	TTL for caching 'used' metric states (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_USED_TTL) (default 1h0m0s)
   -ingester-cache-username string
-    	Cache username (optional)
+    	Cache username (optional) (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_USERNAME)
   -ingester-catalog-sync-buffer-size int
-    	Maximum number of unique metrics to buffer before dropping (per flush interval) (default 10000)
+    	Maximum number of unique metrics to buffer before dropping (per flush interval) (env PROM_ANALYTICS_PROXY_INGESTER_CATALOG_SYNC_BUFFER_SIZE) (default 10000)
   -ingester-catalog-sync-enabled
-    	Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this)
+    	Enable catalog population from OTLP traffic (disable inventory.metadata_sync_enabled on API server when using this) (env PROM_ANALYTICS_PROXY_INGESTER_CATALOG_SYNC_ENABLED)
   -ingester-catalog-sync-flush-interval duration
-    	How often to flush buffered metrics to the catalog DB (default 30s)
+    	How often to flush buffered metrics to the catalog DB (env PROM_ANALYTICS_PROXY_INGESTER_CATALOG_SYNC_FLUSH_INTERVAL) (default 30s)
   -ingester-catalog-sync-seen-ttl duration
-    	How long a metric is suppressed from re-flushing after first write (reduces duplicate DB upserts) (default 1h0m0s)
+    	How long a metric is suppressed from re-flushing after first write (reduces duplicate DB upserts) (env PROM_ANALYTICS_PROXY_INGESTER_CATALOG_SYNC_SEEN_TTL) (default 1h0m0s)
   -ingester-denied-jobs value
-    	Comma-separated list of denied jobs to ingest metrics from
+    	Comma-separated list of denied jobs to ingest metrics from (env PROM_ANALYTICS_PROXY_INGESTER_DENIED_JOBS)
   -ingester-drain-delay duration
-    	Delay after marking NOT_SERVING before shutdown begins (default 2s)
+    	Delay after marking NOT_SERVING before shutdown begins (env PROM_ANALYTICS_PROXY_INGESTER_DRAIN_DELAY) (default 2s)
   -ingester-dry-run
-    	When true, performs filtering analysis and records metrics but does not actually drop any data
+    	When true, performs filtering analysis and records metrics but does not actually drop any data (env PROM_ANALYTICS_PROXY_INGESTER_DRY_RUN)
   -ingester-graceful-timeout duration
-    	Max time to wait for graceful shutdown (default 30s)
+    	Max time to wait for graceful shutdown (env PROM_ANALYTICS_PROXY_INGESTER_GRACEFUL_TIMEOUT) (default 30s)
   -ingester-metrics-listen-address string
-    	The HTTP address to expose Prometheus metrics (default ":9090")
+    	The HTTP address to expose Prometheus metrics (env PROM_ANALYTICS_PROXY_INGESTER_METRICS_LISTEN_ADDRESS) (default ":9090")
   -ingester-protocol string
-    	Metrics ingestion protocol (otlp) (default "otlp")
+    	Metrics ingestion protocol (otlp) (env PROM_ANALYTICS_PROXY_INGESTER_PROTOCOL) (default "otlp")
   -log-format string
-    	Log format (text, json) (default "text")
+    	Log format (text, json) (env PROM_ANALYTICS_PROXY_LOG_FORMAT) (default "text")
   -log-level string
-    	Log level (default "INFO")
+    	Log level (env PROM_ANALYTICS_PROXY_LOG_LEVEL) (default "INFO")
   -memory-limit-enabled
-    	Enable automatic GOMEMLIMIT management via automemlimit
+    	Enable automatic GOMEMLIMIT management via automemlimit (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_ENABLED)
   -memory-limit-ratio float
-    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (default 0.9)
+    	Ratio (0 < ratio <= 1) of detected memory limit used for GOMEMLIMIT (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_RATIO) (default 0.9)
   -memory-limit-refresh-interval duration
-    	Interval for refreshing the computed memory limit (0 disables refresh) (default 1m0s)
+    	Interval for refreshing the computed memory limit (0 disables refresh) (env PROM_ANALYTICS_PROXY_MEMORY_LIMIT_REFRESH_INTERVAL) (default 1m0s)
   -otlp-balancer-name string
-    	gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first
+    	gRPC load balancer name for downstream OTLP client (e.g., round_robin). If empty, defaults to pick_first (env PROM_ANALYTICS_PROXY_OTLP_BALANCER_NAME)
   -otlp-downstream-address string
-    	Optional downstream OTLP gRPC address to forward filtered metrics
+    	Optional downstream OTLP gRPC address to forward filtered metrics (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_ADDRESS)
   -otlp-downstream-connect-backoff-multiplier float
-    	Multiplier applied to downstream OTLP client dial backoff (default 1.6)
+    	Multiplier applied to downstream OTLP client dial backoff (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_CONNECT_BACKOFF_MULTIPLIER) (default 1.6)
   -otlp-downstream-connect-base-delay duration
-    	Base delay for downstream OTLP client dial backoff (default 250ms)
+    	Base delay for downstream OTLP client dial backoff (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_CONNECT_BASE_DELAY) (default 250ms)
   -otlp-downstream-connect-max-delay duration
-    	Max delay for downstream OTLP client dial backoff (default 5s)
+    	Max delay for downstream OTLP client dial backoff (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_CONNECT_MAX_DELAY) (default 5s)
   -otlp-downstream-connect-min-timeout duration
-    	Minimum connect timeout for downstream OTLP client dial attempts (default 500ms)
+    	Minimum connect timeout for downstream OTLP client dial attempts (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_CONNECT_MIN_TIMEOUT) (default 500ms)
   -otlp-downstream-max-recv-bytes int
-    	Max gRPC receive message size for downstream OTLP client (bytes) (default 10485760)
+    	Max gRPC receive message size for downstream OTLP client (bytes) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_MAX_RECV_BYTES) (default 10485760)
   -otlp-downstream-max-send-bytes int
-    	Max gRPC send message size for downstream OTLP client (bytes) (default 10485760)
+    	Max gRPC send message size for downstream OTLP client (bytes) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_MAX_SEND_BYTES) (default 10485760)
   -otlp-downstream-retry-backoff-multiplier float
-    	Downstream OTLP retry backoff multiplier (default 1.6)
+    	Downstream OTLP retry backoff multiplier (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_BACKOFF_MULTIPLIER) (default 1.6)
   -otlp-downstream-retry-codes value
-    	Comma-separated gRPC status codes to retry (e.g., UNAVAILABLE,RESOURCE_EXHAUSTED)
+    	Comma-separated gRPC status codes to retry (e.g., UNAVAILABLE,RESOURCE_EXHAUSTED) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_CODES)
   -otlp-downstream-retry-initial-backoff duration
-    	Downstream OTLP retry initial backoff (duration) (default 250ms)
+    	Downstream OTLP retry initial backoff (duration) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_INITIAL_BACKOFF) (default 250ms)
   -otlp-downstream-retry-max-attempts int
-    	Downstream OTLP retry max attempts (default 2)
+    	Downstream OTLP retry max attempts (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_MAX_ATTEMPTS) (default 2)
   -otlp-downstream-retry-max-backoff duration
-    	Downstream OTLP retry max backoff (duration) (default 1s)
+    	Downstream OTLP retry max backoff (duration) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_MAX_BACKOFF) (default 1s)
   -otlp-listen-address string
-    	The address the metrics ingester should listen on. (default ":4317")
+    	The address the metrics ingester should listen on. (env PROM_ANALYTICS_PROXY_OTLP_LISTEN_ADDRESS) (default ":4317")
   -otlp-lookup-chunk-size int
-    	Batch size for database lookups when checking metric usage (default 500, SQLite max 999) (default 500)
+    	Batch size for database lookups when checking metric usage (default 500, SQLite max 999) (env PROM_ANALYTICS_PROXY_OTLP_LOOKUP_CHUNK_SIZE) (default 500)
   -otlp-max-recv-bytes int
-    	Max gRPC receive message size for OTLP server (bytes) (default 10485760)
+    	Max gRPC receive message size for OTLP server (bytes) (env PROM_ANALYTICS_PROXY_OTLP_MAX_RECV_BYTES) (default 10485760)
   -otlp-max-send-bytes int
-    	Max gRPC send message size for OTLP server (bytes) (default 10485760)
+    	Max gRPC send message size for OTLP server (bytes) (env PROM_ANALYTICS_PROXY_OTLP_MAX_SEND_BYTES) (default 10485760)
   -postgresql-addr string
-    	Address of the postgresql server. (default "localhost")
+    	Address of the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_ADDR) (default "localhost")
   -postgresql-conn-max-idle-time duration
-    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m).
+    	Maximum amount of time a connection may be idle before being closed (0 = use default 5m). (env PROM_ANALYTICS_PROXY_POSTGRESQL_CONN_MAX_IDLE_TIME)
   -postgresql-conn-max-lifetime duration
-    	Maximum amount of time a connection may be reused (0 = use default 30m).
+    	Maximum amount of time a connection may be reused (0 = use default 30m). (env PROM_ANALYTICS_PROXY_POSTGRESQL_CONN_MAX_LIFETIME)
   -postgresql-database string
-    	Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
+    	Database for the postgresql server. The legacy POSTGRESQL_DATABASE env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE)
   -postgresql-dial-timeout duration
-    	Timeout to dial postgresql. (default 5s)
+    	Timeout to dial postgresql. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
   -postgresql-max-idle-conns int
-    	Maximum number of idle connections in the pool (0 = use default 10).
+    	Maximum number of idle connections in the pool (0 = use default 10). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_IDLE_CONNS)
   -postgresql-max-open-conns int
-    	Maximum number of open connections to the database (0 = use default 20).
+    	Maximum number of open connections to the database (0 = use default 20). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_OPEN_CONNS)
   -postgresql-password string
-    	Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
+    	Password for the postgresql server. The legacy POSTGRESQL_PASSWORD env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_PASSWORD)
   -postgresql-port int
-    	Port of the postgresql server. (default 5432)
+    	Port of the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_PORT) (default 5432)
   -postgresql-sslmode string
-    	SSL mode for the postgresql server. (default "disable")
+    	SSL mode for the postgresql server. (env PROM_ANALYTICS_PROXY_POSTGRESQL_SSLMODE) (default "disable")
   -postgresql-statement-timeout duration
-    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.
+    	Server-side per-statement timeout enforced by PostgreSQL on every pooled connection. When a single query exceeds this, PostgreSQL aborts it (SQLSTATE 57014) and frees the connection slot before the HTTP client can cancel it - useful as a load-shedder under saturation. Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables. (env PROM_ANALYTICS_PROXY_POSTGRESQL_STATEMENT_TIMEOUT)
   -postgresql-user string
-    	Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
+    	Username for the postgresql server. The legacy POSTGRESQL_USER env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_USER)
   -sqlite-database-path string
-    	Path to the sqlite database. (default "prom-analytics-proxy.db")
+    	Path to the sqlite database. (env PROM_ANALYTICS_PROXY_SQLITE_DATABASE_PATH) (default "prom-analytics-proxy.db")
 ```
 
 ### Tracing Support
