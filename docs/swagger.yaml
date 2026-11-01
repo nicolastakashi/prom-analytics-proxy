@@ -101,6 +101,7 @@ definitions:
   db.QueryErrorAnalysisResult:
     properties:
       time:
+        description: Time is the bucket's start, in UTC.
         type: string
       value:
         type: number
@@ -148,6 +149,7 @@ definitions:
       p95:
         type: integer
       time:
+        description: Time is the bucket's start, in UTC.
         type: string
       value:
         type: number
@@ -172,11 +174,13 @@ definitions:
       5xx:
         type: integer
       time:
+        description: Time is the bucket's start, in UTC.
         type: string
     type: object
   db.QueryThroughputAnalysisResult:
     properties:
       time:
+        description: Time is the bucket's start, in UTC.
         type: string
       value:
         type: number

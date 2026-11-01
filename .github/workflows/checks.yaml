@@ -49,7 +49,10 @@ jobs:
             workflows:
               - '.github/**'
             swagger:
-              - 'api/routes/routes.go'
+              # swag parses every package (--parseDependency --parseInternal), so
+              # a model change anywhere can move the spec, not only routes.go.
+              - 'api/**'
+              - 'internal/**'
               - 'docs/**'
 
   check-ui:
