@@ -1429,6 +1429,7 @@
             "type": "object",
             "properties": {
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {
@@ -1501,6 +1502,7 @@
                     "type": "integer"
                 },
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {
@@ -1538,6 +1540,7 @@
                     "type": "integer"
                 },
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 }
             }
@@ -1546,6 +1549,7 @@
             "type": "object",
             "properties": {
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {

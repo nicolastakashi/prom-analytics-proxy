@@ -1436,6 +1436,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {
@@ -1508,6 +1509,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {
@@ -1545,6 +1547,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 }
             }
@@ -1553,6 +1556,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "time": {
+                    "description": "Time is the bucket's start, in UTC.",
                     "type": "string"
                 },
                 "value": {
