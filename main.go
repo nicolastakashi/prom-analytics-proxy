@@ -64,6 +64,9 @@ func main() {
 	log.RegisterFlags(ingesterFlagSet)
 	ingester.RegisterFlags(ingesterFlagSet, &configFile)
 
+	config.AnnotateUsage(apiFlagSet)
+	config.AnnotateUsage(ingesterFlagSet)
+
 	args := os.Args[1:]
 	cmd := "api"
 	if len(args) > 0 {
@@ -90,15 +93,12 @@ func main() {
 		}
 	}
 
-	var err error
-	switch cmd {
-	case "api":
-		err = apiFlagSet.Parse(args)
-	case "ingester":
-		err = ingesterFlagSet.Parse(args)
+	flagSet := apiFlagSet
+	if cmd == "ingester" {
+		flagSet = ingesterFlagSet
 	}
-	if err != nil {
-		fmt.Printf("error parsing flags: %v", err)
+	if err := config.ParseFlags(flagSet, args, &configFile); err != nil {
+		fmt.Printf("error loading configuration: %v", err)
 		os.Exit(1)
 	}
 
@@ -108,12 +108,6 @@ func main() {
 		os.Exit(1)
 	}
 	slog.SetDefault(logger)
-	if configFile != "" {
-		if err := config.LoadConfig(configFile); err != nil {
-			slog.Error("unable to load config file", "err", err)
-			os.Exit(1)
-		}
-	}
 	config.LogConfig(cmd)
 	// Before anything acts on the config: a value no consumer could use is
 	// an operator's typo, and this is the last point at which saying so
