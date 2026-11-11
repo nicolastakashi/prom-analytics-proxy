@@ -27,9 +27,9 @@ database:
   postgresql:
     addr: "localhost" # Address of the postgresql server. (default "localhost")
     port: 5432 # Port of the postgresql server. (default 5432)
-    database: "postgres" # Database for the postgresql server, can also be set via POSTGRESQL_DATABASE env var.
-    user: "postgres" # Username for the postgresql server, can also be set via POSTGRESQL_USER env var.
-    password: "postgres" # Password for the postgresql server, can also be set via POSTGRESQL_PASSWORD env var.
+    database: "postgres" # Database for the postgresql server, can also be set via PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE env var.
+    user: "postgres" # Username for the postgresql server, can also be set via PROM_ANALYTICS_PROXY_POSTGRESQL_USER env var.
+    password: "postgres" # Password for the postgresql server, can also be set via PROM_ANALYTICS_PROXY_POSTGRESQL_PASSWORD env var.
     sslmode: "disable" # SSL mode for the postgresql server. (default "disable")
     max_open_conns: int # Maximum number of open connections to the database (0 = use default 20).
     max_idle_conns: int # Maximum number of idle connections in the pool (0 = use default 10).
