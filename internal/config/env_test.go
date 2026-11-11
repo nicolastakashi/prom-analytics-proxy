@@ -12,7 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestFlagSet(configFile *string) *flag.FlagSet {
+func newTestFlagSet(t *testing.T, configFile *string) *flag.FlagSet {
+	t.Helper()
+	original := *DefaultConfig
+	t.Cleanup(func() { *DefaultConfig = original })
+
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(configFile, "config-file", "", "")
@@ -79,9 +83,6 @@ func TestApplyEnv_EmptyValue(t *testing.T) {
 }
 
 func TestParseFlags(t *testing.T) {
-	original := *DefaultConfig
-	t.Cleanup(func() { *DefaultConfig = original })
-
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	err := os.WriteFile(configPath, []byte(`
 upstream:
@@ -96,7 +97,7 @@ insert:
 
 	t.Run("config file", func(t *testing.T) {
 		var configFile string
-		fs := newTestFlagSet(&configFile)
+		fs := newTestFlagSet(t, &configFile)
 
 		require.NoError(t, ParseFlags(fs, []string{"-config-file", configPath}, &configFile))
 		assert.Equal(t, "http://from-file:9090", DefaultConfig.Upstream.URL)
@@ -109,7 +110,7 @@ insert:
 		t.Setenv("PROM_ANALYTICS_PROXY_INSERT_BATCH_SIZE", "30")
 
 		var configFile string
-		fs := newTestFlagSet(&configFile)
+		fs := newTestFlagSet(t, &configFile)
 
 		require.NoError(t, ParseFlags(fs, []string{"-config-file", configPath, "-insert-batch-size", "40"}, &configFile))
 		assert.Equal(t, "http://from-env:9090", DefaultConfig.Upstream.URL)
@@ -122,7 +123,7 @@ insert:
 		t.Setenv("PROM_ANALYTICS_PROXY_CONFIG_FILE", configPath)
 
 		var configFile string
-		fs := newTestFlagSet(&configFile)
+		fs := newTestFlagSet(t, &configFile)
 
 		require.NoError(t, ParseFlags(fs, nil, &configFile))
 		assert.Equal(t, configPath, configFile)
@@ -133,7 +134,7 @@ insert:
 		t.Setenv("PROM_ANALYTICS_PROXY_INSERT_BATCH_SIZE", "abc")
 
 		var configFile string
-		fs := newTestFlagSet(&configFile)
+		fs := newTestFlagSet(t, &configFile)
 
 		err := ParseFlags(fs, nil, &configFile)
 		require.Error(t, err)

@@ -98,7 +98,7 @@ func main() {
 		flagSet = ingesterFlagSet
 	}
 	if err := config.ParseFlags(flagSet, args, &configFile); err != nil {
-		fmt.Printf("error loading configuration: %v", err)
+		fmt.Fprintf(os.Stderr, "error loading configuration: %v\n", err)
 		os.Exit(1)
 	}
 
