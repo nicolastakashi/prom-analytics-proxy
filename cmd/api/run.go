@@ -29,7 +29,7 @@ import (
 )
 
 func RegisterFlags(fs *flag.FlagSet, configFile *string) {
-	fs.StringVar(configFile, "config-file", "", "Path to the configuration file, it takes precedence over the command line flags.")
+	fs.StringVar(configFile, "config-file", "", "Path to the configuration file. Environment variables and command line flags take precedence over it.")
 	fs.StringVar(&config.DefaultConfig.Database.Provider, "database-provider", "", "The provider of database to use for storing query data. Supported values: postgresql, sqlite.")
 	fs.BoolVar(&config.DefaultConfig.Inventory.Enabled, "inventory-enabled", config.DefaultConfig.Inventory.Enabled, "Enable the metrics inventory syncer")
 
