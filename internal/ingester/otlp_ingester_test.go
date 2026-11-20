@@ -899,7 +899,10 @@ func TestOTLPIngester_CatalogFlush_RequeuesOnDBFailure(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
-func TestOTLPIngester_Run_ShutdownFlushesCatalogBuffer(t *testing.T) {
+// TestOTLPIngester_Run_Shutdown verifies that when Run's context is
+// canceled, Run flushes the catalog buffer under a live context and closes
+// the usage cache.
+func TestOTLPIngester_Run_Shutdown(t *testing.T) {
 	mp := &mockUsageProvider{}
 	cfg := &config.Config{}
 	cfg.Ingester.OTLP.ListenAddress = "127.0.0.1:0"
@@ -912,6 +915,8 @@ func TestOTLPIngester_Run_ShutdownFlushesCatalogBuffer(t *testing.T) {
 	ing, err := NewOtlpIngester(cfg, mp)
 	assert.NoError(t, err)
 	ing.SetExporter(&captureExporter{})
+	cache := &deadlineCache{}
+	ing.SetMetricCache(cache)
 
 	req := buildExportRequest(buildGaugeMetric("shutdown_metric", 1))
 	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
@@ -946,6 +951,14 @@ func TestOTLPIngester_Run_ShutdownFlushesCatalogBuffer(t *testing.T) {
 	}
 
 	mp.AssertExpectations(t)
+	assert.True(t, cache.closed, "usage cache closed")
+}
+
+// TestNewOtlpIngester_RejectsNilStore verifies an ingester cannot be built
+// without a store.
+func TestNewOtlpIngester_RejectsNilStore(t *testing.T) {
+	_, err := NewOtlpIngester(&config.Config{}, nil)
+	assert.Error(t, err)
 }
 
 // mustTimeRange is the db.TimeRange from from to to, failing tb if it is not
