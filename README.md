@@ -390,7 +390,7 @@ Flags (metrics ingester):
   -ingester-cache-enabled
     	Enable metric usage caching (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_ENABLED)
   -ingester-cache-operation-timeout duration
-    	Timeout for cache get/set operations (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_OPERATION_TIMEOUT) (default 200ms)
+    	Timeout for cache get/set operations, capped at a tenth of the time the incoming request has left; the cap is at least 5ms (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_OPERATION_TIMEOUT) (default 200ms)
   -ingester-cache-password string
     	Cache password (optional) (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_PASSWORD)
   -ingester-cache-unused-ttl duration
@@ -457,6 +457,8 @@ Flags (metrics ingester):
     	Downstream OTLP retry max attempts (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_MAX_ATTEMPTS) (default 2)
   -otlp-downstream-retry-max-backoff duration
     	Downstream OTLP retry max backoff (duration) (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_RETRY_MAX_BACKOFF) (default 1s)
+  -otlp-downstream-timeout duration
+    	Timeout for each forward to the downstream OTLP endpoint, shortened when the incoming request's deadline leaves less time. 0 or negative uses the default. (env PROM_ANALYTICS_PROXY_OTLP_DOWNSTREAM_TIMEOUT) (default 5s)
   -otlp-listen-address string
     	The address the metrics ingester should listen on. (env PROM_ANALYTICS_PROXY_OTLP_LISTEN_ADDRESS) (default ":4317")
   -otlp-lookup-chunk-size int

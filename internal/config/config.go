@@ -233,6 +233,7 @@ var DefaultConfig = &Config{
 			GRPCMaxSendMsgSizeBytes:            10 * 1024 * 1024,
 			DownstreamGRPCMaxRecvMsgSizeBytes:  10 * 1024 * 1024,
 			DownstreamGRPCMaxSendMsgSizeBytes:  10 * 1024 * 1024,
+			DownstreamTimeout:                  5 * time.Second,
 			DownstreamRetryMaxAttempts:         2,
 			DownstreamRetryInitialBackoff:      250 * time.Millisecond,
 			DownstreamRetryMaxBackoff:          1 * time.Second,
@@ -281,6 +282,10 @@ type OtlpIngesterConfig struct {
 	// DownstreamGRPCMaxSendMsgSizeBytes controls the maximum send size used
 	// by the downstream OTLP client when forwarding data.
 	DownstreamGRPCMaxSendMsgSizeBytes int `yaml:"downstream_grpc_max_send_msg_size_bytes,omitempty"`
+	// DownstreamTimeout bounds each forward to the downstream endpoint,
+	// shortened when the incoming request's deadline leaves less time. 0 or
+	// negative uses 5s.
+	DownstreamTimeout time.Duration `yaml:"downstream_timeout,omitempty"`
 	// Downstream retry policy configuration for OTLP client
 	DownstreamRetryMaxAttempts       int           `yaml:"downstream_retry_max_attempts,omitempty"`
 	DownstreamRetryInitialBackoff    time.Duration `yaml:"downstream_retry_initial_backoff,omitempty"`
@@ -688,6 +693,7 @@ func logIngesterOTLPConfig(cfg *Config) {
 		"Ingester.OTLP.GRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.GRPCMaxSendMsgSizeBytes,
 		"Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
 		"Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes", cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+		"Ingester.OTLP.DownstreamTimeout", cfg.Ingester.OTLP.DownstreamTimeout,
 		"Ingester.OTLP.DownstreamRetryMaxAttempts", cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
 		"Ingester.OTLP.DownstreamRetryInitialBackoff", cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
 		"Ingester.OTLP.DownstreamRetryMaxBackoff", cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,

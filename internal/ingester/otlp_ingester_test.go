@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
@@ -17,6 +18,7 @@ import (
 	otlppkg "github.com/nicolastakashi/prom-analytics-proxy/internal/ingester/otlp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -25,6 +27,8 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type mockUsageProvider struct{ MockDBProvider }
@@ -966,6 +970,165 @@ func TestExport_WithHistogramCache_HandlesVariantsCorrectly(t *testing.T) {
 
 	mp.AssertExpectations(t)
 }
+
+// TestExport_DownstreamTimeout verifies each forward to the downstream
+// exporter runs under the configured timeout, or 5s when it is not positive,
+// and until the incoming request's deadline when that is under 50ms away.
+func TestExport_DownstreamTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		configured time.Duration
+		incoming   time.Duration // 0: no incoming deadline
+		want       time.Duration
+	}{
+		{name: "configured", configured: 2 * time.Second, want: 2 * time.Second},
+		{name: "unset", configured: 0, want: 5 * time.Second},
+		{name: "negative", configured: -time.Second, want: 5 * time.Second},
+		{name: "nearly expired request", configured: 2 * time.Second, incoming: 30 * time.Millisecond, want: 30 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				mp := &mockUsageProvider{}
+				mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+				cfg := &config.Config{Ingester: config.IngesterConfig{OTLP: config.OtlpIngesterConfig{
+					DownstreamTimeout: tc.configured,
+				}}}
+				ing, err := NewOtlpIngester(cfg, mp)
+				require.NoError(t, err)
+				exp := &deadlineExporter{}
+				ing.SetExporter(exp)
+				ctx := context.Background()
+				if tc.incoming > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, tc.incoming)
+					defer cancel()
+				}
+
+				start := time.Now()
+				_, err = ing.Export(ctx, buildExportRequest(buildGaugeMetric("some_metric", 1)))
+				require.NoError(t, err)
+				require.Len(t, exp.deadlines, 1)
+				assert.Equal(t, tc.want, exp.deadlines[0].Sub(start))
+			})
+		})
+	}
+}
+
+// TestExport_RetriesUnavailableUnderDownstreamTimeout verifies a forward
+// failing with Unavailable is retried once, 250ms later, under its own
+// downstream timeout.
+func TestExport_RetriesUnavailableUnderDownstreamTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mp := &mockUsageProvider{}
+		mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+		cfg := &config.Config{Ingester: config.IngesterConfig{OTLP: config.OtlpIngesterConfig{
+			DownstreamTimeout: 2 * time.Second,
+		}}}
+		ing, err := NewOtlpIngester(cfg, mp)
+		require.NoError(t, err)
+		exp := &deadlineExporter{errs: []error{status.Error(codes.Unavailable, "downstream unavailable")}}
+		ing.SetExporter(exp)
+
+		start := time.Now()
+		_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+		require.NoError(t, err)
+		require.Len(t, exp.deadlines, 2)
+		assert.Equal(t, 2*time.Second, exp.deadlines[0].Sub(start))
+		assert.Equal(t, 250*time.Millisecond+2*time.Second, exp.deadlines[1].Sub(start))
+	})
+}
+
+// TestExport_CacheTimeout verifies a cache read and a cache write-back each
+// run under the cache operation timeout, capped at a tenth of the time the
+// incoming request has left (the cap is at least 5ms), whatever the
+// downstream timeout.
+func TestExport_CacheTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		operationTimeout time.Duration
+		incoming         time.Duration // 0: no incoming deadline
+		want             time.Duration
+	}{
+		{name: "no incoming deadline", want: 200 * time.Millisecond},
+		{name: "configured operation timeout", operationTimeout: time.Second, want: time.Second},
+		{name: "incoming deadline", incoming: time.Second, want: 100 * time.Millisecond},
+		{name: "long incoming deadline", incoming: 5 * time.Second, want: 200 * time.Millisecond},
+		{name: "nearly expired", incoming: 40 * time.Millisecond, want: 5 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				mp := &mockUsageProvider{}
+				mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
+					Return([]models.MetricMetadata{{Name: "some_metric"}}, nil)
+				cfg := &config.Config{Ingester: config.IngesterConfig{
+					OTLP:  config.OtlpIngesterConfig{DownstreamTimeout: time.Second},
+					Redis: config.RedisCacheConfig{OperationTimeout: tc.operationTimeout},
+				}}
+				ing, err := NewOtlpIngester(cfg, mp)
+				require.NoError(t, err)
+				cache := &deadlineCache{}
+				ing.SetMetricCache(cache)
+				ing.SetExporter(&captureExporter{})
+
+				ctx := context.Background()
+				if tc.incoming > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, tc.incoming)
+					defer cancel()
+				}
+				start := time.Now()
+				_, err = ing.Export(ctx, buildExportRequest(buildGaugeMetric("some_metric", 1)))
+				require.NoError(t, err)
+				require.Len(t, cache.reads, 1)
+				assert.Equal(t, tc.want, cache.reads[0].Sub(start))
+				require.Len(t, cache.writes, 1)
+				assert.Equal(t, tc.want, cache.writes[0].Sub(start))
+			})
+		})
+	}
+}
+
+// deadlineExporter records the deadline of the context each forward runs
+// under, and fails forwards with errs in order.
+type deadlineExporter struct {
+	errs      []error
+	deadlines []time.Time
+}
+
+func (d *deadlineExporter) Export(ctx context.Context, _ *colmetricspb.ExportMetricsServiceRequest) error {
+	deadline, _ := ctx.Deadline()
+	d.deadlines = append(d.deadlines, deadline)
+	if len(d.errs) == 0 {
+		return nil
+	}
+	err := d.errs[0]
+	d.errs = d.errs[1:]
+	return err
+}
+func (d *deadlineExporter) Close() error { return nil }
+
+// deadlineCache records the deadline of the context each cache read and
+// write runs under, and answers every name as unknown.
+type deadlineCache struct {
+	reads  []time.Time
+	writes []time.Time
+}
+
+func (c *deadlineCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
+	deadline, _ := ctx.Deadline()
+	c.reads = append(c.reads, deadline)
+	states := make(map[string]otlppkg.MetricUsageState, len(names))
+	for _, name := range names {
+		states[name] = otlppkg.StateUnknown
+	}
+	return states, nil
+}
+func (c *deadlineCache) SetStates(ctx context.Context, _ map[string]otlppkg.MetricUsageState) error {
+	deadline, _ := ctx.Deadline()
+	c.writes = append(c.writes, deadline)
+	return nil
+}
+func (c *deadlineCache) Close() error { return nil }
 
 type captureExporter struct {
 	captured *colmetricspb.ExportMetricsServiceRequest
