@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -186,6 +187,91 @@ func TestPostgreSQL_UpsertMetricsJobIndex_ConcurrentOverlappingUpsertsDoNotDeadl
 	)
 }
 
+// TestNewPostgreSQLProvider_DialTimeout verifies a connection attempt to a
+// server that never answers gives up after the dial timeout rounded up to
+// whole seconds, so a positive timeout never waits forever, while 0 or a
+// negative timeout keeps waiting.
+func TestNewPostgreSQLProvider_DialTimeout(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration // 0: keeps waiting
+	}{
+		{name: "sub-second", timeout: 500 * time.Millisecond, want: time.Second},
+		{name: "fractional", timeout: 1100 * time.Millisecond, want: 2 * time.Second},
+		{name: "whole", timeout: 2 * time.Second, want: 2 * time.Second},
+		{name: "zero", timeout: 0},
+		{name: "negative", timeout: -1500 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			addr := startSilentServer(t)
+
+			start := time.Now()
+			done := make(chan error, 1)
+			go func() {
+				_, err := NewPostgreSQLProvider(t.Context(), config.PostgreSQLConfig{
+					Addr:        addr.IP.String(),
+					Port:        addr.Port,
+					SSLMode:     "disable",
+					DialTimeout: tc.timeout,
+				})
+				done <- err
+			}()
+
+			if tc.want == 0 {
+				select {
+				case err := <-done:
+					t.Fatalf("connection attempt gave up after %s: %v", time.Since(start), err)
+				case <-time.After(3 * time.Second):
+				}
+				return
+			}
+			select {
+			case err := <-done:
+				require.Error(t, err)
+				elapsed := time.Since(start)
+				assert.GreaterOrEqual(t, elapsed, tc.want)
+				assert.Less(t, elapsed, tc.want+time.Second)
+			case <-time.After(tc.want + 5*time.Second):
+				t.Fatal("connection attempt did not give up")
+			}
+		})
+	}
+}
+
+// startSilentServer accepts TCP connections and never answers them; it stops
+// when t ends.
+func startSilentServer(t *testing.T) *net.TCPAddr {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := lis.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = lis.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	return lis.Addr().(*net.TCPAddr)
+}
+
 func TestPostgreSQL_StatementTimeoutAborts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -253,6 +339,19 @@ func assertStatementLevelTriggerAbortsAndRollsBack(
 	err = pg.db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", targetTable)).Scan(&count)
 	require.NoError(t, err, "count rows in %s", targetTable)
 	assert.Equal(t, 0, count, "no rows should be committed in %s - the transaction must have rolled back", targetTable)
+}
+
+// TestPostgreSQL_StatementTimeoutRoundsUp verifies a statement timeout is
+// applied rounded up to whole milliseconds, so a positive timeout never
+// disables it.
+func TestPostgreSQL_StatementTimeoutRoundsUp(t *testing.T) {
+	t.Parallel()
+	p := newTestPostgreSQLProviderWithStatementTimeout(t, 1500*time.Microsecond)
+
+	var got string
+	err := p.(*PostGreSQLProvider).db.QueryRowContext(context.Background(), "SHOW statement_timeout").Scan(&got)
+	require.NoError(t, err)
+	assert.Equal(t, "2ms", got)
 }
 
 // TestPostgreSQL_StatementTimeoutSparesMigrations verifies a statement

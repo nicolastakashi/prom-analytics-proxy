@@ -174,7 +174,7 @@ func metricMatcherJSON(metric string) string {
 // DDL creation moved to embedded Goose migrations.
 
 func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
-	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.DialTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to dial postgresql.")
+	flagSet.DurationVar(&config.DefaultConfig.Database.PostgreSQL.DialTimeout, "postgresql-dial-timeout", 5*time.Second, "Timeout to connect to postgresql, rounded up to whole seconds. 0 or negative waits indefinitely.")
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.Addr, "postgresql-addr", "localhost", "Address of the postgresql server.")
 	flagSet.IntVar(&config.DefaultConfig.Database.PostgreSQL.Port, "postgresql-port", 5432, "Port of the postgresql server.")
 	flagSet.StringVar(&config.DefaultConfig.Database.PostgreSQL.User, "postgresql-user", os.Getenv("POSTGRESQL_USER"), "Username for the postgresql server. The legacy POSTGRESQL_USER env var is still read as its default.")
@@ -198,17 +198,14 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 	// per-checkout overhead. lib/pq preserves the space inside the single-
 	// quoted value, and postgres then parses '-c' and 'statement_timeout=...'
 	// as two separate command-line arguments at connection start.
-	// Round up to the nearest millisecond so a sub-ms configured duration
-	// doesn't silently truncate to 0, which PostgreSQL interprets as
-	// "disabled" - the opposite of the operator's intent.
 	statementTimeoutOpt := ""
 	if postgresConfig.StatementTimeout > 0 {
-		ms := (postgresConfig.StatementTimeout + time.Millisecond - 1) / time.Millisecond
 		statementTimeoutOpt = fmt.Sprintf(
 			" options='-c statement_timeout=%d'",
-			ms,
+			roundUp(postgresConfig.StatementTimeout, time.Millisecond),
 		)
 	}
+	connectTimeout := roundUp(postgresConfig.DialTimeout, time.Second)
 	baseDSN := fmt.Sprintf(
 		"host='%s' port=%d user='%s' password='%s' dbname='%s' sslmode='%s' connect_timeout=%d application_name=prom-analytics-proxy",
 		postgresConfig.Addr,
@@ -217,7 +214,7 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 		postgresConfig.Password,
 		postgresConfig.Database,
 		postgresConfig.SSLMode,
-		int(postgresConfig.DialTimeout.Seconds()),
+		connectTimeout,
 	)
 
 	db, err := otelsql.Open("postgres", baseDSN+statementTimeoutOpt, otelsql.WithAttributes(semconv.DBSystemPostgreSQL))
@@ -272,6 +269,17 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 	return &PostGreSQLProvider{
 		db: db,
 	}, nil
+}
+
+// roundUp returns d in whole units, rounded up, or 0 when d is not positive.
+// Both connect_timeout and statement_timeout read 0 as "no timeout", so
+// truncating a small positive duration would disable the timeout instead of
+// shortening it.
+func roundUp(d, unit time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	return int64((d + unit - 1) / unit)
 }
 
 func (p *PostGreSQLProvider) Close() error {
