@@ -11,47 +11,39 @@ import (
 
 // catalogBuffer is a thread-safe in-memory buffer of metric catalog entries seen in OTLP traffic.
 //
-// Deduplication strategy depends on whether a distributed seen cache (e.g. Redis) is configured:
+// Deduplication across flushes depends on trackSeen:
 //
-//   - No seenCache: an in-memory seen map (name → last flush time) suppresses re-queuing within
+//   - trackSeen: an in-memory seen map (name → last flush time) suppresses re-queuing within
 //     SeenTTL. Simple and fast, but the state is lost on restart causing a one-time re-flush burst.
 //
-//   - With seenCache (e.g. Redis): the in-memory seen map is omitted entirely to avoid
-//     redundant memory usage. All deduplication is delegated to the distributed cache, which
-//     survives restarts and is shared across instances.
+//   - !trackSeen: the in-memory seen map is omitted entirely, for when a distributed seen cache
+//     (e.g. Redis) deduplicates across flushes, restarts and instances instead.
 //
 // In both modes, the pending map deduplicates metrics within a single flush interval.
 type catalogBuffer struct {
 	mu      sync.Mutex
 	pending map[string]db.MetricCatalogItem
-	// seen is only populated when seenCache is nil (in-memory deduplication mode).
+	// seen is only populated when trackSeen is set (in-memory deduplication mode).
 	seen    map[string]time.Time
 	maxSize int
 	seenTTL time.Duration
-
-	// seenCache is an optional distributed seen cache (e.g. Redis). When non-nil, the
-	// in-memory seen map is not used and all cross-cycle deduplication goes through here.
-	seenCache CatalogSeenCache
 }
 
-func newCatalogBuffer(maxSize int, seenTTL time.Duration, seenCache CatalogSeenCache) *catalogBuffer {
+func newCatalogBuffer(maxSize int, seenTTL time.Duration, trackSeen bool) *catalogBuffer {
 	b := &catalogBuffer{
-		pending:   make(map[string]db.MetricCatalogItem, maxSize),
-		maxSize:   maxSize,
-		seenTTL:   seenTTL,
-		seenCache: seenCache,
+		pending: make(map[string]db.MetricCatalogItem, maxSize),
+		maxSize: maxSize,
+		seenTTL: seenTTL,
 	}
-	// Only allocate the in-memory seen map when there is no distributed cache.
-	if seenCache == nil {
+	if trackSeen {
 		b.seen = make(map[string]time.Time)
 	}
 	return b
 }
 
 // candidatesForBuffer returns metrics from the request that are not already suppressed.
-// When a distributed seenCache is configured, only the pending map is checked here
-// (no in-memory seen map). The caller is responsible for the remote seen lookup.
-// When no seenCache is configured, the in-memory seen map is also checked.
+// Without trackSeen only the pending map is checked here; the caller is responsible for
+// the remote seen lookup. With trackSeen, the in-memory seen map is also checked.
 func (b *catalogBuffer) candidatesForBuffer(metrics []*metricspb.Metric) []*metricspb.Metric {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -65,7 +57,7 @@ func (b *catalogBuffer) candidatesForBuffer(metrics []*metricspb.Metric) []*metr
 		if _, inPending := b.pending[name]; inPending {
 			continue
 		}
-		// In-memory seen check only when Redis is not handling deduplication.
+		// In-memory seen check only with trackSeen.
 		if b.seen != nil {
 			if flushedAt, inSeen := b.seen[name]; inSeen && time.Since(flushedAt) < b.seenTTL {
 				continue
@@ -77,7 +69,7 @@ func (b *catalogBuffer) candidatesForBuffer(metrics []*metricspb.Metric) []*metr
 }
 
 // addBatch queues candidates for the next flush, skipping names present in remotelySeenNames.
-// When using in-memory deduplication (no seenCache), remotelySeenNames is always nil.
+// With trackSeen, remotelySeenNames is always empty.
 func (b *catalogBuffer) addBatch(candidates []*metricspb.Metric, remotelySeenNames map[string]bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -150,7 +142,7 @@ func (b *catalogBuffer) requeue(items []db.MetricCatalogItem) {
 }
 
 // markFlushed records successful flush timestamps in the in-memory seen map.
-// No-op when a distributed seen cache is used.
+// No-op without trackSeen.
 func (b *catalogBuffer) markFlushed(items []db.MetricCatalogItem, flushedAt time.Time) {
 	if b.seen == nil || len(items) == 0 {
 		return
