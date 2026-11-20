@@ -172,12 +172,14 @@ Each request resolves the usage state of its metric names from the Redis cache f
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `ingester_metric_cache_hits_total` | Counter | `state` | Names answered by the cache, by cached state (`used`, `unused`). With `-ingester-cache-used-only`, cached `unused` entries are counted as misses. |
-| `ingester_metric_cache_misses_total` | Counter | | Names the cache did not answer, which go on to the database: names with no entry, and every name in a read that failed or timed out. |
-| `ingester_metric_cache_errors_total` | Counter | `operation` | Failed cache write-backs (`operation="set"`). Read failures are counted as misses, so `operation="get"` stays at 0. |
+| `ingester_metric_cache_misses_total` | Counter | | Names the cache did not resolve to a state, which go on to the database: names with no entry or an unrecognised value, and, with `-ingester-cache-used-only`, cached `unused` entries. Names a failed read did not answer also go to the database, but are not counted here. |
+| `ingester_metric_cache_errors_total` | Counter | `operation`, `reason` | Failed cache calls, once per call, by `operation` (`get`, `set`) and `reason`: `timeout` when the call ran out of time, `error` otherwise. Calls made for a canceled request are not counted. |
 | `ingester_metric_cache_lookup_seconds` | Histogram | | Duration of each cache read, per chunk, including reads that failed or timed out. |
 | `ingester_metric_cache_write_seconds` | Histogram | | Duration of each cache write-back of states read from the database, whether or not the write succeeded. |
-| `ingester_processor_lookup_duration_seconds` | Histogram | | Duration of each successful database lookup, per chunk. Failed lookups are not observed. |
-| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk. The names in a failed chunk are treated as used and forwarded. |
+| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request are not observed. |
+| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests. The names in a failed chunk are treated as used and forwarded. |
+| `ingester_processor_usage_resolutions_total` | Counter | `source` | Names looked up, each counted once per request, by what resolved their usage state: `cache`, `database` (including names it has no record of, which are kept), or `unresolved` (forwarded as used). Names of a canceled request are not counted as unresolved. |
+| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout`, `db_error`. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
 
 ### Downstream forwarding
 

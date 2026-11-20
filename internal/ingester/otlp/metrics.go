@@ -45,12 +45,27 @@ var (
 		[]string{"reason"},
 	)
 
-	processorLookupDurationSeconds = promauto.NewHistogram(
+	processorLookupDurationSeconds = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "ingester_processor_lookup_duration_seconds",
 			Help:    "Duration of database lookups in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
+		[]string{"outcome"},
+	)
+	usageResolutionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_processor_usage_resolutions_total",
+			Help: "Metric names looked up, by the source that resolved their usage state; unresolved names are forwarded as used",
+		},
+		[]string{"source"},
+	)
+	processorUnresolvedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_processor_unresolved_total",
+			Help: "Metric names forwarded as used because their usage state could not be resolved, by reason",
+		},
+		[]string{"reason"},
 	)
 
 	processorLookupErrorsTotal = promauto.NewCounter(
@@ -94,9 +109,9 @@ var (
 	ingesterMetricCacheErrorsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ingester_metric_cache_errors_total",
-			Help: "Total number of cache operation errors",
+			Help: "Total number of failed cache calls",
 		},
-		[]string{"operation"},
+		[]string{"operation", "reason"},
 	)
 
 	ingesterMetricCacheLookupSeconds = promauto.NewHistogram(
@@ -167,6 +182,37 @@ func init() {
 	processorDroppedMetricPointsTotal.With(prometheus.Labels{"reason": "job_denied"}).Add(0)
 	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "used"}).Add(0)
 	ingesterMetricCacheHitsTotal.With(prometheus.Labels{"state": "unused"}).Add(0)
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Add(0)
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Add(0)
+	for _, operation := range []string{cacheGet, cacheSet} {
+		for _, reason := range []string{reasonTimeout, reasonError} {
+			ingesterMetricCacheErrorsTotal.WithLabelValues(operation, reason).Add(0)
+		}
+	}
+	for _, outcome := range []string{outcomeOK, reasonTimeout, reasonError} {
+		processorLookupDurationSeconds.WithLabelValues(outcome)
+	}
+	for _, source := range []string{sourceCache, sourceDatabase, sourceUnresolved} {
+		usageResolutionsTotal.WithLabelValues(source).Add(0)
+	}
+	for _, reason := range []string{reasonTimeout, reasonError} {
+		processorUnresolvedTotal.WithLabelValues(unresolvedReason(reason)).Add(0)
+	}
 }
+
+// Label values of the lookup metrics. A lookup's outcome is outcomeOK or the
+// reason it failed.
+const (
+	cacheGet = "get"
+	cacheSet = "set"
+
+	outcomeOK     = "ok"
+	reasonTimeout = "timeout"
+	reasonError   = "error"
+
+	sourceCache      = "cache"
+	sourceDatabase   = "database"
+	sourceUnresolved = "unresolved"
+)
+
+// unresolvedReason returns the reason names are left unresolved when the
+// database lookup fails for reason.
+func unresolvedReason(reason string) string { return "db_" + reason }

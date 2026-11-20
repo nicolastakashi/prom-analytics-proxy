@@ -2,12 +2,16 @@ package otlp
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
+	"github.com/redis/rueidis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type inMemoryMetricCache struct {
@@ -195,4 +199,106 @@ func TestNewRedisMetricUsageCache_CustomTimeouts(t *testing.T) {
 		assert.Equal(t, 200, redisCache.maxBatchSize)
 		_ = cache.Close()
 	}
+}
+
+// TestRedisMetricUsageCache_GetStates verifies a read answers cached names,
+// reports a name with no entry or an unrecognised value as StateUnknown, and
+// leaves a name it cannot read out of the map while still answering the
+// others, returning the failure.
+func TestRedisMetricUsageCache_GetStates(t *testing.T) {
+	addr := startRedis(t)
+	cache, err := NewRedisMetricUsageCache(config.RedisCacheConfig{Enabled: true, Addr: addr, BatchSize: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cache.Close() })
+	ctx := context.Background()
+	require.NoError(t, cache.SetStates(ctx, map[string]MetricUsageState{"cached": StateUsed}))
+	admin := newRedisAdmin(t, addr)
+	require.NoError(t, admin.Do(ctx, admin.B().Lpush().Key("metric_usage:wrong_type").Element("x").Build()).Error())
+	require.NoError(t, admin.Do(ctx, admin.B().Set().Key("metric_usage:not_a_number").Value("x").Build()).Error())
+	require.NoError(t, admin.Do(ctx, admin.B().Set().Key("metric_usage:other_value").Value("7").Build()).Error())
+
+	states, err := cache.GetStates(ctx, []string{"cached", "wrong_type", "absent", "not_a_number", "other_value"})
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, map[string]MetricUsageState{
+		"cached":      StateUsed,
+		"absent":      StateUnknown,
+		"other_value": StateUnknown,
+	}, states)
+}
+
+// TestRedisMetricUsageCache_UsedOnly_ReadsUnusedAsUnknown verifies a cache
+// that keeps only used states reads a cached unused state as StateUnknown.
+func TestRedisMetricUsageCache_UsedOnly_ReadsUnusedAsUnknown(t *testing.T) {
+	addr := startRedis(t)
+	cache, err := NewRedisMetricUsageCache(config.RedisCacheConfig{Enabled: true, Addr: addr, UsedOnly: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cache.Close() })
+	ctx := context.Background()
+	admin := newRedisAdmin(t, addr)
+	require.NoError(t, admin.Do(ctx, admin.B().Set().Key("metric_usage:cached_unused").Value("0").Build()).Error())
+
+	states, err := cache.GetStates(ctx, []string{"cached_unused"})
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]MetricUsageState{"cached_unused": StateUnknown}, states)
+}
+
+// TestRedisMetricUsageCache_Timeouts verifies that when Redis does not answer
+// in time, a read leaves the unread names out and a write fails, both
+// returning the timeout.
+func TestRedisMetricUsageCache_Timeouts(t *testing.T) {
+	addr := startRedis(t)
+	cache, err := NewRedisMetricUsageCache(config.RedisCacheConfig{Enabled: true, Addr: addr})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cache.Close() })
+	ctx := context.Background()
+	require.NoError(t, cache.SetStates(ctx, map[string]MetricUsageState{"cached": StateUsed}))
+	admin := newRedisAdmin(t, addr)
+	require.NoError(t, admin.Do(ctx, admin.B().ClientPause().Timeout(2000).All().Build()).Error())
+
+	readCtx, cancelRead := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelRead()
+	states, err := cache.GetStates(readCtx, []string{"cached", "absent"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Empty(t, states)
+
+	writeCtx, cancelWrite := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelWrite()
+	require.ErrorIs(t, cache.SetStates(writeCtx, map[string]MetricUsageState{"other": StateUsed}), context.DeadlineExceeded)
+}
+
+// newRedisAdmin returns a client to addr for setting up test data; it is
+// closed when t ends.
+func newRedisAdmin(t *testing.T, addr string) rueidis.Client {
+	t.Helper()
+	admin, err := rueidis.NewClient(rueidis.ClientOption{InitAddress: []string{addr}})
+	require.NoError(t, err)
+	t.Cleanup(admin.Close)
+	return admin
+}
+
+// startRedis starts a Redis container for t and returns its address. Skips t
+// when Docker is unavailable.
+func startRedis(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "redis:7",
+			ExposedPorts: []string{"6379/tcp"},
+			WaitingFor:   wait.ForAll(wait.ForLog("Ready to accept connections"), wait.ForListeningPort("6379/tcp")),
+		},
+		Started: true,
+	})
+	if err != nil {
+		t.Skipf("Skipping Redis container test (Docker not available): %v", err)
+	}
+	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+	host, err := c.Host(ctx)
+	require.NoError(t, err)
+	port, err := c.MappedPort(ctx, "6379/tcp")
+	require.NoError(t, err)
+	return fmt.Sprintf("%s:%s", host, port.Port())
 }
