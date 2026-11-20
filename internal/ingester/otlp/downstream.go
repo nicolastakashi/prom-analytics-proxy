@@ -8,11 +8,13 @@ import (
 
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	_ "google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
@@ -228,4 +230,81 @@ func (e *otlpExporter) Close() error {
 		return e.conn.Close()
 	}
 	return nil
+}
+
+// forwarder sends requests to the downstream endpoint under a timeout,
+// retrying once, 250ms later, a send that fails with Unavailable. A forwarder
+// without an exporter has no downstream.
+type forwarder struct {
+	exporter MetricsExporter
+	timeout  time.Duration
+}
+
+func (f *forwarder) enabled() bool { return f.exporter != nil }
+
+// setExporter replaces the exporter; nil leaves no downstream.
+func (f *forwarder) setExporter(exp MetricsExporter) { f.exporter = exp }
+
+// forward sends req downstream and returns nil, or the error that ended the send.
+func (f *forwarder) forward(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) error {
+	tout := computeExportTimeout(ctx, f.timeout)
+	fctx, cancel := context.WithTimeout(ctx, tout)
+	defer cancel()
+
+	err := f.exporter.Export(fctx, req)
+	if err == nil || status.Code(err) != codes.Unavailable {
+		return err
+	}
+	select {
+	case <-time.After(250 * time.Millisecond):
+	case <-fctx.Done():
+		return fctx.Err()
+	}
+	fctx2, cancel2 := context.WithTimeout(ctx, tout)
+	defer cancel2()
+	exporterRetriesTotal.Inc()
+	return f.exporter.Export(fctx2, req)
+}
+
+// close closes the exporter, if any.
+func (f *forwarder) close() {
+	if f.exporter != nil {
+		_ = f.exporter.Close()
+	}
+}
+
+func initDownstreamExporter(cfg *config.Config) (MetricsExporter, error) {
+	downstreamEndpoint := cfg.Ingester.OTLP.DownstreamAddress
+	if downstreamEndpoint == "" {
+		return nil, nil
+	}
+	return NewOTLPExporter(downstreamEndpoint, cfg.Ingester.Protocol, &ExporterOptions{
+		MaxSendMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
+		MaxRecvMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
+		BalancerName:        cfg.Ingester.OTLP.BalancerName,
+		Retry: RetryPolicy{
+			MaxAttempts:          cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
+			InitialBackoff:       cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
+			MaxBackoff:           cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,
+			BackoffMultiplier:    cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
+			RetryableStatusCodes: cfg.Ingester.OTLP.DownstreamRetryCodes,
+		},
+		ConnectMinTimeout: cfg.Ingester.OTLP.DownstreamConnectMinTimeout,
+		ConnectBaseDelay:  cfg.Ingester.OTLP.DownstreamConnectBaseDelay,
+		ConnectMaxDelay:   cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
+		ConnectMultiplier: cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
+	})
+}
+
+func computeExportTimeout(ctx context.Context, base time.Duration) time.Duration {
+	tout := base
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < tout {
+			tout = d - 50*time.Millisecond
+			if tout <= 0 {
+				tout = 50 * time.Millisecond
+			}
+		}
+	}
+	return tout
 }

@@ -494,13 +494,105 @@ func TestExport_RetriesUnavailableUnderDownstreamTimeout(t *testing.T) {
 		exp := &deadlineExporter{errs: []error{status.Error(codes.Unavailable, "downstream unavailable")}}
 		ing.SetExporter(exp)
 
+		retries := metricValue(t, "ingester_exporter_retries_total", map[string]string{})
 		start := time.Now()
 		_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
 		require.NoError(t, err)
+		assert.Equal(t, retries+1, metricValue(t, "ingester_exporter_retries_total", map[string]string{}))
 		require.Len(t, exp.deadlines, 2)
 		assert.Equal(t, 2*time.Second, exp.deadlines[0].Sub(start))
 		assert.Equal(t, 250*time.Millisecond+2*time.Second, exp.deadlines[1].Sub(start))
 	})
+}
+
+// TestExport_ForwardOutcome verifies each request is counted under the gRPC
+// code it is answered with: OK when there is no downstream or the forward
+// succeeds, including after one retry following Unavailable, and the error's
+// code, returned to the sender unretried, when the forward fails otherwise.
+func TestExport_ForwardOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		exporter  *deadlineExporter // nil: no downstream
+		wantCode  codes.Code
+		wantCalls int
+	}{
+		{name: "no downstream", wantCode: codes.OK},
+		{name: "forwarded", exporter: &deadlineExporter{}, wantCode: codes.OK, wantCalls: 1},
+		{name: "retried after Unavailable", exporter: &deadlineExporter{errs: []error{status.Error(codes.Unavailable, "unavailable")}}, wantCode: codes.OK, wantCalls: 2},
+		{name: "rejected", exporter: &deadlineExporter{errs: []error{status.Error(codes.InvalidArgument, "rejected")}}, wantCode: codes.InvalidArgument, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				mp := &mockUsageProvider{}
+				mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+				ing, err := NewOtlpIngester(&config.Config{}, mp)
+				require.NoError(t, err)
+				if tc.exporter != nil {
+					ing.SetExporter(tc.exporter)
+				}
+				labels := map[string]string{
+					"rpc.system":        "grpc",
+					"rpc.service":       "opentelemetry.proto.collector.metrics.v1.MetricsService",
+					"rpc.method":        "Export",
+					"network.transport": "tcp",
+					"code":              tc.wantCode.String(),
+				}
+				before := metricValue(t, "ingester_rpc_server_duration_seconds", labels)
+
+				resp, err := ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+
+				assert.Equal(t, tc.wantCode, status.Code(err))
+				if tc.wantCode == codes.OK {
+					assert.NotNil(t, resp)
+				}
+				if tc.exporter != nil {
+					assert.Len(t, tc.exporter.deadlines, tc.wantCalls)
+				}
+				assert.Equal(t, before+1, metricValue(t, "ingester_rpc_server_duration_seconds", labels))
+			})
+		})
+	}
+}
+
+// TestExport_ForwardTimeoutEndsRetryWait verifies that when the forward
+// timeout expires while waiting to retry after Unavailable, the forward is
+// not retried and Export returns the timeout.
+func TestExport_ForwardTimeoutEndsRetryWait(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mp := &mockUsageProvider{}
+		mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+		cfg := &config.Config{Ingester: config.IngesterConfig{OTLP: config.OtlpIngesterConfig{
+			DownstreamTimeout: 100 * time.Millisecond,
+		}}}
+		ing, err := NewOtlpIngester(cfg, mp)
+		require.NoError(t, err)
+		exp := &deadlineExporter{errs: []error{status.Error(codes.Unavailable, "unavailable")}}
+		ing.SetExporter(exp)
+		retries := metricValue(t, "ingester_exporter_retries_total", map[string]string{})
+
+		_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Len(t, exp.deadlines, 1)
+		assert.Equal(t, retries, metricValue(t, "ingester_exporter_retries_total", map[string]string{}))
+	})
+}
+
+// TestExport_SetExporterNil_DisablesForwarding verifies setting a nil
+// exporter stops Export from forwarding to the exporter set before it.
+func TestExport_SetExporterNil_DisablesForwarding(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+	ing, err := NewOtlpIngester(&config.Config{}, mp)
+	require.NoError(t, err)
+	exp := &deadlineExporter{}
+	ing.SetExporter(exp)
+	ing.SetExporter(nil)
+
+	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+
+	require.NoError(t, err)
+	assert.Empty(t, exp.deadlines)
 }
 
 // metricValue returns the value of the counter, or the sample count of the
@@ -554,13 +646,17 @@ func (d *deadlineExporter) Close() error { return nil }
 
 type captureExporter struct {
 	captured *colmetricspb.ExportMetricsServiceRequest
+	closed   bool
 }
 
 func (c *captureExporter) Export(ctx context.Context, req *colmetricspb.ExportMetricsServiceRequest) error {
 	c.captured = req
 	return nil
 }
-func (c *captureExporter) Close() error { return nil }
+func (c *captureExporter) Close() error {
+	c.closed = true
+	return nil
+}
 
 func runPostgres(t *testing.T) (db.Provider, func()) {
 	t.Helper()
@@ -867,7 +963,7 @@ func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
 
 // TestOTLPIngester_Run_Shutdown verifies that when Run's context is
 // canceled, Run flushes the catalog buffer under a live context and closes
-// the usage cache.
+// the usage cache and the downstream exporter.
 func TestOTLPIngester_Run_Shutdown(t *testing.T) {
 	mp := &mockUsageProvider{}
 	cfg := &config.Config{}
@@ -880,7 +976,8 @@ func TestOTLPIngester_Run_Shutdown(t *testing.T) {
 
 	ing, err := NewOtlpIngester(cfg, mp)
 	assert.NoError(t, err)
-	ing.SetExporter(&captureExporter{})
+	exp := &captureExporter{}
+	ing.SetExporter(exp)
 	cache := &deadlineCache{}
 	ing.SetMetricCache(cache)
 
@@ -918,6 +1015,7 @@ func TestOTLPIngester_Run_Shutdown(t *testing.T) {
 
 	mp.AssertExpectations(t)
 	assert.True(t, cache.closed, "usage cache closed")
+	assert.True(t, exp.closed, "exporter closed")
 }
 
 // TestNewOtlpIngester_RejectsNilStore verifies an ingester cannot be built
