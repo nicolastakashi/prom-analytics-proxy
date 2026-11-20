@@ -148,14 +148,52 @@ ingester:
 
 ## Observability
 
-The ingester exposes the following Prometheus metrics for the catalog sync path:
+The ingester exposes Prometheus metrics on `-ingester-metrics-listen-address` (default `:9090`, path `/metrics`). Every metric described here is prefixed with `ingester_`.
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `ingester_catalog_buffer_size` | Gauge | Current number of unique metrics in the pending buffer |
-| `ingester_catalog_buffer_dropped_total` | Counter | Metrics dropped because the buffer was full |
-| `ingester_catalog_flush_duration_seconds` | Histogram | Duration of each catalog DB flush |
-| `ingester_catalog_flush_metrics_total` | Counter | Total metrics written to the catalog |
-| `ingester_catalog_flush_errors_total` | Counter | Catalog flush errors |
+### Export requests
 
-These are available on the ingester's metrics endpoint (default `:9090/metrics`).
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_rpc_server_duration_seconds` | Histogram | `rpc.system`, `rpc.service`, `rpc.method`, `network.transport`, `code` | Duration of each OTLP `Export` request the ingester receives. `code` is the gRPC status returned to the sender (`OK`, `Canceled`, `DeadlineExceeded`, `Unavailable`, ...); the other labels are constant (`grpc`, `opentelemetry.proto.collector.metrics.v1.MetricsService`, `Export`, `tcp`). Use `_count` for request and error rates. |
+| `ingester_rpc_inflight` | Gauge | | `Export` requests currently being processed. |
+| `ingester_receiver_received_metric_points_total` | Counter | | Data points received, before any filtering. |
+| `ingester_receiver_missing_job_total` | Counter | | Unused metrics whose resource has neither a `job` nor a `service.name` attribute, counted once per metric when deciding whether to drop it. Such metrics are dropped only when no allow list is set. |
+
+### Filtering
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_processor_dropped_metric_points_total` | Counter | `reason` | Data points removed because their metric is unused (`reason="unused_metric"`). With `-ingester-dry-run` it counts the points that would have been removed, while nothing is dropped. A `reason="job_denied"` series is exported but never incremented: jobs excluded by the allow or deny lists are forwarded unfiltered and not counted here. |
+
+### Usage lookups
+
+Each request resolves the usage state of its metric names from the Redis cache first (when `-ingester-cache-enabled` is set), then from the database for the names the cache does not answer, in chunks of `-otlp-lookup-chunk-size`.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_metric_cache_hits_total` | Counter | `state` | Names answered by the cache, by cached state (`used`, `unused`). With `-ingester-cache-used-only`, cached `unused` entries are counted as misses. |
+| `ingester_metric_cache_misses_total` | Counter | | Names the cache did not answer, which go on to the database: names with no entry, and every name in a read that failed or timed out. |
+| `ingester_metric_cache_errors_total` | Counter | `operation` | Failed cache write-backs (`operation="set"`). Read failures are counted as misses, so `operation="get"` stays at 0. |
+| `ingester_metric_cache_lookup_seconds` | Histogram | | Duration of each cache read, per chunk, including reads that failed or timed out. |
+| `ingester_metric_cache_write_seconds` | Histogram | | Duration of each cache write-back of states read from the database, whether or not the write succeeded. |
+| `ingester_processor_lookup_duration_seconds` | Histogram | | Duration of each successful database lookup, per chunk. Failed lookups are not observed. |
+| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk. The names in a failed chunk are treated as used and forwarded. |
+
+### Downstream forwarding
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_rpc_client_duration_seconds` | Histogram | `rpc.system`, `rpc.service`, `rpc.method`, `network.transport`, `code` | Duration of each `Export` call to `-otlp-downstream-address`, including retries made by the gRPC retry policy (`-otlp-downstream-retry-*`). `code` is the gRPC status of the call. |
+| `ingester_exporter_retries_total` | Counter | | Second `Export` attempts the ingester makes after a call fails with `Unavailable`. Retries made by the gRPC retry policy are not counted. |
+
+### Catalog sync
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_catalog_buffer_size` | Gauge | | Unique metrics waiting in the buffer for the next flush. |
+| `ingester_catalog_buffer_dropped_total` | Counter | | Metrics discarded because the buffer was full, either when buffered or when re-queued after a failed flush. |
+| `ingester_catalog_flush_duration_seconds` | Histogram | | Duration of each successful flush to the database. |
+| `ingester_catalog_flush_metrics_total` | Counter | | Metrics written to the catalog by successful flushes. |
+| `ingester_catalog_flush_errors_total` | Counter | | Failed flushes. Their metrics are re-queued for the next flush, up to the buffer size; the rest count as dropped. |
+
+See [Troubleshooting](troubleshooting.md#ingester-export-observability) for PromQL examples and log events.
