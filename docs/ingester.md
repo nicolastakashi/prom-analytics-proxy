@@ -178,6 +178,8 @@ The ingester exposes Prometheus metrics on `-ingester-metrics-listen-address` (d
 
 Each request resolves the usage state of its metric names from the Redis cache first (when `-ingester-cache-enabled` is set), then from the database for the names the cache does not answer, in chunks of `-otlp-lookup-chunk-size`.
 
+The whole lookup of a request runs under one time limit, `-otlp-lookup-timeout` (default 2.5s), shortened so that at least 1s of the incoming request's deadline is left for forwarding downstream. Each cache call is capped at a tenth of the time the lookup has left; the cap is at least 5ms. Once a database lookup fails, for any reason, the rest of the request's chunks do not call the database: their cache misses are forwarded as used. Once the time limit has expired, they do not read the cache either.
+
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `ingester_metric_cache_hits_total` | Counter | `state` | Names answered by the cache, by cached state (`used`, `unused`). With `-ingester-cache-used-only`, cached `unused` entries are counted as misses. |
@@ -185,10 +187,10 @@ Each request resolves the usage state of its metric names from the Redis cache f
 | `ingester_metric_cache_errors_total` | Counter | `operation`, `reason` | Failed cache calls, once per call, by `operation` (`get`, `set`) and `reason`: `timeout` when the call ran out of time, `error` otherwise. Calls made for a canceled request are not counted. |
 | `ingester_metric_cache_lookup_seconds` | Histogram | | Duration of each cache read, per chunk, including reads that failed or timed out. |
 | `ingester_metric_cache_write_seconds` | Histogram | | Duration of each cache write-back of states read from the database, whether or not the write succeeded. |
-| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request, or made before the ingester connected to the database, are not observed. |
-| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests or lookups made before the ingester connected to the database. The names in a failed chunk are treated as used and forwarded. |
+| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request, or made before the ingester connected to the database, are not observed; nor are chunks that skipped the database. |
+| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests or lookups made before the ingester connected to the database. The names in a failed chunk are treated as used and forwarded. At most one per request, since later chunks skip the database. |
 | `ingester_processor_usage_resolutions_total` | Counter | `source` | Names looked up, each counted once per request, by what resolved their usage state: `cache`, `database` (including names it has no record of, which are kept), or `unresolved` (forwarded as used). Names of a canceled request are not counted as unresolved. |
-| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout`, `db_error`, or `db_unavailable` while the ingester has not connected to the database. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
+| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout` or `db_error` for the chunk whose lookup failed, or `db_unavailable` while the ingester has not connected to the database and for later chunks that skipped the database after the request's first failed lookup. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
 
 ### Downstream forwarding
 

@@ -231,8 +231,9 @@ const (
 	sourceDatabase   = "database"
 	sourceUnresolved = "unresolved"
 
-	// reasonDatabaseUnavailable leaves names unresolved while the ingester
-	// has not connected to the database.
+	// reasonDatabaseUnavailable leaves names unresolved because no database
+	// call was made: the gate refused it, or an earlier call of the lookup
+	// failed.
 	reasonDatabaseUnavailable = "db_unavailable"
 
 	resultSuccess = "success"

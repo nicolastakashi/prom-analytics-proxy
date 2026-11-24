@@ -35,7 +35,11 @@ const (
 	defaultCatalogSeenTTL          = time.Hour
 	defaultGracefulShutdownTimeout = 30 * time.Second
 	defaultDownstreamTimeout       = 5 * time.Second
+	defaultLookupTimeout           = 2500 * time.Millisecond
 	minCacheTimeout                = 5 * time.Millisecond
+	// forwardReserve is the time of the incoming request's deadline the usage
+	// lookup leaves for forwarding downstream.
+	forwardReserve = time.Second
 )
 
 type OtlpIngester struct {
@@ -71,6 +75,10 @@ func NewOtlpIngester(config *config.Config, store Store) (*OtlpIngester, error) 
 	if config.Ingester.Redis.OperationTimeout > 0 {
 		operationTimeout = config.Ingester.Redis.OperationTimeout
 	}
+	lookupTimeout := defaultLookupTimeout
+	if config.Ingester.OTLP.LookupTimeout > 0 {
+		lookupTimeout = config.Ingester.OTLP.LookupTimeout
+	}
 	exportTimeout := defaultDownstreamTimeout
 	if config.Ingester.OTLP.DownstreamTimeout > 0 {
 		exportTimeout = config.Ingester.OTLP.DownstreamTimeout
@@ -99,6 +107,7 @@ func NewOtlpIngester(config *config.Config, store Store) (*OtlpIngester, error) 
 			store:            store,
 			chunkSize:        lookupChunkSize,
 			operationTimeout: operationTimeout,
+			timeout:          lookupTimeout,
 		},
 		healthSrv:   health.NewServer(),
 		allowedJobs: allowedJobs,
@@ -558,6 +567,7 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "otlp-downstream-connect-base-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBaseDelay, "Base delay for downstream OTLP client dial backoff")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "otlp-downstream-connect-max-delay", config.DefaultConfig.Ingester.OTLP.DownstreamConnectMaxDelay, "Max delay for downstream OTLP client dial backoff")
 	flagSet.Float64Var(&config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "otlp-downstream-connect-backoff-multiplier", config.DefaultConfig.Ingester.OTLP.DownstreamConnectBackoffMultiplier, "Multiplier applied to downstream OTLP client dial backoff")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.LookupTimeout, "otlp-lookup-timeout", config.DefaultConfig.Ingester.OTLP.LookupTimeout, "Time limit for looking up a request's metric usage in the cache and database, shortened to leave 1s of the incoming request's deadline for forwarding downstream. 0 or negative uses the default.")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "otlp-lookup-chunk-size", config.DefaultConfig.Ingester.OTLP.LookupChunkSize, "Batch size for database lookups when checking metric usage (default 500, SQLite max 999)")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.Enabled, "ingester-cache-enabled", config.DefaultConfig.Ingester.Redis.Enabled, "Enable metric usage caching")
 	flagSet.StringVar(&config.DefaultConfig.Ingester.Redis.Addr, "ingester-cache-addr", config.DefaultConfig.Ingester.Redis.Addr, "Cache server address (host:port)")
@@ -567,7 +577,7 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UsedTTL, "ingester-cache-used-ttl", config.DefaultConfig.Ingester.Redis.UsedTTL, "TTL for caching 'used' metric states")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UnusedTTL, "ingester-cache-unused-ttl", config.DefaultConfig.Ingester.Redis.UnusedTTL, "TTL for caching 'unused' metric states")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.UsedOnly, "ingester-cache-used-only", config.DefaultConfig.Ingester.Redis.UsedOnly, "Only cache 'used' states, never cache 'unused' states")
-	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations, capped at a tenth of the time the incoming request has left; the cap is at least 5ms")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations, capped at a tenth of the time the usage lookup has left; the cap is at least 5ms")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.DialTimeout, "ingester-cache-dial-timeout", config.DefaultConfig.Ingester.Redis.DialTimeout, "TCP dial timeout for Redis connections")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "ingester-cache-conn-write-timeout", config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "Read/write timeout for Redis connections")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.Redis.BatchSize, "ingester-cache-batch-size", config.DefaultConfig.Ingester.Redis.BatchSize, "Max commands per DoMulti batch")

@@ -82,6 +82,7 @@ cors:
 ingester:
   otlp:
     downstream_timeout: "2s"
+    lookup_timeout: "1s"
 `
 
 	tmpfile, err := os.CreateTemp("", "config-*.yaml")
@@ -139,6 +140,7 @@ ingester:
 	assert.True(t, DefaultConfig.CORS.AllowCredentials)
 	assert.Equal(t, 300, DefaultConfig.CORS.MaxAge)
 	assert.Equal(t, 2*time.Second, DefaultConfig.Ingester.OTLP.DownstreamTimeout)
+	assert.Equal(t, time.Second, DefaultConfig.Ingester.OTLP.LookupTimeout)
 }
 
 func TestLoadConfig_SQLiteLegacyDatabasePathKey(t *testing.T) {

@@ -19,6 +19,7 @@ Main log events on the `Export` path:
 - `ingester.unused_metrics.count` (debug): `count`, the number of unused metric names found in the request.
 - `ingester.lookup.failed_treating_as_used` (error): `err`, `names_count`. A database lookup failed and its names are forwarded as used.
 - `ingester.lookup.database_unavailable` (debug): `names_count`. The ingester has not connected to the database yet, so the names are forwarded as used.
+- `ingester.lookup.database_skipped` (debug): `names_count`. An earlier database lookup for the same request failed, so these names skip the database and are forwarded as used.
 - `ingester.database.connect_failed` (warn): `err`, `retry_in`. A connection attempt failed and is retried after `retry_in`.
 - `ingester.database.connected` (info): the ingester connected to the database and starts filtering.
 

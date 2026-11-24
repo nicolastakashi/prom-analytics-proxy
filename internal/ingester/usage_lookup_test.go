@@ -1,7 +1,10 @@
 package ingester
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -336,54 +339,50 @@ func TestExport_DBError_FailOpen(t *testing.T) {
 	mp.AssertExpectations(t)
 }
 
-// TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused verifies that when
-// usage lookups are split across multiple DB-lookup chunks, a DB error on one chunk
-// only fails open for that chunk's names -- metrics whose usage was already resolved
-// by a different, successful chunk must still be dropped normally.
+// TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused verifies
+// that a DB error on one chunk fails open only for that chunk's names: a
+// metric an earlier, successful chunk confirmed unused is still dropped.
 func TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			OTLP: config.OtlpIngesterConfig{
-				LookupChunkSize: 1, // force one name per DB lookup chunk
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
+	store := &failAfterStore{ok: 1}
+	cfg := &config.Config{Ingester: config.IngesterConfig{
+		OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+	}}
+	ing, err := NewOtlpIngester(cfg, store)
+	require.NoError(t, err)
 	exp := &captureExporter{}
 	ing.SetExporter(exp)
 
-	req := buildExportRequest(
-		buildGaugeMetric("resolved_unused_metric", 1),
-		buildGaugeMetric("unresolved_metric", 1),
-	)
+	_, err = ing.Export(context.Background(), buildExportRequest(
+		buildGaugeMetric("first", 1),
+		buildGaugeMetric("second", 1),
+	))
+	require.NoError(t, err)
 
-	// One chunk resolves cleanly and confirms the metric is unused. IsUnused
-	// is the field metricMetadataUnused actually checks (see its doc comment
-	// on models.MetricMetadata) - zero counts alone no longer mean unused,
-	// since they're also what an unevaluated metric looks like.
-	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"resolved_unused_metric"}, "").Return([]models.MetricMetadata{
-		{Name: "resolved_unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Maybe()
-	// The other chunk's DB lookup fails.
-	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"unresolved_metric"}, "").Return(nil, assert.AnError).Maybe()
+	assert.Equal(t, 2, store.calls)
+	assert.Len(t, forwardedNames(exp), 1, "the failed chunk's metric is kept, the resolved one dropped")
+}
 
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
+// failAfterStore confirms every name of its first ok lookups unused and
+// fails every later one. It counts lookups.
+type failAfterStore struct {
+	ok    int
+	calls int
+}
 
-	assert.NotNil(t, exp.captured, "batch should still reach the downstream exporter")
-	if exp.captured != nil {
-		got := exp.captured.ResourceMetrics[0].ScopeMetrics[0].Metrics
-		names := make([]string, 0, len(got))
-		for _, m := range got {
-			names = append(names, m.GetName())
-		}
-		// resolved_unused_metric was confirmed unused by a successful chunk and must be
-		// dropped; unresolved_metric's chunk failed and must fail open (kept).
-		assert.ElementsMatch(t, []string{"unresolved_metric"}, names)
+func (s *failAfterStore) GetSeriesMetadataByNames(_ context.Context, names []string, _ string) ([]models.MetricMetadata, error) {
+	s.calls++
+	if s.calls > s.ok {
+		return nil, assert.AnError
 	}
+	metas := make([]models.MetricMetadata, 0, len(names))
+	for _, name := range names {
+		metas = append(metas, models.MetricMetadata{Name: name, IsUnused: true})
+	}
+	return metas, nil
+}
+
+func (s *failAfterStore) UpsertMetricsCatalog(context.Context, []db.MetricCatalogItem) error {
+	return nil
 }
 
 // TestExport_UnevaluatedMetric_NotConfirmedUnused_IsKept guards the fix for
@@ -606,20 +605,21 @@ func TestExport_WithCacheError_FallsBackToDB(t *testing.T) {
 
 // TestExport_CacheTimeout verifies a cache read and a cache write-back each
 // run under the cache operation timeout, capped at a tenth of the time the
-// incoming request has left (the cap is at least 5ms), whatever the
-// downstream timeout.
+// usage lookup has left (the cap is at least 5ms), whatever the downstream
+// timeout.
 func TestExport_CacheTimeout(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		operationTimeout time.Duration
+		lookupTimeout    time.Duration
 		incoming         time.Duration // 0: no incoming deadline
 		want             time.Duration
 	}{
 		{name: "no incoming deadline", want: 200 * time.Millisecond},
-		{name: "configured operation timeout", operationTimeout: time.Second, want: time.Second},
-		{name: "incoming deadline", incoming: time.Second, want: 100 * time.Millisecond},
-		{name: "long incoming deadline", incoming: 5 * time.Second, want: 200 * time.Millisecond},
-		{name: "nearly expired", incoming: 40 * time.Millisecond, want: 5 * time.Millisecond},
+		{name: "configured operation timeout", operationTimeout: 220 * time.Millisecond, want: 220 * time.Millisecond},
+		{name: "operation timeout beyond a tenth of the lookup", operationTimeout: time.Second, want: 250 * time.Millisecond},
+		{name: "incoming deadline", incoming: 2 * time.Second, want: 100 * time.Millisecond},
+		{name: "nearly expired", lookupTimeout: 40 * time.Millisecond, want: 5 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -627,7 +627,7 @@ func TestExport_CacheTimeout(t *testing.T) {
 				mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
 					Return([]models.MetricMetadata{{Name: "some_metric"}}, nil)
 				cfg := &config.Config{Ingester: config.IngesterConfig{
-					OTLP:  config.OtlpIngesterConfig{DownstreamTimeout: time.Second},
+					OTLP:  config.OtlpIngesterConfig{DownstreamTimeout: time.Second, LookupTimeout: tc.lookupTimeout},
 					Redis: config.RedisCacheConfig{OperationTimeout: tc.operationTimeout},
 				}}
 				ing, err := NewOtlpIngester(cfg, mp)
@@ -910,6 +910,395 @@ func TestExport_DatabaseUnavailable_ForwardsUnfilteredUntilConnected(t *testing.
 		export(t.Context())
 		assert.Equal(t, []string{"used_metric"}, forwardedNames(exp))
 	})
+}
+
+// TestExport_LookupTimeout verifies a request's usage lookup runs under the
+// configured lookup timeout, 2.5s when 0 or negative, shortened to leave 1s
+// of the incoming request's deadline for forwarding.
+func TestExport_LookupTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		lookupTimeout time.Duration
+		incoming      time.Duration // 0: no incoming deadline
+		want          time.Duration
+	}{
+		{name: "default", want: 2500 * time.Millisecond},
+		{name: "configured", lookupTimeout: time.Second, want: time.Second},
+		{name: "negative uses default", lookupTimeout: -time.Second, want: 2500 * time.Millisecond},
+		{name: "short incoming deadline", incoming: 3 * time.Second, want: 2 * time.Second},
+		{name: "shorter incoming deadline", incoming: 1500 * time.Millisecond, want: 500 * time.Millisecond},
+		{name: "long incoming deadline", incoming: 10 * time.Second, want: 2500 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				store := &slowStore{}
+				cfg := &config.Config{Ingester: config.IngesterConfig{
+					OTLP: config.OtlpIngesterConfig{LookupTimeout: tc.lookupTimeout},
+				}}
+				ing, err := NewOtlpIngester(cfg, store)
+				require.NoError(t, err)
+				ing.SetExporter(&captureExporter{})
+
+				ctx := t.Context()
+				if tc.incoming > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, tc.incoming)
+					defer cancel()
+				}
+				start := time.Now()
+				_, err = ing.Export(ctx, buildExportRequest(buildGaugeMetric("some_metric", 1)))
+				require.NoError(t, err)
+				require.Len(t, store.deadlines, 1)
+				assert.Equal(t, tc.want, store.deadlines[0].Sub(start))
+			})
+		})
+	}
+}
+
+// TestExport_LookupTimeout_RequestWithinForwardReserve verifies that when the
+// incoming request has no more than 1s left, the lookup's time limit has
+// expired before it starts: the cache is not read, the first chunk's
+// database call fails at once as a timeout, the rest skip the database, and
+// every name is forwarded.
+func TestExport_LookupTimeout_RequestWithinForwardReserve(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &slowStore{}
+		cfg := &config.Config{Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+		}}
+		ing, err := NewOtlpIngester(cfg, store)
+		require.NoError(t, err)
+		cache := &deadlineCache{}
+		ing.SetMetricCache(cache)
+		exp := &captureExporter{}
+		ing.SetExporter(exp)
+		ctx, cancel := context.WithTimeout(t.Context(), 800*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		got := seriesDeltas(t, []series{
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_timeout"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+			{"ingester_processor_lookup_errors_total", map[string]string{}},
+			{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": "timeout"}},
+		}, func() {
+			_, err := ing.Export(ctx, buildExportRequest(buildGaugeMetric("a", 1), buildGaugeMetric("b", 1)))
+			require.NoError(t, err)
+		})
+
+		assert.Equal(t, []float64{1, 1, 1, 0}, got)
+		assert.Empty(t, cache.reads)
+		assert.Equal(t, []time.Time{start.Add(-200 * time.Millisecond)}, store.deadlines)
+		assert.Equal(t, []string{"a", "b"}, forwardedNames(exp))
+	})
+}
+
+// TestExport_LookupTimeoutSpansEveryChunk verifies the lookup timeout bounds
+// a request's whole lookup, not each chunk, and no chunk after it expires is
+// sent to the database.
+func TestExport_LookupTimeoutSpansEveryChunk(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &slowStore{delay: time.Second}
+		cfg := &config.Config{Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+		}}
+		ing, err := NewOtlpIngester(cfg, store)
+		require.NoError(t, err)
+		ing.SetExporter(&captureExporter{})
+
+		start := time.Now()
+		got := seriesDeltas(t, []series{
+			{"ingester_processor_usage_resolutions_total", map[string]string{"source": "database"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_timeout"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+		}, func() {
+			_, err := ing.Export(t.Context(), buildExportRequest(
+				buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1), buildGaugeMetric("d", 1),
+			))
+			require.NoError(t, err)
+		})
+
+		assert.Equal(t, []float64{2, 1, 1}, got)
+		want := start.Add(2500 * time.Millisecond)
+		assert.Equal(t, []time.Time{want, want, want}, store.deadlines)
+	})
+}
+
+// TestExport_DatabaseHangs_ForwardsEveryNameAfterOneCall verifies that once
+// the database outlasts the lookup timeout, the remaining chunks call neither
+// the cache nor the database: their names are forwarded and counted
+// unresolved as db_unavailable, each chunk logged as skipped.
+// Not parallel: swaps the default logger.
+func TestExport_DatabaseHangs_ForwardsEveryNameAfterOneCall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		logs := captureLogs(t)
+		store := &slowStore{}
+		cfg := &config.Config{Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+		}}
+		ing, err := NewOtlpIngester(cfg, store)
+		require.NoError(t, err)
+		cache := &deadlineCache{}
+		ing.SetMetricCache(cache)
+		exp := &captureExporter{}
+		ing.SetExporter(exp)
+
+		got := seriesDeltas(t, []series{
+			{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_timeout"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_error"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+			{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "timeout"}},
+			{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "error"}},
+			{"ingester_processor_lookup_errors_total", map[string]string{}},
+			{"ingester_metric_cache_misses_total", map[string]string{}},
+			{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": "timeout"}},
+			{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": "error"}},
+		}, func() {
+			_, err := ing.Export(t.Context(), buildExportRequest(
+				buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1),
+			))
+			require.NoError(t, err)
+		})
+
+		assert.Equal(t, []float64{3, 1, 0, 2, 1, 0, 1, 1, 0, 0}, got)
+		assert.Len(t, store.deadlines, 1)
+		assert.Len(t, cache.reads, 1)
+		assert.Equal(t, []string{"a", "b", "c"}, forwardedNames(exp))
+		assert.Equal(t, 2, strings.Count(logs.String(), `"msg":"ingester.lookup.database_skipped","names_count":1}`))
+	})
+}
+
+// TestExport_DatabaseError_LaterChunksSkipDatabaseNotCache verifies that
+// after a database call fails, the remaining chunks still read the cache,
+// whose unused names are dropped, but send their misses to the database no
+// more: they are forwarded and counted unresolved as db_unavailable.
+func TestExport_DatabaseError_LaterChunksSkipDatabaseNotCache(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, assert.AnError).Once()
+	cfg := &config.Config{Ingester: config.IngesterConfig{
+		OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+	}}
+	ing, err := NewOtlpIngester(cfg, mp)
+	require.NoError(t, err)
+	cache := &sequenceCache{states: []otlppkg.MetricUsageState{otlppkg.StateUnknown, otlppkg.StateUnknown, otlppkg.StateUnused}}
+	ing.SetMetricCache(cache)
+	exp := &captureExporter{}
+	ing.SetExporter(exp)
+
+	got := seriesDeltas(t, []series{
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "cache"}},
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_error"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+		{"ingester_processor_lookup_errors_total", map[string]string{}},
+	}, func() {
+		_, err := ing.Export(context.Background(), buildExportRequest(
+			buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1),
+		))
+		require.NoError(t, err)
+	})
+
+	assert.Equal(t, []float64{1, 2, 1, 1, 1}, got)
+	assert.Equal(t, 3, cache.reads)
+	assert.Len(t, forwardedNames(exp), 2)
+	mp.AssertNumberOfCalls(t, "GetSeriesMetadataByNames", 1)
+}
+
+// TestExport_CacheTimeout_LaterChunksStillReadCache verifies a cache read
+// that times out does not stop the remaining chunks from reading the cache.
+func TestExport_CacheTimeout_LaterChunksStillReadCache(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mp := &mockUsageProvider{}
+		mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{}, nil)
+		cfg := &config.Config{Ingester: config.IngesterConfig{
+			OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+		}}
+		ing, err := NewOtlpIngester(cfg, mp)
+		require.NoError(t, err)
+		cache := &hangingCache{}
+		ing.SetMetricCache(cache)
+		ing.SetExporter(&captureExporter{})
+
+		_, err = ing.Export(t.Context(), buildExportRequest(
+			buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1),
+		))
+		require.NoError(t, err)
+
+		assert.Equal(t, 3, cache.reads)
+		mp.AssertNumberOfCalls(t, "GetSeriesMetadataByNames", 3)
+	})
+}
+
+// TestExport_CanceledRequest_SkippedChunksNotCounted verifies a canceled
+// request's lookup reads the cache for every chunk, calls the database once
+// and counts none of its names unresolved.
+func TestExport_CanceledRequest_SkippedChunksNotCounted(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, assert.AnError)
+	cfg := &config.Config{Ingester: config.IngesterConfig{
+		OTLP: config.OtlpIngesterConfig{LookupChunkSize: 1},
+	}}
+	ing, err := NewOtlpIngester(cfg, mp)
+	require.NoError(t, err)
+	cache := &sequenceCache{}
+	ing.SetMetricCache(cache)
+	ing.SetExporter(&captureExporter{})
+	ctx, cancel := canceledContext()
+	defer cancel()
+
+	got := seriesDeltas(t, []series{
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_timeout"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_error"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+	}, func() {
+		_, _ = ing.Export(ctx, buildExportRequest(
+			buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1),
+		))
+	})
+
+	assert.Equal(t, []float64{0, 0, 0, 0}, got)
+	assert.Equal(t, 3, cache.reads)
+	mp.AssertNumberOfCalls(t, "GetSeriesMetadataByNames", 1)
+}
+
+// TestExport_DatabaseUnavailable_LaterChunksSkipDatabase verifies that once
+// the database gate refuses a lookup, the remaining chunks do not call the
+// database even if it would now answer: every name is forwarded and counted
+// unresolved as db_unavailable.
+func TestExport_DatabaseUnavailable_LaterChunksSkipDatabase(t *testing.T) {
+	gate := otlppkg.NewDatabaseGate(func(context.Context) (db.Provider, error) {
+		return nil, assert.AnError // never run: the gate stays unconnected
+	})
+	answering := &failAfterStore{ok: 3}
+	store := &switchingStore{first: gate, rest: answering}
+	cfg := &config.Config{Ingester: config.IngesterConfig{
+		OTLP: config.OtlpIngesterConfig{LookupChunkSize: 2},
+	}}
+	ing, err := NewOtlpIngester(cfg, store)
+	require.NoError(t, err)
+	exp := &captureExporter{}
+	ing.SetExporter(exp)
+
+	got := seriesDeltas(t, []series{
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+		{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+	}, func() {
+		_, err := ing.Export(context.Background(), buildExportRequest(
+			buildGaugeMetric("a", 1), buildGaugeMetric("b", 1), buildGaugeMetric("c", 1), buildGaugeMetric("d", 1),
+		))
+		require.NoError(t, err)
+	})
+
+	assert.Equal(t, []float64{4, 4}, got)
+	assert.Equal(t, 1, store.calls)
+	assert.Equal(t, 0, answering.calls)
+	assert.Equal(t, []string{"a", "b", "c", "d"}, forwardedNames(exp))
+}
+
+// switchingStore sends its first usage lookup to first and every later one
+// to rest, counting lookups.
+type switchingStore struct {
+	first, rest otlppkg.Store
+	calls       int
+}
+
+func (s *switchingStore) GetSeriesMetadataByNames(ctx context.Context, names []string, job string) ([]models.MetricMetadata, error) {
+	s.calls++
+	if s.calls == 1 {
+		return s.first.GetSeriesMetadataByNames(ctx, names, job)
+	}
+	return s.rest.GetSeriesMetadataByNames(ctx, names, job)
+}
+
+func (s *switchingStore) UpsertMetricsCatalog(context.Context, []db.MetricCatalogItem) error {
+	return nil
+}
+
+// slowStore answers each usage lookup after delay with no record of any
+// name, or fails with its context's error once that is done first. It
+// records the deadline of each lookup's context.
+type slowStore struct {
+	delay     time.Duration // 0: until the context is done
+	deadlines []time.Time
+}
+
+func (s *slowStore) GetSeriesMetadataByNames(ctx context.Context, _ []string, _ string) ([]models.MetricMetadata, error) {
+	deadline, _ := ctx.Deadline()
+	s.deadlines = append(s.deadlines, deadline)
+	var answered <-chan time.Time // nil: never
+	if s.delay > 0 {
+		answered = time.After(s.delay)
+	}
+	select {
+	case <-answered:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *slowStore) UpsertMetricsCatalog(context.Context, []db.MetricCatalogItem) error { return nil }
+
+// sequenceCache answers its nth read with states[n] for every name, and
+// unknown once states run out. It counts reads and ignores writes.
+type sequenceCache struct {
+	states []otlppkg.MetricUsageState
+	reads  int
+}
+
+func (c *sequenceCache) GetStates(_ context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
+	state := otlppkg.StateUnknown
+	if c.reads < len(c.states) {
+		state = c.states[c.reads]
+	}
+	c.reads++
+	out := make(map[string]otlppkg.MetricUsageState, len(names))
+	for _, name := range names {
+		out[name] = state
+	}
+	return out, nil
+}
+
+func (c *sequenceCache) SetStates(context.Context, map[string]otlppkg.MetricUsageState) error {
+	return nil
+}
+
+func (c *sequenceCache) Close() error { return nil }
+
+// hangingCache fails each read with its context's error once that is done,
+// counting reads. It ignores writes.
+type hangingCache struct{ reads int }
+
+func (c *hangingCache) GetStates(ctx context.Context, _ []string) (map[string]otlppkg.MetricUsageState, error) {
+	c.reads++
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (c *hangingCache) SetStates(context.Context, map[string]otlppkg.MetricUsageState) error {
+	return nil
+}
+
+func (c *hangingCache) Close() error { return nil }
+
+// captureLogs sends the default logger's records, at debug level and up, as
+// JSON without time to the returned buffer until t ends.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }
 
 // TestExport_CacheReadFailure verifies a cache read that fails part way
