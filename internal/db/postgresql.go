@@ -192,7 +192,7 @@ func RegisterPostGreSQLFlags(flagSet *flag.FlagSet) {
 			"Set just under the expected client per-call deadline (e.g. 4500ms when clients use 5s). 0 disables.")
 }
 
-func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQLConfig) (Provider, error) {
+func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQLConfig) (_ Provider, err error) {
 	// statement_timeout is set via the connection-string 'options' parameter
 	// so it takes effect on every connection the pool opens, with no
 	// per-checkout overhead. lib/pq preserves the space inside the single-
@@ -221,6 +221,11 @@ func NewPostgreSQLProvider(ctx context.Context, postgresConfig config.PostgreSQL
 	if err != nil {
 		return nil, ConnectionError(err, "PostgreSQL", "failed to open connection")
 	}
+	defer func() {
+		if err != nil {
+			CloseResource(db)
+		}
+	}()
 
 	// Apply pool settings from config when provided; keep safe defaults otherwise
 	if postgresConfig.MaxOpenConns > 0 {

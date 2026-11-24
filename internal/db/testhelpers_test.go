@@ -1,11 +1,14 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"runtime"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -169,4 +172,38 @@ func mustSummaryRow(t *testing.T, b testBackend, p Provider, name string) summar
 func fingerprints(t *testing.T, res PagedResult) []string {
 	t.Helper()
 	return keysOf(rowsOf[QueryExpression](t, res), func(e QueryExpression) string { return e.Fingerprint })
+}
+
+// openPools returns how many database/sql connection pools the process holds
+// open: each runs one connection opener goroutine until it is closed.
+func openPools() int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	return bytes.Count(buf, []byte("database/sql.(*DB).connectionOpener("))
+}
+
+// assertNoPoolLeft asserts the process holds no more connection pools than
+// before; a closed pool's opener goroutine exits shortly after Close.
+func assertNoPoolLeft(t *testing.T, before int) {
+	t.Helper()
+	assert.Eventually(t, func() bool { return openPools() <= before }, 5*time.Second, 10*time.Millisecond,
+		"a failed provider construction left its connection pool open")
+}
+
+// createConflictingMigrationTable makes migrations of the database at dsn
+// fail, with a version table of the wrong shape.
+func createConflictingMigrationTable(t *testing.T, driver, dsn string) {
+	t.Helper()
+	d, err := sql.Open(driver, dsn)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, d.Close()) }()
+	_, err = d.ExecContext(context.Background(), "CREATE TABLE goose_db_version (unrelated INTEGER)")
+	require.NoError(t, err)
 }

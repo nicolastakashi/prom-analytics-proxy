@@ -182,16 +182,22 @@ func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, 
 // surrounding lookup and Export carry on, so the batch is still forwarded
 // downstream instead of being silently discarded.
 // See https://github.com/nicolastakashi/prom-analytics-proxy/issues/569.
+// A lookup the database gate refuses before connecting fails open the same
+// way, but is neither observed nor counted as a failed lookup.
 func (l *usageLookup) lookupDatabase(ctx context.Context, names []string) []string {
 	t0 := time.Now()
 	metas, err := l.r.store.GetSeriesMetadataByNames(ctx, names, "")
 	if err != nil {
+		if errors.Is(err, errDatabaseUnavailable) {
+			slog.DebugContext(ctx, "ingester.lookup.database_unavailable", "names_count", len(names))
+			countUnresolved(ctx, len(names), reasonDatabaseUnavailable)
+			return nil
+		}
 		slog.ErrorContext(ctx, "ingester.lookup.failed_treating_as_used", "err", err, "names_count", len(names))
 		if reason := failureReason(ctx, err); reason != "" {
 			processorLookupErrorsTotal.Inc()
 			processorLookupDurationSeconds.WithLabelValues(reason).Observe(time.Since(t0).Seconds())
-			usageResolutionsTotal.WithLabelValues(sourceUnresolved).Add(float64(len(names)))
-			processorUnresolvedTotal.WithLabelValues(unresolvedReason(reason)).Add(float64(len(names)))
+			countUnresolved(ctx, len(names), unresolvedReason(reason))
 		}
 		return nil
 	}
@@ -250,6 +256,17 @@ func recordCacheFailure(ctx context.Context, operation string, err error, timeou
 		slog.DebugContext(ctx, "ingester.cache.set.failed", "err", err)
 	}
 	ingesterMetricCacheErrorsTotal.WithLabelValues(operation, reason).Inc()
+}
+
+// countUnresolved counts n names the lookup left unresolved for reason, in
+// both the resolutions and the unresolved counters. A canceled request is
+// not counted.
+func countUnresolved(ctx context.Context, n int, reason string) {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
+	usageResolutionsTotal.WithLabelValues(sourceUnresolved).Add(float64(n))
+	processorUnresolvedTotal.WithLabelValues(reason).Add(float64(n))
 }
 
 // failureReason classifies a cache or database call that failed with err

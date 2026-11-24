@@ -167,6 +167,22 @@ var (
 		},
 	)
 
+	// Database connection metrics
+	databaseUp = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ingester_database_up",
+			Help: "1 once the ingester has connected to the database, 0 before; until then only the cache filters metrics",
+		},
+	)
+
+	databaseConnectAttemptsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingester_database_connect_attempts_total",
+			Help: "Total number of attempts to connect to the database, by result",
+		},
+		[]string{"result"},
+	)
+
 	canonicalServerLabels = prometheus.Labels{
 		"rpc.system":        rpcSystem,
 		"rpc.service":       rpcService,
@@ -193,8 +209,11 @@ func init() {
 	for _, source := range []string{sourceCache, sourceDatabase, sourceUnresolved} {
 		usageResolutionsTotal.WithLabelValues(source).Add(0)
 	}
-	for _, reason := range []string{reasonTimeout, reasonError} {
-		processorUnresolvedTotal.WithLabelValues(unresolvedReason(reason)).Add(0)
+	for _, reason := range []string{unresolvedReason(reasonTimeout), unresolvedReason(reasonError), reasonDatabaseUnavailable} {
+		processorUnresolvedTotal.WithLabelValues(reason).Add(0)
+	}
+	for _, result := range []string{resultSuccess, resultFailure} {
+		databaseConnectAttemptsTotal.WithLabelValues(result).Add(0)
 	}
 }
 
@@ -211,6 +230,13 @@ const (
 	sourceCache      = "cache"
 	sourceDatabase   = "database"
 	sourceUnresolved = "unresolved"
+
+	// reasonDatabaseUnavailable leaves names unresolved while the ingester
+	// has not connected to the database.
+	reasonDatabaseUnavailable = "db_unavailable"
+
+	resultSuccess = "success"
+	resultFailure = "failure"
 )
 
 // unresolvedReason returns the reason names are left unresolved when the

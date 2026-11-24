@@ -156,11 +156,16 @@ func RegisterSqliteFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&config.DefaultConfig.Database.SQLite.DatabasePath, "sqlite-database-path", "prom-analytics-proxy.db", "Path to the sqlite database.")
 }
 
-func newSqliteProvider(ctx context.Context) (Provider, error) {
+func newSqliteProvider(ctx context.Context) (_ Provider, err error) {
 	db, err := otelsql.Open("sqlite", config.DefaultConfig.Database.SQLite.DatabasePath, otelsql.WithAttributes(semconv.DBSystemSqlite))
 	if err != nil {
 		return nil, ConnectionError(err, "SQLite", "failed to open connection")
 	}
+	defer func() {
+		if err != nil {
+			CloseResource(db)
+		}
+	}()
 
 	// SQLite benefits from a single writer connection
 	db.SetMaxOpenConns(1)

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -418,4 +419,48 @@ func TestPostgreSQL_InsertDashboardUsage_StatementTimeoutRollsBack(t *testing.T)
 			Id: "d1", Serie: "m1", Name: "Dash 1", URL: "http://d/1",
 		}})
 	})
+}
+
+// TestNewPostgreSQLProvider_FailureClosesPool verifies a failed construction
+// leaves no connection pool open, and reports an unreachable server as a
+// connection error and a failed migration as not one.
+func TestNewPostgreSQLProvider_FailureClosesPool(t *testing.T) {
+	// Not parallel: counts the process's connection pools.
+	refused := func(t *testing.T) config.PostgreSQLConfig {
+		lis, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		addr := lis.Addr().(*net.TCPAddr)
+		require.NoError(t, lis.Close())
+		return config.PostgreSQLConfig{Addr: addr.IP.String(), Port: addr.Port, SSLMode: "disable", DialTimeout: time.Second}
+	}
+	migrationFails := func(t *testing.T) config.PostgreSQLConfig {
+		cfg := newTestPostgreSQLConfig(t)
+		createConflictingMigrationTable(t, "postgres", postgreSQLTestDSN(cfg))
+		return cfg
+	}
+	for _, tc := range []struct {
+		name           string
+		cfg            func(*testing.T) config.PostgreSQLConfig
+		connectionFail bool
+	}{
+		{name: "unreachable", cfg: refused, connectionFail: true},
+		{name: "migration fails", cfg: migrationFails},
+		{name: "migration fails on its own pool", cfg: func(t *testing.T) config.PostgreSQLConfig {
+			cfg := migrationFails(t)
+			cfg.StatementTimeout = time.Minute
+			return cfg
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := tc.cfg(t)
+			before := openPools()
+
+			p, err := NewPostgreSQLProvider(context.Background(), cfg)
+
+			require.Error(t, err)
+			assert.Nil(t, p)
+			assert.Equal(t, tc.connectionFail, errors.Is(err, ErrDatabaseConnection), "connection error: %v", err)
+			assertNoPoolLeft(t, before)
+		})
+	}
 }
