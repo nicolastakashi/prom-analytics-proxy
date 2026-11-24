@@ -171,7 +171,7 @@ var (
 	databaseUp = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "ingester_database_up",
-			Help: "1 once the ingester has connected to the database, 0 before; until then only the cache filters metrics",
+			Help: "1 while the ingester is connected to the database and its circuit is closed, 0 otherwise; while 0, only the cache filters metrics",
 		},
 	)
 

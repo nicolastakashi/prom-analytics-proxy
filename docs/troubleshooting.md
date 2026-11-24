@@ -18,10 +18,12 @@ Main log events on the `Export` path:
 - `ingester.export.failure` (error): `rpc.method`, `grpc.status_code`, `err`, `downstream.enabled`.
 - `ingester.unused_metrics.count` (debug): `count`, the number of unused metric names found in the request.
 - `ingester.lookup.failed_treating_as_used` (error): `err`, `names_count`. A database lookup failed and its names are forwarded as used.
-- `ingester.lookup.database_unavailable` (debug): `names_count`. The ingester has not connected to the database yet, so the names are forwarded as used.
+- `ingester.lookup.database_unavailable` (debug): `names_count`. The ingester has not connected to the database yet, or has stopped calling it, so the names are forwarded as used.
 - `ingester.lookup.database_skipped` (debug): `names_count`. An earlier database lookup for the same request failed, so these names skip the database and are forwarded as used.
 - `ingester.database.connect_failed` (warn): `err`, `retry_in`. A connection attempt failed and is retried after `retry_in`.
 - `ingester.database.connected` (info): the ingester connected to the database and starts filtering.
+- `ingester.database.circuit_opened` (warn): `err`, `retry_in`. Repeated connection failures or timeouts stopped the ingester from calling the database; `err` is the last failure. Only the cache filters metrics until the database answers a trial call made after `retry_in`.
+- `ingester.database.circuit_closed` (info): the database answered a trial call and the ingester calls the database and filters again.
 
 This guide covers common issues and their solutions when running `prom-analytics-proxy`.
 

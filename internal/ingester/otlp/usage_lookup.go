@@ -191,10 +191,10 @@ func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, 
 // surrounding lookup and Export carry on, so the batch is still forwarded
 // downstream instead of being silently discarded.
 // See https://github.com/nicolastakashi/prom-analytics-proxy/issues/569.
-// A lookup the database gate refuses before connecting fails open the same
-// way, but is neither observed nor counted as a failed lookup. After any
-// failed call, the lookup does not call the database again: later names fail
-// open like a refused lookup.
+// A lookup the database gate refuses fails open the same way, but is neither
+// observed nor counted as a failed lookup. After any failed call, the lookup
+// does not call the database again: later names fail open like a refused
+// lookup.
 func (l *usageLookup) lookupDatabase(ctx context.Context, names []string) []string {
 	if l.databaseFailed {
 		slog.DebugContext(ctx, "ingester.lookup.database_skipped", "names_count", len(names))

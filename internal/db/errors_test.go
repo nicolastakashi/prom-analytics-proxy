@@ -1,10 +1,15 @@
 package db
 
 import (
+	"context"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"testing"
 
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -332,4 +337,44 @@ func TestStandardErrors(t *testing.T) {
 	assert.Equal(t, "invalid query", ErrInvalidQuery.Error())
 	assert.Equal(t, "database connection error", ErrDatabaseConnection.Error())
 	assert.Equal(t, "query execution failed", ErrQueryExecution.Error())
+}
+
+// TestIsUnreachable verifies only errors that say the database could not be
+// reached or dropped the connection classify as unreachable.
+func TestIsUnreachable(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "connection error", err: ConnectionError(errors.New("refused"), "PostgreSQL", ""), want: true},
+		{name: "wrapped connection sentinel", err: fmt.Errorf("query: %w", ErrDatabaseConnection), want: true},
+		{name: "net op error", err: fmt.Errorf("query: %w", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}), want: true},
+		{name: "net timeout", err: &net.DNSError{Err: "i/o timeout", IsTimeout: true}, want: true},
+		{name: "bad conn", err: fmt.Errorf("query: %w", driver.ErrBadConn), want: true},
+		{name: "EOF", err: fmt.Errorf("query: %w", io.EOF), want: true},
+		{name: "unexpected EOF", err: fmt.Errorf("query: %w", io.ErrUnexpectedEOF), want: true},
+		{name: "connection exception", err: &pq.Error{Code: "08000"}, want: true},
+		{name: "connection does not exist", err: &pq.Error{Code: "08003"}, want: true},
+		{name: "connection failure", err: fmt.Errorf("query: %w", &pq.Error{Code: "08006"}), want: true},
+		{name: "unable to establish connection", err: &pq.Error{Code: "08001"}, want: true},
+		{name: "protocol violation", err: &pq.Error{Code: "08P01"}, want: true},
+		{name: "admin shutdown", err: &pq.Error{Code: "57P01"}, want: true},
+		{name: "crash shutdown", err: &pq.Error{Code: "57P02"}, want: true},
+		{name: "cannot connect now", err: &pq.Error{Code: "57P03"}, want: true},
+		{name: "nil", err: nil},
+		{name: "query canceled", err: &pq.Error{Code: "57014"}},
+		{name: "deadlock", err: &pq.Error{Code: "40P01"}},
+		{name: "operator intervention", err: &pq.Error{Code: "57000"}},
+		{name: "unique violation", err: &pq.Error{Code: "23505"}},
+		{name: "deadline exceeded", err: fmt.Errorf("query: %w", context.DeadlineExceeded)},
+		{name: "canceled", err: context.Canceled},
+		{name: "no results", err: ErrNoResults},
+		{name: "other", err: errors.New("syntax error")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsUnreachable(tc.err))
+		})
+	}
 }

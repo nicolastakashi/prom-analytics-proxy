@@ -2,8 +2,11 @@ package db
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 
 	"github.com/lib/pq"
 )
@@ -87,4 +90,30 @@ func IsTimeout(err error) bool {
 	}
 	var pqErr *pq.Error
 	return errors.As(err, &pqErr) && pqErr.Code == "57014"
+}
+
+// IsUnreachable reports whether err says the database could not be reached or
+// dropped the connection: ErrDatabaseConnection, a network error, a bad driver
+// connection, an EOF or unexpected EOF, or a PostgreSQL connection exception
+// (SQLSTATE class 08) or server shutdown (57P01, 57P02, 57P03). An expired
+// context deadline alone is not.
+func IsUnreachable(err error) bool {
+	if errors.Is(err, ErrDatabaseConnection) || errors.Is(err, driver.ErrBadConn) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	// context.DeadlineExceeded is itself a net.Error.
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr != context.DeadlineExceeded {
+		return true
+	}
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+	switch pqErr.Code {
+	case "57P01", "57P02", "57P03":
+		return true
+	}
+	return pqErr.Code.Class() == "08"
 }
