@@ -865,40 +865,6 @@ func TestOTLPIngester_Integration_CatalogSync_PostgreSQL(t *testing.T) {
 	assert.Equal(t, "gauge", byName2["catalog_metric_d"])
 }
 
-func TestOTLPIngester_CatalogFlush_RequeuesOnDBFailure(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	cfg.Ingester.CatalogSync.Enabled = true
-	cfg.Ingester.CatalogSync.FlushInterval = 5 * time.Minute
-	cfg.Ingester.CatalogSync.BufferSize = 100
-	cfg.Ingester.CatalogSync.SeenTTL = 1 * time.Hour
-
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-	ing.SetExporter(&captureExporter{})
-
-	req := buildExportRequest(buildGaugeMetric("retry_metric", 1))
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "retry_metric", QueryCount: 1},
-	}, nil).Once()
-
-	upsertMatcher := mock.MatchedBy(func(items []db.MetricCatalogItem) bool {
-		return len(items) == 1 && items[0].Name == "retry_metric"
-	})
-	mp.On("UpsertMetricsCatalog", mock.Anything, upsertMatcher).Return(assert.AnError).Once()
-	mp.On("UpsertMetricsCatalog", mock.Anything, upsertMatcher).Return(nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// First flush fails and must requeue for retry.
-	ing.FlushCatalog(context.Background())
-	// Second flush must retry the same buffered item.
-	ing.FlushCatalog(context.Background())
-
-	mp.AssertExpectations(t)
-}
-
 // TestOTLPIngester_Run_Shutdown verifies that when Run's context is
 // canceled, Run flushes the catalog buffer under a live context and closes
 // the usage cache.
@@ -970,4 +936,55 @@ func mustTimeRange(tb testing.TB, from, to time.Time) db.TimeRange {
 		tb.Fatalf("NewTimeRange: %v", err)
 	}
 	return tr
+}
+
+// TestOTLPIngester_Run_FlushesCatalogEveryInterval verifies Run writes
+// buffered catalog entries every flush interval while it serves, not only on
+// shutdown.
+func TestOTLPIngester_Run_FlushesCatalogEveryInterval(t *testing.T) {
+	mp := &mockUsageProvider{}
+	cfg := &config.Config{}
+	cfg.Ingester.OTLP.ListenAddress = "127.0.0.1:0"
+	cfg.Ingester.CatalogSync.Enabled = true
+	cfg.Ingester.CatalogSync.FlushInterval = 50 * time.Millisecond
+	ing, err := NewOtlpIngester(cfg, mp)
+	require.NoError(t, err)
+	ing.SetExporter(&captureExporter{})
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+	flushed := make(chan struct{}, 1)
+	mp.On("UpsertMetricsCatalog", mock.Anything, mock.Anything).Return(nil).Run(func(mock.Arguments) {
+		select {
+		case flushed <- struct{}{}:
+		default:
+		}
+	})
+	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- ing.Run(ctx) }()
+	select {
+	case <-flushed:
+	case <-time.After(5 * time.Second):
+		t.Error("catalog not flushed while Run serves")
+	}
+	cancel()
+	require.NoError(t, <-runDone)
+}
+
+// TestExport_CatalogSyncDisabled_WritesNoCatalog verifies that with catalog
+// sync disabled, neither Export nor FlushCatalog writes to the catalog.
+func TestExport_CatalogSyncDisabled_WritesNoCatalog(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, nil)
+	ing, err := NewOtlpIngester(&config.Config{}, mp)
+	require.NoError(t, err)
+	ing.SetExporter(&captureExporter{})
+
+	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+	require.NoError(t, err)
+	ing.FlushCatalog(context.Background())
+
+	mp.AssertNotCalled(t, "UpsertMetricsCatalog", mock.Anything, mock.Anything)
 }

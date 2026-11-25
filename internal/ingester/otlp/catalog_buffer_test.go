@@ -1,7 +1,6 @@
 package otlp
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -56,7 +55,7 @@ func makeHistogram(name, help, unit string) *metricsv1pb.Metric {
 }
 
 func TestCatalogBuffer_AddAndDrain(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 
 	bufAdd(buf, makeGauge("http_requests_total", "Total HTTP requests", ""))
 	bufAdd(buf, makeGauge("http_request_duration_seconds", "Request latency", "s"))
@@ -75,7 +74,7 @@ func TestCatalogBuffer_AddAndDrain(t *testing.T) {
 }
 
 func TestCatalogBuffer_DrainClearsBuffer(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
 
 	first := buf.drain()
@@ -86,7 +85,7 @@ func TestCatalogBuffer_DrainClearsBuffer(t *testing.T) {
 }
 
 func TestCatalogBuffer_DeduplicatesWithinFlushInterval(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 	m := makeGauge("http_requests_total", "Total HTTP requests", "")
 
 	bufAdd(buf, m, m, m)
@@ -96,7 +95,7 @@ func TestCatalogBuffer_DeduplicatesWithinFlushInterval(t *testing.T) {
 }
 
 func TestCatalogBuffer_NormalizesMonotonicSumNames(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 
 	bufAdd(buf, makeMonotonicSum("node_cpu_seconds", "CPU time", "s"))
 
@@ -107,7 +106,7 @@ func TestCatalogBuffer_NormalizesMonotonicSumNames(t *testing.T) {
 }
 
 func TestCatalogBuffer_ExpandsSummaryNames(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 
 	bufAdd(buf, makeSummary("http_request_duration_seconds", "Request duration", "s"))
 
@@ -124,7 +123,7 @@ func TestCatalogBuffer_ExpandsSummaryNames(t *testing.T) {
 }
 
 func TestCatalogBuffer_ExpandsHistogramNames(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 
 	bufAdd(buf, makeHistogram("http_request_duration_seconds", "Request duration", "s"))
 
@@ -141,22 +140,8 @@ func TestCatalogBuffer_ExpandsHistogramNames(t *testing.T) {
 	assert.Equal(t, "histogram", names["http_request_duration_seconds_count"])
 }
 
-func TestCatalogBuffer_SuppressesReFlushWithinTTL(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
-
-	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	first := buf.drain()
-	require.Len(t, first, 1)
-	buf.markFlushed(first, time.Now())
-
-	// Same metric again within TTL - should be suppressed.
-	bufAdd(buf, makeGauge("metric_a", "A", ""))
-	second := buf.drain()
-	assert.Empty(t, second)
-}
-
 func TestCatalogBuffer_ReFlushesAfterTTLExpiry(t *testing.T) {
-	buf := newCatalogBuffer(100, 1*time.Millisecond, nil)
+	buf := newCatalogBuffer(100, 1*time.Millisecond, true)
 
 	bufAdd(buf, makeGauge("metric_a", "A", ""))
 	first := buf.drain()
@@ -172,7 +157,7 @@ func TestCatalogBuffer_ReFlushesAfterTTLExpiry(t *testing.T) {
 }
 
 func TestCatalogBuffer_DropWhenFull(t *testing.T) {
-	buf := newCatalogBuffer(2, time.Hour, nil)
+	buf := newCatalogBuffer(2, time.Hour, true)
 
 	bufAdd(buf,
 		makeGauge("metric_a", "A", ""),
@@ -185,14 +170,14 @@ func TestCatalogBuffer_DropWhenFull(t *testing.T) {
 }
 
 func TestCatalogBuffer_RemoteSeenSuppressesAddBatch(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, false)
 	metrics := []*metricsv1pb.Metric{
 		makeGauge("metric_a", "A", ""),
 		makeGauge("metric_b", "B", ""),
 	}
 
 	candidates := buf.candidatesForBuffer(metrics)
-	// Simulate Redis saying metric_a is already seen.
+	// Simulate the seen cache reporting metric_a as already seen.
 	remotelySeenNames := map[string]bool{"metric_a": true}
 	buf.addBatch(candidates, remotelySeenNames)
 
@@ -201,23 +186,8 @@ func TestCatalogBuffer_RemoteSeenSuppressesAddBatch(t *testing.T) {
 	assert.Equal(t, "metric_b", items[0].Name)
 }
 
-func TestCatalogBuffer_RemoteSeenDoesNotPopulateLocalSeen(t *testing.T) {
-	// When seenCache is nil, there is no Redis. RemotelySeenNames should not
-	// interfere with the in-memory seen map - that map is only written by markFlushed().
-	buf := newCatalogBuffer(100, time.Hour, nil)
-	m := makeGauge("metric_a", "A", "")
-
-	candidates := buf.candidatesForBuffer([]*metricsv1pb.Metric{m})
-	buf.addBatch(candidates, map[string]bool{"metric_a": true})
-
-	// metric_a was skipped by addBatch (remote seen), but the in-memory seen map
-	// is only updated via markFlushed(), so it is still a candidate until flushed.
-	candidates2 := buf.candidatesForBuffer([]*metricsv1pb.Metric{m})
-	assert.Len(t, candidates2, 1)
-}
-
 func TestCatalogBuffer_DrainDoesNotMarkSeenBeforeAck(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 	m := makeGauge("metric_a", "A", "")
 
 	bufAdd(buf, m)
@@ -232,7 +202,7 @@ func TestCatalogBuffer_DrainDoesNotMarkSeenBeforeAck(t *testing.T) {
 }
 
 func TestCatalogBuffer_RequeueRestoresFailedFlushItems(t *testing.T) {
-	buf := newCatalogBuffer(100, time.Hour, nil)
+	buf := newCatalogBuffer(100, time.Hour, true)
 
 	bufAdd(buf, makeGauge("metric_a", "A", ""), makeGauge("metric_b", "B", ""))
 	drained := buf.drain()
@@ -244,7 +214,7 @@ func TestCatalogBuffer_RequeueRestoresFailedFlushItems(t *testing.T) {
 }
 
 func TestCatalogBuffer_RequeueRespectsMaxSize(t *testing.T) {
-	buf := newCatalogBuffer(2, time.Hour, nil)
+	buf := newCatalogBuffer(2, time.Hour, true)
 	bufAdd(buf, makeGauge("metric_new", "new", ""))
 
 	// Requeue two failed items while only one slot is available.
@@ -264,61 +234,6 @@ func TestCatalogBuffer_RequeueRespectsMaxSize(t *testing.T) {
 	_, hasA := names["metric_a"]
 	assert.True(t, hasNew)
 	assert.True(t, hasA)
-}
-
-// fakeCatalogSeenCache is an in-memory CatalogSeenCache for testing Redis path behaviour.
-type fakeCatalogSeenCache struct {
-	data map[string]bool
-}
-
-func newFakeCatalogSeenCache() *fakeCatalogSeenCache {
-	return &fakeCatalogSeenCache{data: make(map[string]bool)}
-}
-
-func (f *fakeCatalogSeenCache) HasMany(_ context.Context, names []string) (map[string]bool, error) {
-	out := make(map[string]bool, len(names))
-	for _, name := range names {
-		out[name] = f.data[name]
-	}
-	return out, nil
-}
-
-func (f *fakeCatalogSeenCache) MarkMany(_ context.Context, names []string, _ time.Duration) error {
-	for _, name := range names {
-		f.data[name] = true
-	}
-	return nil
-}
-
-func (f *fakeCatalogSeenCache) Close() error { return nil }
-
-func TestCatalogBuffer_WithSeenCache_NoInMemorySeenMap(t *testing.T) {
-	fakeCache := newFakeCatalogSeenCache()
-	buf := newCatalogBuffer(100, time.Hour, fakeCache)
-
-	// When seenCache is set, the in-memory seen map is nil (not allocated).
-	assert.Nil(t, buf.seen)
-}
-
-func TestCatalogBuffer_WithSeenCache_SuppressesAfterRemoteMark(t *testing.T) {
-	fakeCache := newFakeCatalogSeenCache()
-	buf := newCatalogBuffer(100, time.Hour, fakeCache)
-
-	// Simulate a previous flush cycle having marked metric_a in Redis.
-	_ = fakeCache.MarkMany(context.Background(), []string{"metric_a"}, time.Hour)
-
-	m := makeGauge("metric_a", "A", "")
-	// With seenCache set, candidatesForBuffer only checks pending, not seen map.
-	// metric_a is not in pending so it comes back as a candidate.
-	candidates := buf.candidatesForBuffer([]*metricsv1pb.Metric{m})
-	require.Len(t, candidates, 1)
-
-	// The caller (bufferCatalogEntries) does the remote lookup and passes results to addBatch.
-	seen, _ := fakeCache.HasMany(context.Background(), []string{"metric_a"})
-	buf.addBatch(candidates, seen)
-
-	items := buf.drain()
-	assert.Empty(t, items) // suppressed by Redis
 }
 
 func TestOtlpTypeToPrometheus(t *testing.T) {
