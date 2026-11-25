@@ -1,8 +1,11 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 // Define standard error types for the db package
@@ -63,4 +66,15 @@ func ValidationError(what string, reason string) error {
 // IsNoResults checks if the error is a "no results" error
 func IsNoResults(err error) bool {
 	return errors.Is(err, ErrNoResults)
+}
+
+// IsTimeout reports whether err is a timeout: an expired context deadline, or
+// a PostgreSQL statement canceled by statement_timeout or a cancel request
+// (SQLSTATE 57014).
+func IsTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "57014"
 }

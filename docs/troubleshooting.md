@@ -10,6 +10,7 @@ PromQL examples:
 - Drop rate: `sum(rate(ingester_processor_dropped_metric_points_total[5m])) / sum(rate(ingester_receiver_received_metric_points_total[5m]))`
 - Downstream error rate: `sum(rate(ingester_rpc_client_duration_seconds_count{code!="OK"}[5m])) / sum(rate(ingester_rpc_client_duration_seconds_count[5m]))`
 - Missing job rate: `rate(ingester_receiver_missing_job_total[5m])`
+- Unresolved share (names forwarded unfiltered because neither the cache nor the database answered): `sum(rate(ingester_processor_usage_resolutions_total{source="unresolved"}[5m])) / sum(rate(ingester_processor_usage_resolutions_total[5m]))`
 
 Main log events on the `Export` path:
 - `ingester.export.success` (debug): `rpc.method`, `downstream.enabled`, `dry_run`.

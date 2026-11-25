@@ -6,8 +6,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/nicolastakashi/prom-analytics-proxy/api/models"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
+	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	otlppkg "github.com/nicolastakashi/prom-analytics-proxy/internal/ingester/otlp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -274,21 +276,6 @@ func (c *testCache) Close() error {
 	return nil
 }
 
-// errorCache is a cache that always returns errors (for testing error handling)
-type errorCache struct{}
-
-func (c *errorCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
-	return nil, assert.AnError
-}
-
-func (c *errorCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
-	return assert.AnError
-}
-
-func (c *errorCache) Close() error {
-	return nil
-}
-
 func buildHistogramMetric(name string, n int) *metricspb.Metric {
 	dps := make([]*metricspb.HistogramDataPoint, 0, n)
 	for i := 0; i < n; i++ {
@@ -464,12 +451,12 @@ func TestExport_WithCacheEnabled_AllMisses_HitsDB(t *testing.T) {
 		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
 	}, nil).Once()
 	misses := metricValue(t, "ingester_metric_cache_misses_total", map[string]string{})
-	lookups := metricValue(t, "ingester_processor_lookup_duration_seconds", map[string]string{})
+	lookups := metricValue(t, "ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "ok"})
 
 	_, err = ing.Export(context.Background(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, misses+2, metricValue(t, "ingester_metric_cache_misses_total", map[string]string{}))
-	assert.Equal(t, lookups+1, metricValue(t, "ingester_processor_lookup_duration_seconds", map[string]string{}))
+	assert.Equal(t, lookups+1, metricValue(t, "ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "ok"}))
 
 	// Verify cache was populated
 	states, err := cache.GetStates(context.Background(), []string{"used_metric", "unused_metric"})
@@ -590,8 +577,7 @@ func TestExport_WithCacheError_FallsBackToDB(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create a cache that returns errors
-	errorCache := &errorCache{}
-	ing.SetMetricCache(errorCache)
+	ing.SetMetricCache(&scriptedCache{err: assert.AnError, setErr: assert.AnError})
 
 	req := buildExportRequest(
 		buildGaugeMetric("used_metric", 2),
@@ -726,26 +712,6 @@ func TestExport_CacheAnswersEveryName_SkipsDB(t *testing.T) {
 	mp.AssertNotCalled(t, "GetSeriesMetadataByNames", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// TestExport_CountsCacheFailuresByOperation verifies a failed cache read and
-// a failed cache write-back are each counted under their own operation.
-func TestExport_CountsCacheFailuresByOperation(t *testing.T) {
-	mp := &mockUsageProvider{}
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
-		Return([]models.MetricMetadata{{Name: "some_metric"}}, nil)
-	ing, err := NewOtlpIngester(&config.Config{}, mp)
-	require.NoError(t, err)
-	ing.SetMetricCache(&errorCache{})
-	ing.SetExporter(&captureExporter{})
-
-	get := metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "get"})
-	set := metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "set"})
-	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
-	require.NoError(t, err)
-
-	assert.Equal(t, get+1, metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "get"}))
-	assert.Equal(t, set+1, metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "set"}))
-}
-
 // TestExport_NoWriteBackWhenDatabaseReturnsNothing verifies nothing is
 // written back to the cache when the database has no record of any name.
 func TestExport_NoWriteBackWhenDatabaseReturnsNothing(t *testing.T) {
@@ -781,4 +747,233 @@ func TestExport_SetMetricCacheNil_DisablesCache(t *testing.T) {
 
 	assert.Empty(t, cache.reads)
 	assert.Empty(t, cache.writes)
+}
+
+// scriptedCache answers reads with states and err, as a cache read that
+// failed part way does, and fails writes with setErr.
+type scriptedCache struct {
+	states map[string]otlppkg.MetricUsageState
+	err    error
+	setErr error
+}
+
+func (c *scriptedCache) GetStates(context.Context, []string) (map[string]otlppkg.MetricUsageState, error) {
+	return c.states, c.err
+}
+
+func (c *scriptedCache) SetStates(context.Context, map[string]otlppkg.MetricUsageState) error {
+	return c.setErr
+}
+
+func (c *scriptedCache) Close() error { return nil }
+
+// TestExport_CountsUsageResolutionsBySource verifies each looked-up name is
+// counted once by the source that resolved it: the cache, whether it holds
+// the name as used or unused, or the database, including names it has no
+// record of.
+func TestExport_CountsUsageResolutionsBySource(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
+		Return([]models.MetricMetadata{{Name: "db_known"}}, nil)
+	ing, err := NewOtlpIngester(&config.Config{}, mp)
+	require.NoError(t, err)
+	cache := newTestCache()
+	cache.states["cached_used"] = otlppkg.StateUsed
+	cache.states["cached_unused"] = otlppkg.StateUnused
+	ing.SetMetricCache(cache)
+	ing.SetExporter(&captureExporter{})
+
+	got := seriesDeltas(t, []series{
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "cache"}},
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "database"}},
+		{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+		{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "ok"}},
+		{"ingester_metric_cache_hits_total", map[string]string{"state": "used"}},
+		{"ingester_metric_cache_hits_total", map[string]string{"state": "unused"}},
+		{"ingester_metric_cache_misses_total", map[string]string{}},
+	}, func() {
+		_, err := ing.Export(context.Background(), buildExportRequest(
+			buildGaugeMetric("cached_used", 1),
+			buildGaugeMetric("cached_unused", 1),
+			buildGaugeMetric("db_known", 1),
+			buildGaugeMetric("db_unknown", 1),
+		))
+		require.NoError(t, err)
+	})
+	assert.Equal(t, []float64{2, 2, 0, 1, 1, 1, 2}, got)
+}
+
+// TestExport_DBLookupFailure_CountsUnresolved verifies a failed database
+// lookup counts each of its names as unresolved, by whether it timed out or
+// failed, and counts nothing when the request was canceled, whatever the
+// error.
+func TestExport_DBLookupFailure_CountsUnresolved(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		ctx    func() (context.Context, context.CancelFunc)
+		reason string // "": nothing counted
+	}{
+		{name: "error", err: assert.AnError, ctx: liveContext, reason: "error"},
+		{name: "deadline", err: context.DeadlineExceeded, ctx: liveContext, reason: "timeout"},
+		{name: "statement timeout", err: db.QueryError(&pq.Error{Code: "57014"}, "executing query", ""), ctx: liveContext, reason: "timeout"},
+		{name: "expired request", err: assert.AnError, ctx: expiredContext, reason: "timeout"},
+		{name: "canceled request", err: assert.AnError, ctx: canceledContext},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := &mockUsageProvider{}
+			mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, tc.err)
+			ing, err := NewOtlpIngester(&config.Config{}, mp)
+			require.NoError(t, err)
+			ing.SetExporter(&captureExporter{})
+			ctx, cancel := tc.ctx()
+			defer cancel()
+
+			got := seriesDeltas(t, []series{
+				{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+				{"ingester_processor_unresolved_total", map[string]string{"reason": "db_timeout"}},
+				{"ingester_processor_unresolved_total", map[string]string{"reason": "db_error"}},
+				{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "timeout"}},
+				{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "error"}},
+				{"ingester_processor_lookup_errors_total", map[string]string{}},
+			}, func() {
+				_, _ = ing.Export(ctx, buildExportRequest(buildGaugeMetric("first", 1), buildGaugeMetric("second", 1)))
+			})
+
+			want := []float64{0, 0, 0, 0, 0, 0}
+			switch tc.reason {
+			case "timeout":
+				want = []float64{2, 2, 0, 1, 0, 1}
+			case "error":
+				want = []float64{2, 0, 2, 0, 1, 1}
+			}
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// TestExport_CacheReadFailure verifies a cache read that fails part way
+// keeps the names it answered, sends only the rest to the database without
+// counting them as misses, and counts the failed call once by whether it
+// timed out, unless the request was canceled, whatever the error.
+func TestExport_CacheReadFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		ctx    func() (context.Context, context.CancelFunc)
+		reason string // "": not counted
+	}{
+		{name: "timeout", err: context.DeadlineExceeded, ctx: liveContext, reason: "timeout"},
+		{name: "error", err: assert.AnError, ctx: liveContext, reason: "error"},
+		{name: "canceled request", err: assert.AnError, ctx: canceledContext},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := &mockUsageProvider{}
+			mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"unread"}, "").Return(nil, nil).Once()
+			ing, err := NewOtlpIngester(&config.Config{}, mp)
+			require.NoError(t, err)
+			ing.SetMetricCache(&scriptedCache{
+				states: map[string]otlppkg.MetricUsageState{"answered": otlppkg.StateUsed},
+				err:    tc.err,
+			})
+			ing.SetExporter(&captureExporter{})
+			ctx, cancel := tc.ctx()
+			defer cancel()
+
+			got := seriesDeltas(t, []series{
+				{"ingester_metric_cache_hits_total", map[string]string{"state": "used"}},
+				{"ingester_metric_cache_misses_total", map[string]string{}},
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": "timeout"}},
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": "error"}},
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "get", "reason": ""}},
+				{"ingester_metric_cache_lookup_seconds", map[string]string{}},
+				{"ingester_processor_usage_resolutions_total", map[string]string{"source": "cache"}},
+				{"ingester_processor_usage_resolutions_total", map[string]string{"source": "database"}},
+			}, func() {
+				_, _ = ing.Export(ctx, buildExportRequest(buildGaugeMetric("answered", 1), buildGaugeMetric("unread", 1)))
+			})
+
+			want := []float64{1, 0, 0, 0, 0, 1, 1, 1}
+			switch tc.reason {
+			case "timeout":
+				want[2] = 1
+			case "error":
+				want[3] = 1
+			}
+			assert.Equal(t, want, got)
+			mp.AssertExpectations(t)
+		})
+	}
+}
+
+// TestExport_CacheWriteFailure verifies a failed cache write-back is counted
+// once per call, by whether it timed out, however many names it carried, and
+// not at all when the request was canceled.
+func TestExport_CacheWriteFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		ctx  func() (context.Context, context.CancelFunc)
+		want []float64 // timeout, error, none
+	}{
+		{name: "timeout", err: context.DeadlineExceeded, ctx: liveContext, want: []float64{1, 0, 0}},
+		{name: "error", err: assert.AnError, ctx: liveContext, want: []float64{0, 1, 0}},
+		{name: "canceled request", err: assert.AnError, ctx: canceledContext, want: []float64{0, 0, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := &mockUsageProvider{}
+			mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
+				Return([]models.MetricMetadata{{Name: "first"}, {Name: "second"}}, nil)
+			ing, err := NewOtlpIngester(&config.Config{}, mp)
+			require.NoError(t, err)
+			ing.SetMetricCache(&scriptedCache{states: map[string]otlppkg.MetricUsageState{}, setErr: tc.err})
+			ing.SetExporter(&captureExporter{})
+			ctx, cancel := tc.ctx()
+			defer cancel()
+
+			got := seriesDeltas(t, []series{
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "set", "reason": "timeout"}},
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "set", "reason": "error"}},
+				{"ingester_metric_cache_errors_total", map[string]string{"operation": "set", "reason": ""}},
+			}, func() {
+				_, _ = ing.Export(ctx, buildExportRequest(buildGaugeMetric("first", 1), buildGaugeMetric("second", 1)))
+			})
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// series names one metric series by its name and exact labels.
+type series struct {
+	name   string
+	labels map[string]string
+}
+
+// seriesDeltas returns how much each of ss changed while fn ran, in order.
+func seriesDeltas(t *testing.T, ss []series, fn func()) []float64 {
+	t.Helper()
+	before := make([]float64, len(ss))
+	for i, s := range ss {
+		before[i] = metricValue(t, s.name, s.labels)
+	}
+	fn()
+	got := make([]float64, len(ss))
+	for i, s := range ss {
+		got[i] = metricValue(t, s.name, s.labels) - before[i]
+	}
+	return got
+}
+
+func liveContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
+}
+
+func canceledContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx, cancel
+}
+
+func expiredContext() (context.Context, context.CancelFunc) {
+	return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 }

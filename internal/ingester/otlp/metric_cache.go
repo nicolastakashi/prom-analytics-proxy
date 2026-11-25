@@ -3,7 +3,6 @@ package otlp
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"strconv"
 	"time"
@@ -32,6 +31,9 @@ func (cv CacheValue) Int64() int64 {
 }
 
 type MetricUsageCache interface {
+	// GetStates returns the state of each name it read, StateUnknown for a
+	// name it has no usable entry for. A name it could not read is absent
+	// from the map, and err reports a read failure.
 	GetStates(ctx context.Context, names []string) (map[string]MetricUsageState, error)
 	SetStates(ctx context.Context, states map[string]MetricUsageState) error
 	Close() error
@@ -118,6 +120,7 @@ func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (
 
 	states := make(map[string]MetricUsageState, len(names))
 
+	var firstErr error
 	for i := 0; i < len(names); i += c.maxBatchSize {
 		end := i + c.maxBatchSize
 		if end > len(names) {
@@ -134,8 +137,14 @@ func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (
 
 		for j, name := range batch {
 			val, err := results[j].AsInt64()
-			if err != nil {
+			switch {
+			case rueidis.IsRedisNil(err):
 				states[name] = StateUnknown
+				continue
+			case err != nil:
+				if firstErr == nil {
+					firstErr = err
+				}
 				continue
 			}
 
@@ -154,7 +163,7 @@ func (c *redisMetricUsageCache) GetStates(ctx context.Context, names []string) (
 		}
 	}
 
-	return states, nil
+	return states, firstErr
 }
 
 func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string]MetricUsageState) error {
@@ -203,12 +212,9 @@ func (c *redisMetricUsageCache) SetStates(ctx context.Context, states map[string
 		batch := cmds[i:end]
 
 		results := c.client.DoMulti(ctx, batch...)
-		for j, result := range results {
-			if err := result.Error(); err != nil {
-				slog.ErrorContext(ctx, "ingester.cache.set.failed", "index", i+j, "err", err)
-				if firstErr == nil {
-					firstErr = err
-				}
+		for _, result := range results {
+			if err := result.Error(); err != nil && firstErr == nil {
+				firstErr = err
 			}
 		}
 	}
