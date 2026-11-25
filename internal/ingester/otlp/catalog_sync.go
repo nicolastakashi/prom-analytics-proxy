@@ -150,7 +150,7 @@ func (s *catalogSync) flushOnShutdown(timeout time.Duration) {
 
 // flush writes the buffered metrics to the database. Metrics a failed write
 // leaves behind are buffered again for the next flush. A write the database
-// gate refuses before connecting is not counted as a flush error.
+// gate refuses is not counted as a flush error.
 func (s *catalogSync) flush(ctx context.Context) {
 	if s == nil {
 		return

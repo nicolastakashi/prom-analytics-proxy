@@ -129,6 +129,8 @@ Usage summary aggregation (alert counts, recording rule counts, dashboard counts
 
 The ingester does not wait for the database to start. Until it connects, it serves `Export`, drops only the metrics the cache confirms unused and forwards the rest, and keeps the catalog entries it sees buffered for the next flush. It retries a connection failure with exponential backoff, from 1s up to 15s with jitter, and starts filtering once connected. Any other database error at startup, such as an unknown `-database-provider` or a failed migration, stops the ingester. Readiness (`/readyz`) does not depend on the database.
 
+Once connected, the ingester stops calling the database after 3 consecutive lookups or catalog flushes fail with a connection error or a timeout. While it is stopped, only the cache filters metrics and catalog entries stay buffered, as before connecting. After a delay on the same backoff, one trial call goes to the database, and filtering resumes once the database answers it, even with an error other than a connection error or a timeout.
+
 Or via config file:
 
 ```yaml
@@ -165,7 +167,7 @@ The ingester exposes Prometheus metrics on `-ingester-metrics-listen-address` (d
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `ingester_database_up` | Gauge | | `1` once the ingester has connected to the database, `0` before. While `0`, only the cache filters metrics. |
+| `ingester_database_up` | Gauge | | `1` while the ingester is connected to the database and calls it, `0` before it connects and while it has stopped calling it after repeated connection failures or timeouts. While `0`, only the cache filters metrics. |
 | `ingester_database_connect_attempts_total` | Counter | `result` | Attempts to connect to the database, by `result`: `success`, `failure`. |
 
 ### Filtering
@@ -187,10 +189,10 @@ The whole lookup of a request runs under one time limit, `-otlp-lookup-timeout` 
 | `ingester_metric_cache_errors_total` | Counter | `operation`, `reason` | Failed cache calls, once per call, by `operation` (`get`, `set`) and `reason`: `timeout` when the call ran out of time, `error` otherwise. Calls made for a canceled request are not counted. |
 | `ingester_metric_cache_lookup_seconds` | Histogram | | Duration of each cache read, per chunk, including reads that failed or timed out. |
 | `ingester_metric_cache_write_seconds` | Histogram | | Duration of each cache write-back of states read from the database, whether or not the write succeeded. |
-| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request, or made before the ingester connected to the database, are not observed; nor are chunks that skipped the database. |
-| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests or lookups made before the ingester connected to the database. The names in a failed chunk are treated as used and forwarded. At most one per request, since later chunks skip the database. |
+| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request, or made before the ingester connected to the database or while it has stopped calling it, are not observed; nor are chunks that skipped the database. |
+| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests or lookups made before the ingester connected to the database or while it has stopped calling it. The names in a failed chunk are treated as used and forwarded. At most one per request, since later chunks skip the database. |
 | `ingester_processor_usage_resolutions_total` | Counter | `source` | Names looked up, each counted once per request, by what resolved their usage state: `cache`, `database` (including names it has no record of, which are kept), or `unresolved` (forwarded as used). Names of a canceled request are not counted as unresolved. |
-| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout` or `db_error` for the chunk whose lookup failed, or `db_unavailable` while the ingester has not connected to the database and for later chunks that skipped the database after the request's first failed lookup. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
+| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout` or `db_error` for the chunk whose lookup failed, or `db_unavailable` while the ingester has not connected to the database or has stopped calling it, and for later chunks that skipped the database after the request's first failed lookup. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
 
 ### Downstream forwarding
 
@@ -207,6 +209,6 @@ The whole lookup of a request runs under one time limit, `-otlp-lookup-timeout` 
 | `ingester_catalog_buffer_dropped_total` | Counter | | Metrics discarded because the buffer was full, either when buffered or when re-queued after a failed flush. |
 | `ingester_catalog_flush_duration_seconds` | Histogram | | Duration of each successful flush to the database. |
 | `ingester_catalog_flush_metrics_total` | Counter | | Metrics written to the catalog by successful flushes. |
-| `ingester_catalog_flush_errors_total` | Counter | | Failed flushes, not counting flushes before the ingester connected to the database. Their metrics are re-queued for the next flush, up to the buffer size; the rest count as dropped. |
+| `ingester_catalog_flush_errors_total` | Counter | | Failed flushes, not counting flushes before the ingester connected to the database or while it has stopped calling it. Their metrics are re-queued for the next flush, up to the buffer size; the rest count as dropped. |
 
 See [Troubleshooting](troubleshooting.md#ingester-export-observability) for PromQL examples and log events.
