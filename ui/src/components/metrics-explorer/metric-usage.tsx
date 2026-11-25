@@ -12,6 +12,7 @@ import { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import type { TableData } from "@/components/data-table/types";
 import { DateRange } from "@/lib/types";
 import { formatUnit } from "@/lib/utils";
+import { useTableState, UseTableStateResult } from "@/hooks/use-table-state";
 
 // Define our extended column type with maxWidth
 type ExtendedColumnDef<
@@ -41,66 +42,6 @@ interface MetricUsageItem {
   url?: string;
   groupName?: string;
   expression?: string;
-}
-
-// Define a generic type for tab state
-interface TabState {
-  page: number;
-  filter: string;
-  sorting: SortingState;
-  sortBy?: string;
-  sortOrder?: "asc" | "desc";
-}
-
-// Custom hook for managing tab state
-function useTabState(
-  initialPage = 1,
-  initialSortBy = "avgDuration",
-  initialSortOrder: "asc" | "desc" = "desc",
-) {
-  const [state, setState] = React.useState<TabState>({
-    page: initialPage,
-    filter: "",
-    sorting: initialSortBy
-      ? [{ id: initialSortBy, desc: initialSortOrder === "desc" }]
-      : [],
-    sortBy: initialSortBy,
-    sortOrder: initialSortOrder,
-  });
-
-  const setPage = (page: number) => {
-    setState((prev) => ({ ...prev, page }));
-  };
-
-  const setFilter = (filter: string) => {
-    setState((prev) => ({ ...prev, filter, page: 1 })); // Reset to first page on filter change
-  };
-
-  const setSorting = (newSorting: SortingState) => {
-    if (newSorting.length > 0) {
-      const column = newSorting[0].id;
-      const direction = newSorting[0].desc ? "desc" : "asc";
-
-      setState((prev) => ({
-        ...prev,
-        sorting: newSorting,
-        sortBy: column,
-        sortOrder: direction,
-      }));
-    } else {
-      setState((prev) => ({
-        ...prev,
-        sorting: newSorting,
-      }));
-    }
-  };
-
-  return {
-    ...state,
-    setPage,
-    setFilter,
-    setSorting,
-  };
 }
 
 // Define column configurations
@@ -224,9 +165,8 @@ interface TabContentProps<T extends TableData> {
   error: unknown;
   data: { data: T[]; totalPages: number } | undefined;
   columns: LegacyColumnDef<T, unknown>[];
-  state: TabState;
+  state: Pick<UseTableStateResult, "page" | "pageSize" | "filter" | "sorting">;
   searchColumn: string;
-  pageSize: number;
   onSortingChange: (sorting: SortingState) => void;
   onFilterChange: (filter: string) => void;
   onPaginationChange: (page: number) => void;
@@ -240,7 +180,6 @@ function TabContent<T extends TableData>({
   columns,
   state,
   searchColumn,
-  pageSize,
   onSortingChange,
   onFilterChange,
   onPaginationChange,
@@ -274,7 +213,7 @@ function TabContent<T extends TableData>({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       searchColumn={searchColumn as any}
       pagination={true}
-      pageSize={pageSize}
+      pageSize={state.pageSize}
       className="w-full"
       serverSide={true}
       sortingState={state.sorting}
@@ -292,13 +231,13 @@ export default function MetricUsage({
   metricName,
   dateRange,
 }: MetricUsageProps) {
-  const pageSize = 10;
-
-  // Initialize tab states using the custom hook
-  const queriesState = useTabState(1, "avgDuration", "desc");
-  const alertsState = useTabState(1);
-  const recordingsState = useTabState(1);
-  const dashboardsState = useTabState(1);
+  const queriesState = useTableState({
+    defaultSortBy: "avgDuration",
+    defaultSortOrder: "desc",
+  });
+  const alertsState = useTableState();
+  const recordingsState = useTableState();
+  const dashboardsState = useTableState();
 
   // Fetch data for queries tab
   const {
@@ -309,9 +248,9 @@ export default function MetricUsage({
     metricName,
     {
       page: queriesState.page,
-      pageSize,
-      sortBy: queriesState.sortBy || "avgDuration",
-      sortOrder: queriesState.sortOrder || "desc",
+      pageSize: queriesState.pageSize,
+      sortBy: queriesState.sortBy,
+      sortOrder: queriesState.sortOrder,
       filter: queriesState.filter,
       type: "all",
     },
@@ -327,7 +266,7 @@ export default function MetricUsage({
     metricName,
     "dashboard",
     dashboardsState.page,
-    pageSize,
+    dashboardsState.pageSize,
     dateRange?.from,
     dateRange?.to,
   );
@@ -341,7 +280,7 @@ export default function MetricUsage({
     metricName,
     "alert",
     alertsState.page,
-    pageSize,
+    alertsState.pageSize,
     dateRange?.from,
     dateRange?.to,
   );
@@ -355,7 +294,7 @@ export default function MetricUsage({
     metricName,
     "record",
     recordingsState.page,
-    pageSize,
+    recordingsState.pageSize,
     dateRange?.from,
     dateRange?.to,
   );
@@ -396,7 +335,6 @@ export default function MetricUsage({
               columns={queriesColumns}
               state={queriesState}
               searchColumn="query"
-              pageSize={pageSize}
               onSortingChange={queriesState.setSorting}
               onFilterChange={queriesState.setFilter}
               onPaginationChange={queriesState.setPage}
@@ -411,7 +349,6 @@ export default function MetricUsage({
               columns={alertsColumns}
               state={alertsState}
               searchColumn="expression"
-              pageSize={pageSize}
               onSortingChange={alertsState.setSorting}
               onFilterChange={alertsState.setFilter}
               onPaginationChange={alertsState.setPage}
@@ -426,7 +363,6 @@ export default function MetricUsage({
               columns={recordingColumns}
               state={recordingsState}
               searchColumn="expression"
-              pageSize={pageSize}
               onSortingChange={recordingsState.setSorting}
               onFilterChange={recordingsState.setFilter}
               onPaginationChange={recordingsState.setPage}
@@ -441,7 +377,6 @@ export default function MetricUsage({
               columns={dashboardColumns}
               state={dashboardsState}
               searchColumn="title"
-              pageSize={pageSize}
               onSortingChange={dashboardsState.setSorting}
               onFilterChange={dashboardsState.setFilter}
               onPaginationChange={dashboardsState.setPage}
