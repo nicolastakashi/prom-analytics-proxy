@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
-	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	metricsv1pb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -42,28 +41,27 @@ const (
 type OtlpIngester struct {
 	metricspb.UnimplementedMetricsServiceServer
 	config *config.Config
-	db     db.Provider
+	store  Store
 
-	exporter        MetricsExporter
-	exportTimeout   time.Duration
-	lookupChunkSize int
-	healthSrv       *health.Server
+	exporter      MetricsExporter
+	exportTimeout time.Duration
+	lookups       *usageResolver
+	healthSrv     *health.Server
 
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
 
-	metricCache    MetricUsageCache
 	catalogBuf     *catalogBuffer
 	catalogFlushIv time.Duration
 	catalogSeenTTL time.Duration
 }
 
-func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngester, error) {
+func NewOtlpIngester(config *config.Config, store Store) (*OtlpIngester, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
-	if dbProvider == nil {
-		return nil, fmt.Errorf("db provider cannot be nil")
+	if store == nil {
+		return nil, fmt.Errorf("store cannot be nil")
 	}
 
 	allowedJobs, deniedJobs := buildJobSets(config)
@@ -71,6 +69,10 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	lookupChunkSize := 500 // default fallback
 	if config.Ingester.OTLP.LookupChunkSize > 0 {
 		lookupChunkSize = config.Ingester.OTLP.LookupChunkSize
+	}
+	operationTimeout := 200 * time.Millisecond
+	if config.Ingester.Redis.OperationTimeout > 0 {
+		operationTimeout = config.Ingester.Redis.OperationTimeout
 	}
 	exportTimeout := defaultDownstreamTimeout
 	if config.Ingester.OTLP.DownstreamTimeout > 0 {
@@ -137,17 +139,21 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	}
 
 	return &OtlpIngester{
-		config:          config,
-		db:              dbProvider,
-		exportTimeout:   exportTimeout,
-		lookupChunkSize: lookupChunkSize,
-		healthSrv:       health.NewServer(),
-		allowedJobs:     allowedJobs,
-		deniedJobs:      deniedJobs,
-		metricCache:     metricCache,
-		catalogBuf:      catBuf,
-		catalogFlushIv:  catFlushIv,
-		catalogSeenTTL:  catSeenTTL,
+		config:        config,
+		store:         store,
+		exportTimeout: exportTimeout,
+		lookups: &usageResolver{
+			cache:            metricCache,
+			store:            store,
+			chunkSize:        lookupChunkSize,
+			operationTimeout: operationTimeout,
+		},
+		healthSrv:      health.NewServer(),
+		allowedJobs:    allowedJobs,
+		deniedJobs:     deniedJobs,
+		catalogBuf:     catBuf,
+		catalogFlushIv: catFlushIv,
+		catalogSeenTTL: catSeenTTL,
 	}, nil
 }
 
@@ -238,9 +244,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		if i.exporter != nil {
 			_ = i.exporter.Close()
 		}
-		if i.metricCache != nil {
-			_ = i.metricCache.Close()
-		}
+		i.lookups.close()
 		if i.catalogBuf != nil && i.catalogBuf.seenCache != nil {
 			_ = i.catalogBuf.seenCache.Close()
 		}
@@ -379,7 +383,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		i.bufferCatalogEntries(ctx, catalogMetrics)
 	}
 
-	unused := i.newUsageLookup(histogramBases, summaryBases).resolve(ctx, namesSet)
+	unused := i.lookups.newLookup(histogramBases, summaryBases).resolve(ctx, namesSet)
 	slog.DebugContext(ctx, "ingester.unused_metrics.count", "count", len(unused))
 
 	dryRun := i.config != nil && i.config.Ingester.DryRun
@@ -441,7 +445,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
 
 func (i *OtlpIngester) SetMetricCache(cache MetricUsageCache) {
-	i.metricCache = cache
+	i.lookups.setCache(cache)
 }
 
 // IsReady reports whether the ingester is ready to serve OTLP traffic.
@@ -648,7 +652,7 @@ func (i *OtlpIngester) flushCatalog(ctx context.Context) {
 	}
 
 	start := time.Now()
-	if err := i.db.UpsertMetricsCatalog(ctx, items); err != nil {
+	if err := i.store.UpsertMetricsCatalog(ctx, items); err != nil {
 		// Keep items in memory for a future retry on transient DB errors.
 		i.catalogBuf.requeue(items)
 		slog.ErrorContext(ctx, "ingester.catalog.flush.failed",

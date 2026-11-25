@@ -669,10 +669,12 @@ func TestExport_CacheTimeout(t *testing.T) {
 }
 
 // deadlineCache records the deadline of the context each cache read and
-// write runs under, and answers every name as unknown.
+// write runs under, answers every name as unknown, and records whether it
+// was closed.
 type deadlineCache struct {
 	reads  []time.Time
 	writes []time.Time
+	closed bool
 }
 
 func (c *deadlineCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
@@ -689,7 +691,10 @@ func (c *deadlineCache) SetStates(ctx context.Context, _ map[string]otlppkg.Metr
 	c.writes = append(c.writes, deadline)
 	return nil
 }
-func (c *deadlineCache) Close() error { return nil }
+func (c *deadlineCache) Close() error {
+	c.closed = true
+	return nil
+}
 
 // forwardedNames returns the names of the metrics exp forwarded, in order.
 func forwardedNames(exp *captureExporter) []string {
@@ -739,4 +744,41 @@ func TestExport_CountsCacheFailuresByOperation(t *testing.T) {
 
 	assert.Equal(t, get+1, metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "get"}))
 	assert.Equal(t, set+1, metricValue(t, "ingester_metric_cache_errors_total", map[string]string{"operation": "set"}))
+}
+
+// TestExport_NoWriteBackWhenDatabaseReturnsNothing verifies nothing is
+// written back to the cache when the database has no record of any name.
+func TestExport_NoWriteBackWhenDatabaseReturnsNothing(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{}, nil)
+	ing, err := NewOtlpIngester(&config.Config{}, mp)
+	require.NoError(t, err)
+	cache := &deadlineCache{}
+	ing.SetMetricCache(cache)
+	ing.SetExporter(&captureExporter{})
+
+	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+	require.NoError(t, err)
+
+	assert.Len(t, cache.reads, 1)
+	assert.Empty(t, cache.writes)
+}
+
+// TestExport_SetMetricCacheNil_DisablesCache verifies setting a nil cache
+// stops the lookup from using the cache set before it.
+func TestExport_SetMetricCacheNil_DisablesCache(t *testing.T) {
+	mp := &mockUsageProvider{}
+	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{{Name: "some_metric"}}, nil)
+	ing, err := NewOtlpIngester(&config.Config{}, mp)
+	require.NoError(t, err)
+	cache := &deadlineCache{}
+	ing.SetMetricCache(cache)
+	ing.SetMetricCache(nil)
+	ing.SetExporter(&captureExporter{})
+
+	_, err = ing.Export(context.Background(), buildExportRequest(buildGaugeMetric("some_metric", 1)))
+	require.NoError(t, err)
+
+	assert.Empty(t, cache.reads)
+	assert.Empty(t, cache.writes)
 }

@@ -11,6 +11,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// usageResolver resolves which metrics are unused from the cache, then the
+// database. It holds what a usageLookup uses: the cache (nil: none), the
+// store, the lookup chunk size and the cache operation timeout.
+type usageResolver struct {
+	cache            MetricUsageCache
+	store            Store
+	chunkSize        int
+	operationTimeout time.Duration
+}
+
 // usageLookup is the usage lookup of one Export request. It asks the cache,
 // then the database, which series are unused, and decides which of the
 // request's metrics are. A histogram is unused only when its _bucket, _count
@@ -18,15 +28,15 @@ import (
 // all are. A used series and an unknown one count alike: neither confirms a
 // metric unused.
 type usageLookup struct {
-	ing            *OtlpIngester
+	r              *usageResolver
 	histogramBases map[string]struct{}
 	summaryBases   map[string]struct{}
 	unusedSeries   map[string]struct{}
 }
 
-func (i *OtlpIngester) newUsageLookup(histogramBases, summaryBases map[string]struct{}) *usageLookup {
+func (r *usageResolver) newLookup(histogramBases, summaryBases map[string]struct{}) *usageLookup {
 	return &usageLookup{
-		ing:            i,
+		r:              r,
 		histogramBases: histogramBases,
 		summaryBases:   summaryBases,
 		unusedSeries:   make(map[string]struct{}),
@@ -36,7 +46,7 @@ func (i *OtlpIngester) newUsageLookup(histogramBases, summaryBases map[string]st
 // resolve returns the metrics among names confirmed unused, looking each
 // chunk of names up in the cache first and the rest in the database.
 func (l *usageLookup) resolve(ctx context.Context, names map[string]struct{}) map[string]struct{} {
-	chunkSize := l.ing.lookupChunkSize
+	chunkSize := l.r.chunkSize
 	batch := make([]string, 0, chunkSize)
 	flush := func() {
 		if len(batch) == 0 {
@@ -146,24 +156,23 @@ func hasBaseIn(bases map[string]struct{}, name string, suffixes ...string) bool 
 // lookupCache returns the names of batch the cache confirms unused, and the
 // names it does not answer, which go to the database.
 func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, misses []string) {
-	i := l.ing
-	if i.metricCache == nil {
+	if l.r.cache == nil {
 		return nil, batch
 	}
 
-	cacheTimeout := i.computeCacheTimeout(ctx)
+	cacheTimeout := l.r.cacheTimeout(ctx)
 	cacheCtx, cancel := context.WithTimeout(ctx, cacheTimeout)
 	defer cancel()
 
 	cacheLookupStart := time.Now()
-	cacheStates, err := i.metricCache.GetStates(cacheCtx, batch)
+	cacheStates, err := l.r.cache.GetStates(cacheCtx, batch)
 	if err != nil {
-		i.handleCacheError(ctx, err, cacheTimeout)
+		recordCacheFailure(ctx, "get", err, cacheTimeout)
 		return nil, batch
 	}
 
 	ingesterMetricCacheLookupSeconds.Observe(time.Since(cacheLookupStart).Seconds())
-	return i.partitionCacheResults(batch, cacheStates)
+	return partitionCacheResults(batch, cacheStates)
 }
 
 // lookupDatabase returns the names the database confirms unused, and writes
@@ -174,9 +183,8 @@ func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, 
 // downstream instead of being silently discarded.
 // See https://github.com/nicolastakashi/prom-analytics-proxy/issues/569.
 func (l *usageLookup) lookupDatabase(ctx context.Context, names []string) []string {
-	i := l.ing
 	t0 := time.Now()
-	metas, err := i.db.GetSeriesMetadataByNames(ctx, names, "")
+	metas, err := l.r.store.GetSeriesMetadataByNames(ctx, names, "")
 	if err != nil {
 		slog.ErrorContext(ctx, "ingester.lookup.failed_treating_as_used", "err", err, "names_count", len(names))
 		processorLookupErrorsTotal.Inc()
@@ -194,37 +202,49 @@ func (l *usageLookup) lookupDatabase(ctx context.Context, names []string) []stri
 			cacheWriteBack[mm.Name] = StateUsed
 		}
 	}
-	i.writeBackToCache(ctx, cacheWriteBack)
+	l.r.writeBack(ctx, cacheWriteBack)
 	return unused
 }
 
-// computeCacheTimeout returns the cache operation timeout, capped at a tenth
-// of the time the incoming request has left; the cap is at least
-// minCacheTimeout.
-func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
-	cacheTimeout := 200 * time.Millisecond
-	if i.config != nil && i.config.Ingester.Redis.OperationTimeout > 0 {
-		cacheTimeout = i.config.Ingester.Redis.OperationTimeout
+// setCache replaces the cache; nil disables it.
+func (r *usageResolver) setCache(cache MetricUsageCache) { r.cache = cache }
+
+// close closes the cache, if any.
+func (r *usageResolver) close() {
+	if r.cache != nil {
+		_ = r.cache.Close()
 	}
+}
+
+// cacheTimeout returns the cache operation timeout, capped at a tenth of the
+// time the incoming request has left; the cap is at least minCacheTimeout.
+func (r *usageResolver) cacheTimeout(ctx context.Context) time.Duration {
+	cacheTimeout := r.operationTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		cacheTimeout = min(cacheTimeout, max(time.Until(deadline)/10, minCacheTimeout))
 	}
 	return cacheTimeout
 }
 
-// handleCacheError logs cache errors and increments metrics.
-func (i *OtlpIngester) handleCacheError(ctx context.Context, err error, timeout time.Duration) {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+// recordCacheFailure logs and counts a cache call that failed with err.
+func recordCacheFailure(ctx context.Context, operation string, err error, timeout time.Duration) {
+	timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+	switch {
+	case operation == "get" && timedOut:
 		slog.DebugContext(ctx, "ingester.cache.get.timeout", "timeout", timeout)
-	} else {
+	case operation == "get":
 		slog.DebugContext(ctx, "ingester.cache.get.failed", "err", err)
+	case timedOut:
+		slog.DebugContext(ctx, "ingester.cache.set.timeout", "timeout", timeout)
+	default:
+		slog.DebugContext(ctx, "ingester.cache.set.failed", "err", err)
 	}
-	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "get"}).Inc()
+	ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": operation}).Inc()
 }
 
 // partitionCacheResults splits batch into the names the cache confirms
 // unused and the names it does not answer, counting hits and misses.
-func (i *OtlpIngester) partitionCacheResults(batch []string, cacheStates map[string]MetricUsageState) (unused, misses []string) {
+func partitionCacheResults(batch []string, cacheStates map[string]MetricUsageState) (unused, misses []string) {
 	for _, name := range batch {
 		switch cacheStates[name] {
 		case StateUsed:
@@ -240,24 +260,20 @@ func (i *OtlpIngester) partitionCacheResults(batch []string, cacheStates map[str
 	return unused, misses
 }
 
-// writeBackToCache writes cache states back to Redis (best-effort).
-func (i *OtlpIngester) writeBackToCache(ctx context.Context, cacheWriteBack map[string]MetricUsageState) {
-	if i.metricCache == nil || len(cacheWriteBack) == 0 {
+// writeBack writes states read from the database back to the cache
+// (best-effort).
+func (r *usageResolver) writeBack(ctx context.Context, cacheWriteBack map[string]MetricUsageState) {
+	if r.cache == nil || len(cacheWriteBack) == 0 {
 		return
 	}
 
-	cacheTimeout := i.computeCacheTimeout(ctx)
+	cacheTimeout := r.cacheTimeout(ctx)
 	cacheCtx, cancel := context.WithTimeout(ctx, cacheTimeout)
 	defer cancel()
 
 	cacheWriteStart := time.Now()
-	if err := i.metricCache.SetStates(cacheCtx, cacheWriteBack); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			slog.DebugContext(ctx, "ingester.cache.set.timeout", "timeout", cacheTimeout)
-		} else {
-			slog.DebugContext(ctx, "ingester.cache.set.failed", "err", err)
-		}
-		ingesterMetricCacheErrorsTotal.With(prometheus.Labels{"operation": "set"}).Inc()
+	if err := r.cache.SetStates(cacheCtx, cacheWriteBack); err != nil {
+		recordCacheFailure(ctx, "set", err, cacheTimeout)
 	}
 	ingesterMetricCacheWriteSeconds.Observe(time.Since(cacheWriteStart).Seconds())
 }
