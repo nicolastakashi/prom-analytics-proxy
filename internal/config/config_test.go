@@ -79,6 +79,9 @@ cors:
   allowed_headers: ["Content-Type"]
   allow_credentials: true
   max_age: 300
+ingester:
+  otlp:
+    downstream_timeout: "2s"
 `
 
 	tmpfile, err := os.CreateTemp("", "config-*.yaml")
@@ -135,6 +138,7 @@ cors:
 	assert.Equal(t, []string{"Content-Type"}, DefaultConfig.CORS.AllowedHeaders)
 	assert.True(t, DefaultConfig.CORS.AllowCredentials)
 	assert.Equal(t, 300, DefaultConfig.CORS.MaxAge)
+	assert.Equal(t, 2*time.Second, DefaultConfig.Ingester.OTLP.DownstreamTimeout)
 }
 
 func TestLoadConfig_SQLiteLegacyDatabasePathKey(t *testing.T) {

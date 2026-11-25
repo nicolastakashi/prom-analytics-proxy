@@ -36,6 +36,8 @@ const (
 	defaultCatalogFlushInterval    = 30 * time.Second
 	defaultCatalogSeenTTL          = time.Hour
 	defaultGracefulShutdownTimeout = 30 * time.Second
+	defaultDownstreamTimeout       = 5 * time.Second
+	minCacheTimeout                = 5 * time.Millisecond
 )
 
 type OtlpIngester struct {
@@ -70,6 +72,10 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	lookupChunkSize := 500 // default fallback
 	if config.Ingester.OTLP.LookupChunkSize > 0 {
 		lookupChunkSize = config.Ingester.OTLP.LookupChunkSize
+	}
+	exportTimeout := defaultDownstreamTimeout
+	if config.Ingester.OTLP.DownstreamTimeout > 0 {
+		exportTimeout = config.Ingester.OTLP.DownstreamTimeout
 	}
 
 	// Initialize Redis cache if enabled
@@ -134,7 +140,7 @@ func NewOtlpIngester(config *config.Config, dbProvider db.Provider) (*OtlpIngest
 	return &OtlpIngester{
 		config:          config,
 		db:              dbProvider,
-		exportTimeout:   5 * time.Second,
+		exportTimeout:   exportTimeout,
 		lookupChunkSize: lookupChunkSize,
 		healthSrv:       health.NewServer(),
 		allowedJobs:     allowedJobs,
@@ -630,14 +636,16 @@ func (i *OtlpIngester) lookupCache(ctx context.Context, batch []string) (usedFro
 	return i.partitionCacheResults(batch, cacheStates)
 }
 
-// computeCacheTimeout calculates the timeout for cache operations.
+// computeCacheTimeout returns the cache operation timeout, capped at a tenth
+// of the time the incoming request has left; the cap is at least
+// minCacheTimeout.
 func (i *OtlpIngester) computeCacheTimeout(ctx context.Context) time.Duration {
 	cacheTimeout := 200 * time.Millisecond
 	if i.config != nil && i.config.Ingester.Redis.OperationTimeout > 0 {
 		cacheTimeout = i.config.Ingester.Redis.OperationTimeout
 	}
-	if exportTimeout := computeExportTimeout(ctx, i.exportTimeout); exportTimeout > 0 && exportTimeout/10 < cacheTimeout {
-		cacheTimeout = exportTimeout / 10
+	if deadline, ok := ctx.Deadline(); ok {
+		cacheTimeout = min(cacheTimeout, max(time.Until(deadline)/10, minCacheTimeout))
 	}
 	return cacheTimeout
 }
@@ -1062,6 +1070,7 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "otlp-max-send-bytes", config.DefaultConfig.Ingester.OTLP.GRPCMaxSendMsgSizeBytes, "Max gRPC send message size for OTLP server (bytes)")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "otlp-downstream-max-recv-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes, "Max gRPC receive message size for downstream OTLP client (bytes)")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "otlp-downstream-max-send-bytes", config.DefaultConfig.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes, "Max gRPC send message size for downstream OTLP client (bytes)")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamTimeout, "otlp-downstream-timeout", config.DefaultConfig.Ingester.OTLP.DownstreamTimeout, "Timeout for each forward to the downstream OTLP endpoint, shortened when the incoming request's deadline leaves less time. 0 or negative uses the default.")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxAttempts, "otlp-downstream-retry-max-attempts", config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxAttempts, "Downstream OTLP retry max attempts")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryInitialBackoff, "otlp-downstream-retry-initial-backoff", config.DefaultConfig.Ingester.OTLP.DownstreamRetryInitialBackoff, "Downstream OTLP retry initial backoff (duration)")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxBackoff, "otlp-downstream-retry-max-backoff", config.DefaultConfig.Ingester.OTLP.DownstreamRetryMaxBackoff, "Downstream OTLP retry max backoff (duration)")
@@ -1095,7 +1104,7 @@ func RegisterOTLPFlags(flagSet *flag.FlagSet) {
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UsedTTL, "ingester-cache-used-ttl", config.DefaultConfig.Ingester.Redis.UsedTTL, "TTL for caching 'used' metric states")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.UnusedTTL, "ingester-cache-unused-ttl", config.DefaultConfig.Ingester.Redis.UnusedTTL, "TTL for caching 'unused' metric states")
 	flagSet.BoolVar(&config.DefaultConfig.Ingester.Redis.UsedOnly, "ingester-cache-used-only", config.DefaultConfig.Ingester.Redis.UsedOnly, "Only cache 'used' states, never cache 'unused' states")
-	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations")
+	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.OperationTimeout, "ingester-cache-operation-timeout", config.DefaultConfig.Ingester.Redis.OperationTimeout, "Timeout for cache get/set operations, capped at a tenth of the time the incoming request has left; the cap is at least 5ms")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.DialTimeout, "ingester-cache-dial-timeout", config.DefaultConfig.Ingester.Redis.DialTimeout, "TCP dial timeout for Redis connections")
 	flagSet.DurationVar(&config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "ingester-cache-conn-write-timeout", config.DefaultConfig.Ingester.Redis.ConnWriteTimeout, "Read/write timeout for Redis connections")
 	flagSet.IntVar(&config.DefaultConfig.Ingester.Redis.BatchSize, "ingester-cache-batch-size", config.DefaultConfig.Ingester.Redis.BatchSize, "Max commands per DoMulti batch")
