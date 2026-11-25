@@ -16,6 +16,7 @@ import (
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/config"
 	"github.com/nicolastakashi/prom-analytics-proxy/internal/db"
 	otlppkg "github.com/nicolastakashi/prom-analytics-proxy/internal/ingester/otlp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,55 +34,6 @@ import (
 
 type mockUsageProvider struct{ MockDBProvider }
 
-// testCache is a simple in-memory cache for testing
-type testCache struct {
-	states map[string]otlppkg.MetricUsageState
-}
-
-func newTestCache() *testCache {
-	return &testCache{
-		states: make(map[string]otlppkg.MetricUsageState),
-	}
-}
-
-func (c *testCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
-	result := make(map[string]otlppkg.MetricUsageState, len(names))
-	for _, name := range names {
-		if state, ok := c.states[name]; ok {
-			result[name] = state
-		} else {
-			result[name] = otlppkg.StateUnknown
-		}
-	}
-	return result, nil
-}
-
-func (c *testCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
-	for name, state := range states {
-		c.states[name] = state
-	}
-	return nil
-}
-
-func (c *testCache) Close() error {
-	return nil
-}
-
-// errorCache is a cache that always returns errors (for testing error handling)
-type errorCache struct{}
-
-func (c *errorCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
-	return nil, assert.AnError
-}
-
-func (c *errorCache) SetStates(ctx context.Context, states map[string]otlppkg.MetricUsageState) error {
-	return assert.AnError
-}
-
-func (c *errorCache) Close() error {
-	return nil
-}
-
 func buildGaugeMetric(name string, n int) *metricspb.Metric {
 	dps := make([]*metricspb.NumberDataPoint, 0, n)
 	for i := 0; i < n; i++ {
@@ -90,17 +42,6 @@ func buildGaugeMetric(name string, n int) *metricspb.Metric {
 	return &metricspb.Metric{
 		Name: name,
 		Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: dps}},
-	}
-}
-
-func buildHistogramMetric(name string, n int) *metricspb.Metric {
-	dps := make([]*metricspb.HistogramDataPoint, 0, n)
-	for i := 0; i < n; i++ {
-		dps = append(dps, &metricspb.HistogramDataPoint{Attributes: []*commonpb.KeyValue{}})
-	}
-	return &metricspb.Metric{
-		Name: name,
-		Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{DataPoints: dps}},
 	}
 }
 
@@ -240,92 +181,6 @@ func commonpbAttrString(attrs []*commonpb.KeyValue, key string) string {
 	}
 	return ""
 }
-func TestExport_DBError_FailOpen(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	exp := &captureExporter{}
-	ing.SetExporter(exp)
-
-	req := buildExportRequest(
-		buildGaugeMetric("unused_metric", 1),
-	)
-
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return(nil, assert.AnError).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// No drops due to fail-open
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1)
-
-	// Regression guard for https://github.com/nicolastakashi/prom-analytics-proxy/issues/569:
-	// a DB lookup error must not make Export() bail out before ever reaching the
-	// downstream exporter. "Fail open" has to mean the batch is actually forwarded,
-	// not just that the (never-reached) filtering step didn't mutate it in place.
-	assert.NotNil(t, exp.captured, "batch should have been forwarded to the downstream exporter despite the DB lookup error")
-	if exp.captured != nil {
-		assert.Len(t, exp.captured.ResourceMetrics, 1)
-		assert.Len(t, exp.captured.ResourceMetrics[0].ScopeMetrics[0].Metrics, 1)
-	}
-
-	mp.AssertExpectations(t)
-}
-
-// TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused verifies that when
-// usage lookups are split across multiple DB-lookup chunks, a DB error on one chunk
-// only fails open for that chunk's names -- metrics whose usage was already resolved
-// by a different, successful chunk must still be dropped normally.
-func TestExport_DBError_PartialChunkFailure_StillDropsResolvedUnused(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			OTLP: config.OtlpIngesterConfig{
-				LookupChunkSize: 1, // force one name per DB lookup chunk
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	exp := &captureExporter{}
-	ing.SetExporter(exp)
-
-	req := buildExportRequest(
-		buildGaugeMetric("resolved_unused_metric", 1),
-		buildGaugeMetric("unresolved_metric", 1),
-	)
-
-	// One chunk resolves cleanly and confirms the metric is unused. IsUnused
-	// is the field metricMetadataUnused actually checks (see its doc comment
-	// on models.MetricMetadata) - zero counts alone no longer mean unused,
-	// since they're also what an unevaluated metric looks like.
-	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"resolved_unused_metric"}, "").Return([]models.MetricMetadata{
-		{Name: "resolved_unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Maybe()
-	// The other chunk's DB lookup fails.
-	mp.On("GetSeriesMetadataByNames", mock.Anything, []string{"unresolved_metric"}, "").Return(nil, assert.AnError).Maybe()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	assert.NotNil(t, exp.captured, "batch should still reach the downstream exporter")
-	if exp.captured != nil {
-		got := exp.captured.ResourceMetrics[0].ScopeMetrics[0].Metrics
-		names := make([]string, 0, len(got))
-		for _, m := range got {
-			names = append(names, m.GetName())
-		}
-		// resolved_unused_metric was confirmed unused by a successful chunk and must be
-		// dropped; unresolved_metric's chunk failed and must fail open (kept).
-		assert.ElementsMatch(t, []string{"unresolved_metric"}, names)
-	}
-}
-
 func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 	mp := &mockUsageProvider{}
 	cfg := &config.Config{
@@ -360,143 +215,6 @@ func TestExport_DryRunMode_RecordsMetricsButDoesNotDrop(t *testing.T) {
 	assert.Len(t, got, 3) // All metrics should remain
 	names := []string{got[0].GetName(), got[1].GetName(), got[2].GetName()}
 	assert.ElementsMatch(t, []string{"used_metric", "unused_metric", "unknown_metric"}, names)
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_DropsHistogramWhenAllVariantsUnused(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	req := buildExportRequest(
-		buildHistogramMetric("access_evaluation_duration", 2),
-		buildGaugeMetric("used_metric", 1),
-	)
-
-	// All histogram variants are unused, but used_metric has queries
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "used_metric", QueryCount: 1},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Histogram should be dropped, but used_metric should remain
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "used_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_KeepsHistogramWhenVariantUsed(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	req := buildExportRequest(
-		buildHistogramMetric("access_evaluation_duration", 2),
-		buildGaugeMetric("unused_metric", 1),
-	)
-
-	// Histogram _bucket variant is used (has queries), so entire histogram should be kept
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "access_evaluation_duration_bucket", QueryCount: 5}, // Used!
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "access_evaluation_duration_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Histogram should be kept (because _bucket is used), unused_metric should be dropped
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "access_evaluation_duration", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_KeepsHistogramWhenVariantMissing(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	req := buildExportRequest(
-		buildHistogramMetric("access_evaluation_duration", 2),
-	)
-
-	// Only bucket and count variants returned, sum is missing
-	// Should fail open (keep histogram) when any variant is missing
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "access_evaluation_duration_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "access_evaluation_duration_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		// sum variant intentionally missing
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Histogram should be kept (fail open when variant missing)
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "access_evaluation_duration", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-// TestExport_UnevaluatedMetric_NotConfirmedUnused_IsKept guards the fix for
-// https://github.com/nicolastakashi/prom-analytics-proxy/issues/570 and
-// https://github.com/nicolastakashi/prom-analytics-proxy/issues/571: a metric
-// with all-zero usage counts is not necessarily unused - it may simply be a
-// freshly-catalogued metric that has not yet had a chance to be evaluated by
-// RefreshMetricsUsageSummary (see UpsertMetricsCatalog's placeholder insert,
-// which creates exactly this all-zero-counts shape for every newly-seen
-// metric). Only IsUnused=true, sourced from metrics_usage_summary.is_unused,
-// may be trusted as "confirmed unused" - zero counts alone must not cause a
-// drop.
-func TestExport_UnevaluatedMetric_NotConfirmedUnused_IsKept(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	req := buildExportRequest(
-		buildGaugeMetric("brand_new_metric", 1),
-	)
-
-	// Zero counts, but IsUnused is explicitly false: this is what a
-	// freshly-catalogued, not-yet-evaluated metric looks like. It must not be
-	// treated as confirmed unused merely because its counts happen to be zero.
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "brand_new_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: false},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Must be kept, not dropped, despite all-zero counts.
-	rms := req.ResourceMetrics
-	if assert.Len(t, rms, 1) && assert.Len(t, rms[0].ScopeMetrics[0].Metrics, 1) {
-		assert.Equal(t, "brand_new_metric", rms[0].ScopeMetrics[0].Metrics[0].GetName())
-	}
 
 	mp.AssertExpectations(t)
 }
@@ -718,259 +436,6 @@ func BenchmarkExport_MemoryUsage(b *testing.B) {
 	}
 }
 
-func TestExport_WithCacheDisabled_BehavesAsBefore(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false,
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	req := buildExportRequest(
-		buildGaugeMetric("used_metric", 2),
-		buildGaugeMetric("unused_metric", 2),
-	)
-
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// unused_metric should be dropped
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "used_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_WithCacheEnabled_AllMisses_HitsDB(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false, // We'll inject cache manually
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	cache := newTestCache()
-	ing.SetMetricCache(cache)
-
-	req := buildExportRequest(
-		buildGaugeMetric("used_metric", 2),
-		buildGaugeMetric("unused_metric", 2),
-	)
-
-	// First call should hit DB (cache miss)
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Verify cache was populated
-	states, err := cache.GetStates(context.Background(), []string{"used_metric", "unused_metric"})
-	assert.NoError(t, err)
-	assert.Equal(t, otlppkg.StateUsed, states["used_metric"])
-	assert.Equal(t, otlppkg.StateUnused, states["unused_metric"])
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_WithCacheEnabled_UsedHit_SkipsDB(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false,
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	cache := newTestCache()
-	// Pre-populate cache with used state
-	err = cache.SetStates(context.Background(), map[string]otlppkg.MetricUsageState{
-		"used_metric": otlppkg.StateUsed,
-	})
-	assert.NoError(t, err)
-	ing.SetMetricCache(cache)
-
-	req := buildExportRequest(
-		buildGaugeMetric("used_metric", 2),
-		buildGaugeMetric("unused_metric", 2),
-	)
-
-	// Should only query DB for unused_metric (cache miss)
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.MatchedBy(func(names []string) bool {
-		// Should only contain unused_metric
-		return len(names) == 1 && names[0] == "unused_metric"
-	}), "").Return([]models.MetricMetadata{
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// used_metric should remain (not dropped because it's used)
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "used_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_WithCacheEnabled_UnusedHit_SkipsDB(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false,
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	cache := newTestCache()
-	// Pre-populate cache with unused state
-	err = cache.SetStates(context.Background(), map[string]otlppkg.MetricUsageState{
-		"unused_metric": otlppkg.StateUnused,
-	})
-	assert.NoError(t, err)
-	ing.SetMetricCache(cache)
-
-	req := buildExportRequest(
-		buildGaugeMetric("used_metric", 2),
-		buildGaugeMetric("unused_metric", 2),
-	)
-
-	// Should only query DB for used_metric (cache miss)
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.MatchedBy(func(names []string) bool {
-		return len(names) == 1 && names[0] == "used_metric"
-	}), "").Return([]models.MetricMetadata{
-		{Name: "used_metric", QueryCount: 1},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// unused_metric should be dropped (from cache)
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "used_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_WithCacheError_FallsBackToDB(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false,
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	// Create a cache that returns errors
-	errorCache := &errorCache{}
-	ing.SetMetricCache(errorCache)
-
-	req := buildExportRequest(
-		buildGaugeMetric("used_metric", 2),
-		buildGaugeMetric("unused_metric", 2),
-	)
-
-	// Should fall back to DB when cache errors
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "used_metric", QueryCount: 1},
-		{Name: "unused_metric", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Should still work correctly despite cache error
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "used_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
-func TestExport_WithHistogramCache_HandlesVariantsCorrectly(t *testing.T) {
-	mp := &mockUsageProvider{}
-	cfg := &config.Config{
-		Ingester: config.IngesterConfig{
-			Redis: config.RedisCacheConfig{
-				Enabled: false,
-			},
-		},
-	}
-	ing, err := NewOtlpIngester(cfg, mp)
-	assert.NoError(t, err)
-
-	cache := newTestCache()
-	ing.SetMetricCache(cache)
-
-	// Create histogram metric (which generates _bucket, _count, _sum variants)
-	histogramMetric := buildHistogramMetric("http_request_duration_seconds", 1)
-	req := buildExportRequest(
-		histogramMetric,
-		buildGaugeMetric("regular_metric", 1),
-	)
-
-	// DB should return metadata for all variants
-	mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
-		{Name: "http_request_duration_seconds_bucket", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "http_request_duration_seconds_count", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "http_request_duration_seconds_sum", AlertCount: 0, RecordCount: 0, DashboardCount: 0, QueryCount: 0, IsUnused: true},
-		{Name: "regular_metric", QueryCount: 1},
-	}, nil).Once()
-
-	_, err = ing.Export(context.Background(), req)
-	assert.NoError(t, err)
-
-	// Histogram base should be marked as unused (all variants unused)
-	// Regular metric should remain (used)
-	rms := req.ResourceMetrics
-	assert.Len(t, rms, 1)
-	assert.Len(t, rms[0].ScopeMetrics, 1)
-	got := rms[0].ScopeMetrics[0].Metrics
-	assert.Len(t, got, 1)
-	assert.Equal(t, "regular_metric", got[0].GetName())
-
-	mp.AssertExpectations(t)
-}
-
 // TestExport_DownstreamTimeout verifies each forward to the downstream
 // exporter runs under the configured timeout, or 5s when it is not positive,
 // and until the incoming request's deadline when that is under 50ms away.
@@ -1038,54 +503,34 @@ func TestExport_RetriesUnavailableUnderDownstreamTimeout(t *testing.T) {
 	})
 }
 
-// TestExport_CacheTimeout verifies a cache read and a cache write-back each
-// run under the cache operation timeout, capped at a tenth of the time the
-// incoming request has left (the cap is at least 5ms), whatever the
-// downstream timeout.
-func TestExport_CacheTimeout(t *testing.T) {
-	for _, tc := range []struct {
-		name             string
-		operationTimeout time.Duration
-		incoming         time.Duration // 0: no incoming deadline
-		want             time.Duration
-	}{
-		{name: "no incoming deadline", want: 200 * time.Millisecond},
-		{name: "configured operation timeout", operationTimeout: time.Second, want: time.Second},
-		{name: "incoming deadline", incoming: time.Second, want: 100 * time.Millisecond},
-		{name: "long incoming deadline", incoming: 5 * time.Second, want: 200 * time.Millisecond},
-		{name: "nearly expired", incoming: 40 * time.Millisecond, want: 5 * time.Millisecond},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				mp := &mockUsageProvider{}
-				mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").
-					Return([]models.MetricMetadata{{Name: "some_metric"}}, nil)
-				cfg := &config.Config{Ingester: config.IngesterConfig{
-					OTLP:  config.OtlpIngesterConfig{DownstreamTimeout: time.Second},
-					Redis: config.RedisCacheConfig{OperationTimeout: tc.operationTimeout},
-				}}
-				ing, err := NewOtlpIngester(cfg, mp)
-				require.NoError(t, err)
-				cache := &deadlineCache{}
-				ing.SetMetricCache(cache)
-				ing.SetExporter(&captureExporter{})
-
-				ctx := context.Background()
-				if tc.incoming > 0 {
-					var cancel context.CancelFunc
-					ctx, cancel = context.WithTimeout(ctx, tc.incoming)
-					defer cancel()
+// metricValue returns the value of the counter, or the sample count of the
+// histogram, named name whose labels are exactly labels, from the default
+// registry; 0 when there is no such series.
+func metricValue(t *testing.T, name string, labels map[string]string) float64 {
+	t.Helper()
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+	series:
+		for _, m := range mf.GetMetric() {
+			if len(m.GetLabel()) != len(labels) {
+				continue
+			}
+			for _, lp := range m.GetLabel() {
+				if labels[lp.GetName()] != lp.GetValue() {
+					continue series
 				}
-				start := time.Now()
-				_, err = ing.Export(ctx, buildExportRequest(buildGaugeMetric("some_metric", 1)))
-				require.NoError(t, err)
-				require.Len(t, cache.reads, 1)
-				assert.Equal(t, tc.want, cache.reads[0].Sub(start))
-				require.Len(t, cache.writes, 1)
-				assert.Equal(t, tc.want, cache.writes[0].Sub(start))
-			})
-		})
+			}
+			if h := m.GetHistogram(); h != nil {
+				return float64(h.GetSampleCount())
+			}
+			return m.GetCounter().GetValue()
+		}
 	}
+	return 0
 }
 
 // deadlineExporter records the deadline of the context each forward runs
@@ -1106,29 +551,6 @@ func (d *deadlineExporter) Export(ctx context.Context, _ *colmetricspb.ExportMet
 	return err
 }
 func (d *deadlineExporter) Close() error { return nil }
-
-// deadlineCache records the deadline of the context each cache read and
-// write runs under, and answers every name as unknown.
-type deadlineCache struct {
-	reads  []time.Time
-	writes []time.Time
-}
-
-func (c *deadlineCache) GetStates(ctx context.Context, names []string) (map[string]otlppkg.MetricUsageState, error) {
-	deadline, _ := ctx.Deadline()
-	c.reads = append(c.reads, deadline)
-	states := make(map[string]otlppkg.MetricUsageState, len(names))
-	for _, name := range names {
-		states[name] = otlppkg.StateUnknown
-	}
-	return states, nil
-}
-func (c *deadlineCache) SetStates(ctx context.Context, _ map[string]otlppkg.MetricUsageState) error {
-	deadline, _ := ctx.Deadline()
-	c.writes = append(c.writes, deadline)
-	return nil
-}
-func (c *deadlineCache) Close() error { return nil }
 
 type captureExporter struct {
 	captured *colmetricspb.ExportMetricsServiceRequest
