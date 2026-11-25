@@ -338,7 +338,7 @@ Flags (api):
   -postgresql-database string
     	Database for the postgresql server. The legacy POSTGRESQL_DATABASE env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE)
   -postgresql-dial-timeout duration
-    	Timeout to dial postgresql. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
+    	Timeout to connect to postgresql, rounded up to whole seconds. 0 or negative waits indefinitely. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
   -postgresql-max-idle-conns int
     	Maximum number of idle connections in the pool (0 = use default 10). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_IDLE_CONNS)
   -postgresql-max-open-conns int
@@ -474,7 +474,7 @@ Flags (metrics ingester):
   -postgresql-database string
     	Database for the postgresql server. The legacy POSTGRESQL_DATABASE env var is still read as its default. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DATABASE)
   -postgresql-dial-timeout duration
-    	Timeout to dial postgresql. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
+    	Timeout to connect to postgresql, rounded up to whole seconds. 0 or negative waits indefinitely. (env PROM_ANALYTICS_PROXY_POSTGRESQL_DIAL_TIMEOUT) (default 5s)
   -postgresql-max-idle-conns int
     	Maximum number of idle connections in the pool (0 = use default 10). (env PROM_ANALYTICS_PROXY_POSTGRESQL_MAX_IDLE_CONNS)
   -postgresql-max-open-conns int
