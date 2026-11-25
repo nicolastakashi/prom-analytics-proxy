@@ -12,12 +12,13 @@ import (
 )
 
 // assertPages verifies a listing of three items paged two at a time: the
-// pages are disjoint, together hold every item once, and both report
-// Total 3 and TotalPages 2. fetch returns one page and its item keys.
+// pages are disjoint, together hold every item once, and every page, including
+// an empty one past the last, reports Total 3 and TotalPages 2. fetch returns
+// one page and its item keys.
 func assertPages(t *testing.T, fetch func(page int) (PagedResult, []string)) {
 	t.Helper()
 	seen := map[string]bool{}
-	for page, wantLen := range map[int]int{1: 2, 2: 1} {
+	for page, wantLen := range map[int]int{1: 2, 2: 1, 3: 0} {
 		res, ids := fetch(page)
 		assert.Equal(t, [2]int{3, 2}, [2]int{res.Total, res.TotalPages}, "page %d: Total, TotalPages", page)
 		assert.Len(t, ids, wantLen, "page %d", page)
@@ -26,7 +27,7 @@ func assertPages(t *testing.T, fetch func(page int) (PagedResult, []string)) {
 			seen[id] = true
 		}
 	}
-	assert.Len(t, seen, 3, "items across both pages")
+	assert.Len(t, seen, 3, "items across all pages")
 }
 
 // testPaginatedListings verifies every paginated listing honors Page and
@@ -45,6 +46,11 @@ func testPaginatedListings(t *testing.T, b testBackend) {
 		x.Fingerprint = "fpx"
 		qs = append(qs, q, x)
 	}
+	// A second execution of up0/fp0: listings grouped by query or fingerprint
+	// still hold three items.
+	again := qs[0]
+	again.TS = again.TS.Add(time.Minute)
+	qs = append(qs, again)
 	mustInsertQueries(t, p, qs)
 	var rules []RulesUsage
 	var dashes []DashboardUsage
