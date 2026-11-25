@@ -127,6 +127,8 @@ Usage summary aggregation (alert counts, recording rule counts, dashboard counts
   -ingester-cache-addr redis:6379
 ```
 
+The ingester does not wait for the database to start. Until it connects, it serves `Export`, drops only the metrics the cache confirms unused and forwards the rest, and keeps the catalog entries it sees buffered for the next flush. It retries a connection failure with exponential backoff, from 1s up to 15s with jitter, and starts filtering once connected. Any other database error at startup, such as an unknown `-database-provider` or a failed migration, stops the ingester. Readiness (`/readyz`) does not depend on the database.
+
 Or via config file:
 
 ```yaml
@@ -159,6 +161,13 @@ The ingester exposes Prometheus metrics on `-ingester-metrics-listen-address` (d
 | `ingester_receiver_received_metric_points_total` | Counter | | Data points received, before any filtering. |
 | `ingester_receiver_missing_job_total` | Counter | | Unused metrics whose resource has neither a `job` nor a `service.name` attribute, counted once per metric when deciding whether to drop it. Such metrics are dropped only when no allow list is set. |
 
+### Database connection
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ingester_database_up` | Gauge | | `1` once the ingester has connected to the database, `0` before. While `0`, only the cache filters metrics. |
+| `ingester_database_connect_attempts_total` | Counter | `result` | Attempts to connect to the database, by `result`: `success`, `failure`. |
+
 ### Filtering
 
 | Metric | Type | Labels | Description |
@@ -176,10 +185,10 @@ Each request resolves the usage state of its metric names from the Redis cache f
 | `ingester_metric_cache_errors_total` | Counter | `operation`, `reason` | Failed cache calls, once per call, by `operation` (`get`, `set`) and `reason`: `timeout` when the call ran out of time, `error` otherwise. Calls made for a canceled request are not counted. |
 | `ingester_metric_cache_lookup_seconds` | Histogram | | Duration of each cache read, per chunk, including reads that failed or timed out. |
 | `ingester_metric_cache_write_seconds` | Histogram | | Duration of each cache write-back of states read from the database, whether or not the write succeeded. |
-| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request are not observed. |
-| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests. The names in a failed chunk are treated as used and forwarded. |
+| `ingester_processor_lookup_duration_seconds` | Histogram | `outcome` | Duration of each database lookup, per chunk, by `outcome`: `ok`, `timeout` when it ran out of time or the database timed the statement out, `error` otherwise. Lookups for a canceled request, or made before the ingester connected to the database, are not observed. |
+| `ingester_processor_lookup_errors_total` | Counter | | Failed database lookups, per chunk, not counting canceled requests or lookups made before the ingester connected to the database. The names in a failed chunk are treated as used and forwarded. |
 | `ingester_processor_usage_resolutions_total` | Counter | `source` | Names looked up, each counted once per request, by what resolved their usage state: `cache`, `database` (including names it has no record of, which are kept), or `unresolved` (forwarded as used). Names of a canceled request are not counted as unresolved. |
-| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout`, `db_error`. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
+| `ingester_processor_unresolved_total` | Counter | `reason` | Names forwarded as used because their usage state could not be resolved, by `reason`: `db_timeout`, `db_error`, or `db_unavailable` while the ingester has not connected to the database. Breaks down `ingester_processor_usage_resolutions_total{source="unresolved"}`. |
 
 ### Downstream forwarding
 
@@ -196,6 +205,6 @@ Each request resolves the usage state of its metric names from the Redis cache f
 | `ingester_catalog_buffer_dropped_total` | Counter | | Metrics discarded because the buffer was full, either when buffered or when re-queued after a failed flush. |
 | `ingester_catalog_flush_duration_seconds` | Histogram | | Duration of each successful flush to the database. |
 | `ingester_catalog_flush_metrics_total` | Counter | | Metrics written to the catalog by successful flushes. |
-| `ingester_catalog_flush_errors_total` | Counter | | Failed flushes. Their metrics are re-queued for the next flush, up to the buffer size; the rest count as dropped. |
+| `ingester_catalog_flush_errors_total` | Counter | | Failed flushes, not counting flushes before the ingester connected to the database. Their metrics are re-queued for the next flush, up to the buffer size; the rest count as dropped. |
 
 See [Troubleshooting](troubleshooting.md#ingester-export-observability) for PromQL examples and log events.

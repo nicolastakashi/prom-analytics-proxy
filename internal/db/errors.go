@@ -44,14 +44,24 @@ func QueryError(err error, operation string, details string) error {
 	return ErrorWithOperation(err, operation)
 }
 
-// ConnectionError wraps connection errors with context
+// ConnectionError wraps a failure to reach the database with context. The
+// result matches both ErrDatabaseConnection and err.
 func ConnectionError(err error, dbType string, details string) error {
-	baseErr := fmt.Errorf("failed to connect to %s database: %w", dbType, err)
+	msg := fmt.Sprintf("failed to connect to %s database: %v", dbType, err)
 	if details != "" {
-		return fmt.Errorf("%s: %s", baseErr.Error(), details)
+		msg += ": " + details
 	}
-	return baseErr
+	return &connectionError{msg: msg, err: err}
 }
+
+type connectionError struct {
+	msg string
+	err error
+}
+
+func (e *connectionError) Error() string { return e.msg }
+
+func (e *connectionError) Unwrap() []error { return []error{ErrDatabaseConnection, e.err} }
 
 // SchemaError wraps schema-related errors
 func SchemaError(err error, operation string, table string) error {

@@ -2,6 +2,7 @@ package otlp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -148,7 +149,8 @@ func (s *catalogSync) flushOnShutdown(timeout time.Duration) {
 }
 
 // flush writes the buffered metrics to the database. Metrics a failed write
-// leaves behind are buffered again for the next flush.
+// leaves behind are buffered again for the next flush. A write the database
+// gate refuses before connecting is not counted as a flush error.
 func (s *catalogSync) flush(ctx context.Context) {
 	if s == nil {
 		return
@@ -162,6 +164,10 @@ func (s *catalogSync) flush(ctx context.Context) {
 	if err := s.store.UpsertMetricsCatalog(ctx, items); err != nil {
 		// Keep items in memory for a future retry on transient DB errors.
 		s.buf.requeue(items)
+		if errors.Is(err, errDatabaseUnavailable) {
+			slog.DebugContext(ctx, "ingester.catalog.flush.database_unavailable", "metrics_count", len(items))
+			return
+		}
 		slog.ErrorContext(ctx, "ingester.catalog.flush.failed",
 			"err", err,
 			"metrics_count", len(items))

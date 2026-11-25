@@ -210,6 +210,8 @@ func TestConnectionError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ConnectionError(tt.err, tt.dbType, tt.details)
 			assert.Equal(t, tt.expected, err.Error())
+			assert.ErrorIs(t, err, ErrDatabaseConnection)
+			assert.ErrorIs(t, err, tt.err)
 		})
 	}
 }

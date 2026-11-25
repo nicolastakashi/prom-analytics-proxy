@@ -76,22 +76,28 @@ func serve(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	dbProvider, err := db.GetDbProvider(ctx, db.DatabaseProvider(config.DefaultConfig.Database.Provider))
-	if err != nil {
-		return fmt.Errorf("create db provider: %w", err)
-	}
-
+	// The ingester serves without the database, filtering only on the cache,
+	// until the gate connects.
+	database := otlp.NewDatabaseGate(func(ctx context.Context) (db.Provider, error) {
+		return db.GetDbProvider(ctx, db.DatabaseProvider(config.DefaultConfig.Database.Provider))
+	})
 	defer func() {
-		if err := dbProvider.Close(); err != nil {
+		if err := database.Close(); err != nil {
 			slog.ErrorContext(ctx, "ingester.db.close_error", "err", err)
 		}
 	}()
+	g.Add(func() error {
+		return database.Run(ctx)
+	}, func(error) {
+		cancel()
+	})
 
 	var otlpIngester *internalIngester.OtlpIngester
 
 	switch config.DefaultConfig.Ingester.Protocol {
 	case string(config.ProtocolOTLP):
-		otlpIngester, err = internalIngester.NewOtlpIngester(config.DefaultConfig, dbProvider)
+		var err error
+		otlpIngester, err = internalIngester.NewOtlpIngester(config.DefaultConfig, database)
 		if err != nil {
 			return fmt.Errorf("create otlp ingester: %w", err)
 		}

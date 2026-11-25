@@ -86,6 +86,21 @@ func openDBPools() int {
 	}
 }
 
+// scrapedValue returns the value of series, written as in the text
+// exposition format, from the /metrics body.
+func scrapedValue(t *testing.T, body, series string) float64 {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		if v, ok := strings.CutPrefix(line, series+" "); ok {
+			f, err := strconv.ParseFloat(v, 64)
+			require.NoError(t, err, line)
+			return f
+		}
+	}
+	require.FailNow(t, "series not exposed", series)
+	return 0
+}
+
 func httpGet(t *testing.T, url string) (status int, body string) {
 	t.Helper()
 	client := http.Client{Timeout: 2 * time.Second}
@@ -111,17 +126,32 @@ func TestServe_UnknownDatabaseProviderFailsStartup(t *testing.T) {
 }
 
 // Not parallel: swaps config.DefaultConfig.
-func TestServe_UnreachablePostgreSQLFailsStartup(t *testing.T) {
+func TestServe_UnreachablePostgreSQLServesWithoutDatabase(t *testing.T) {
+	addr := "127.0.0.1:" + strconv.Itoa(closedPort(t))
 	configure(t,
 		"-database-provider=postgresql",
 		"-postgresql-addr=127.0.0.1",
 		"-postgresql-port="+strconv.Itoa(closedPort(t)),
 		"-postgresql-dial-timeout=1s",
+		"-ingester-metrics-listen-address="+addr,
+		"-ingester-drain-delay=100ms",
 	)
-	_, result := startServe(t)
+	cancel, result := startServe(t)
+	base := "http://" + addr
 
+	require.Eventually(t, func() bool {
+		status, body := httpGet(t, base+"/readyz")
+		return status == http.StatusOK && body == "ok"
+	}, 10*time.Second, 20*time.Millisecond, "/readyz never answered 200 ok")
+	require.Never(t, func() bool { return len(result) > 0 }, 2*time.Second, 10*time.Millisecond)
+	status, body := httpGet(t, base+"/metrics")
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, 0.0, scrapedValue(t, body, "ingester_database_up"))
+	require.Positive(t, scrapedValue(t, body, `ingester_database_connect_attempts_total{result="failure"}`))
+
+	cancel()
 	err := awaitResult(t, result, 30*time.Second)
-	require.ErrorContains(t, err, "PostgreSQL")
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 // Not parallel: swaps config.DefaultConfig.

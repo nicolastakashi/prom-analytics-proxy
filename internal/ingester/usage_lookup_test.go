@@ -852,6 +852,66 @@ func TestExport_DBLookupFailure_CountsUnresolved(t *testing.T) {
 	}
 }
 
+// TestExport_DatabaseUnavailable_ForwardsUnfilteredUntilConnected verifies
+// that before the database gate connects every metric is forwarded and its
+// name counted unresolved as db_unavailable, with no lookup observed or
+// counted as failed, unless the request was canceled; once connected, unused
+// metrics are dropped.
+func TestExport_DatabaseUnavailable_ForwardsUnfilteredUntilConnected(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mp := &mockUsageProvider{}
+		release := make(chan struct{})
+		gate := otlppkg.NewDatabaseGate(func(ctx context.Context) (db.Provider, error) {
+			select {
+			case <-release:
+				return mp, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- gate.Run(ctx) }()
+		defer func() {
+			cancel()
+			require.ErrorIs(t, <-done, context.Canceled)
+		}()
+		ing, err := NewOtlpIngester(&config.Config{}, gate)
+		require.NoError(t, err)
+		exp := &captureExporter{}
+		ing.SetExporter(exp)
+		export := func(ctx context.Context) {
+			_, err := ing.Export(ctx, buildExportRequest(buildGaugeMetric("used_metric", 1), buildGaugeMetric("unused_metric", 1)))
+			require.NoError(t, err)
+		}
+		unavailable := []series{
+			{"ingester_processor_usage_resolutions_total", map[string]string{"source": "unresolved"}},
+			{"ingester_processor_unresolved_total", map[string]string{"reason": "db_unavailable"}},
+			{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "timeout"}},
+			{"ingester_processor_lookup_duration_seconds", map[string]string{"outcome": "error"}},
+			{"ingester_processor_lookup_errors_total", map[string]string{}},
+		}
+
+		got := seriesDeltas(t, unavailable, func() { export(t.Context()) })
+		assert.Equal(t, []float64{2, 2, 0, 0, 0}, got)
+		assert.Equal(t, []string{"used_metric", "unused_metric"}, forwardedNames(exp))
+
+		canceled, cancelRequest := canceledContext()
+		defer cancelRequest()
+		got = seriesDeltas(t, unavailable, func() { export(canceled) })
+		assert.Equal(t, []float64{0, 0, 0, 0, 0}, got)
+
+		mp.On("GetSeriesMetadataByNames", mock.Anything, mock.Anything, "").Return([]models.MetricMetadata{
+			{Name: "unused_metric", IsUnused: true},
+		}, nil)
+		close(release)
+		synctest.Wait()
+
+		export(t.Context())
+		assert.Equal(t, []string{"used_metric"}, forwardedNames(exp))
+	})
+}
+
 // TestExport_CacheReadFailure verifies a cache read that fails part way
 // keeps the names it answered, sends only the rest to the database without
 // counting them as misses, and counts the failed call once by whether it

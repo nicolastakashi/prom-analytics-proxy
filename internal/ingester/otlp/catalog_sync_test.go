@@ -63,6 +63,34 @@ func TestCatalogSync_RetriesFailedFlushWithoutMarkingSeen(t *testing.T) {
 	assert.True(t, seen.data["new_metric"])
 }
 
+// TestCatalogSync_FailedFlush_Requeues verifies a failed flush keeps its
+// metrics for the next flush, and counts a flush error unless the database
+// gate refused the write before connecting.
+func TestCatalogSync_FailedFlush_Requeues(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantErrors float64
+	}{
+		{name: "database error", err: assert.AnError, wantErrors: 1},
+		{name: "database unavailable", err: errDatabaseUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{err: tc.err}
+			ing := newCatalogIngester(t, store, nil)
+			flushErrors := metricValue(t, "ingester_catalog_flush_errors_total", map[string]string{})
+
+			exportMetrics(t, ing, makeGauge("new_metric", "", ""))
+			ing.FlushCatalog(context.Background())
+			assert.Equal(t, tc.wantErrors, metricValue(t, "ingester_catalog_flush_errors_total", map[string]string{})-flushErrors)
+
+			store.setErr(nil)
+			ing.FlushCatalog(context.Background())
+			assert.Equal(t, [][]string{{"new_metric"}, {"new_metric"}}, store.upsertedNames())
+		})
+	}
+}
+
 // TestCatalogSync_WithoutSeenCache_SkipsNamesWrittenWithinTTL verifies that
 // without a seen cache, a metric written to the catalog is not written again
 // until the seen TTL has passed.
