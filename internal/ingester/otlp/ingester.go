@@ -46,10 +46,9 @@ type OtlpIngester struct {
 	metricspb.UnimplementedMetricsServiceServer
 	config *config.Config
 
-	exporter      MetricsExporter
-	exportTimeout time.Duration
-	lookups       *usageResolver
-	healthSrv     *health.Server
+	forwarder *forwarder
+	lookups   *usageResolver
+	healthSrv *health.Server
 
 	allowedJobs map[string]struct{}
 	deniedJobs  map[string]struct{}
@@ -100,8 +99,8 @@ func NewOtlpIngester(config *config.Config, store Store) (*OtlpIngester, error) 
 	catalog := newCatalogSync(config, store)
 
 	return &OtlpIngester{
-		config:        config,
-		exportTimeout: exportTimeout,
+		config:    config,
+		forwarder: &forwarder{timeout: exportTimeout},
 		lookups: &usageResolver{
 			cache:            metricCache,
 			store:            store,
@@ -148,7 +147,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 		return err
 	}
 	if exp != nil {
-		i.exporter = exp
+		i.forwarder.setExporter(exp)
 		slog.InfoContext(ctx, "ingester.downstream.connected", "endpoint", i.config.Ingester.OTLP.DownstreamAddress)
 	} else {
 		slog.InfoContext(ctx, "ingester.downstream.disabled")
@@ -198,9 +197,7 @@ func (i *OtlpIngester) Run(ctx context.Context) error {
 
 		i.catalog.flushOnShutdown(timeout)
 
-		if i.exporter != nil {
-			_ = i.exporter.Close()
-		}
+		i.forwarder.close()
 		i.lookups.close()
 		i.catalog.close()
 		if timedOut {
@@ -239,42 +236,6 @@ func grpcServerOptions(cfg *config.Config) []grpc.ServerOption {
 	}
 }
 
-func initDownstreamExporter(cfg *config.Config) (MetricsExporter, error) {
-	downstreamEndpoint := cfg.Ingester.OTLP.DownstreamAddress
-	if downstreamEndpoint == "" {
-		return nil, nil
-	}
-	return NewOTLPExporter(downstreamEndpoint, cfg.Ingester.Protocol, &ExporterOptions{
-		MaxSendMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxSendMsgSizeBytes,
-		MaxRecvMsgSizeBytes: cfg.Ingester.OTLP.DownstreamGRPCMaxRecvMsgSizeBytes,
-		BalancerName:        cfg.Ingester.OTLP.BalancerName,
-		Retry: RetryPolicy{
-			MaxAttempts:          cfg.Ingester.OTLP.DownstreamRetryMaxAttempts,
-			InitialBackoff:       cfg.Ingester.OTLP.DownstreamRetryInitialBackoff,
-			MaxBackoff:           cfg.Ingester.OTLP.DownstreamRetryMaxBackoff,
-			BackoffMultiplier:    cfg.Ingester.OTLP.DownstreamRetryBackoffMultiplier,
-			RetryableStatusCodes: cfg.Ingester.OTLP.DownstreamRetryCodes,
-		},
-		ConnectMinTimeout: cfg.Ingester.OTLP.DownstreamConnectMinTimeout,
-		ConnectBaseDelay:  cfg.Ingester.OTLP.DownstreamConnectBaseDelay,
-		ConnectMaxDelay:   cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
-		ConnectMultiplier: cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
-	})
-}
-
-func computeExportTimeout(ctx context.Context, base time.Duration) time.Duration {
-	tout := base
-	if deadline, ok := ctx.Deadline(); ok {
-		if d := time.Until(deadline); d > 0 && d < tout {
-			tout = d - 50*time.Millisecond
-			if tout <= 0 {
-				tout = 50 * time.Millisecond
-			}
-		}
-	}
-	return tout
-}
-
 func logExportSuccess(ctx context.Context, downstreamEnabled, dryRun bool) {
 	slog.DebugContext(ctx, "ingester.export.success",
 		"rpc.method", rpcMethod,
@@ -308,12 +269,15 @@ func logExportFailure(ctx context.Context, err error, downstreamEnabled bool) {
 	}
 }
 
-func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
+func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (_ *metricspb.ExportMetricsServiceResponse, err error) {
 	start := time.Now()
-	var code string
 	rpcInFlight.Inc()
 	defer func() {
 		rpcInFlight.Dec()
+		code := rpcOkCode
+		if err != nil {
+			code = status.Code(err).String()
+		}
 		labels := prometheus.Labels{
 			"rpc.system":        rpcSystem,
 			"rpc.service":       rpcService,
@@ -330,7 +294,6 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	}
 
 	if len(namesSet) == 0 {
-		code = rpcOkCode
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
@@ -339,7 +302,7 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 	unused := i.lookups.newLookup(histogramBases, summaryBases).resolve(ctx, namesSet)
 	slog.DebugContext(ctx, "ingester.unused_metrics.count", "count", len(unused))
 
-	dryRun := i.config != nil && i.config.Ingester.DryRun
+	dryRun := i.config.Ingester.DryRun
 
 	var droppedDatapoints int64
 
@@ -354,48 +317,19 @@ func (i *OtlpIngester) Export(ctx context.Context, req *metricspb.ExportMetricsS
 		}
 	}
 
-	if i.exporter == nil {
-		code = rpcOkCode
+	if !i.forwarder.enabled() {
 		logExportSuccess(ctx, false, dryRun)
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
-
-	tout := computeExportTimeout(ctx, i.exportTimeout)
-	fctx, cancel := context.WithTimeout(ctx, tout)
-	defer cancel()
-
-	err := i.exporter.Export(fctx, req)
-	if err != nil && status.Code(err) == codes.Unavailable {
-		select {
-		case <-time.After(250 * time.Millisecond):
-		case <-fctx.Done():
-			code = status.Code(fctx.Err()).String()
-			logExportFailure(ctx, fctx.Err(), true)
-			return nil, fctx.Err()
-		}
-		fctx2, cancel2 := context.WithTimeout(ctx, tout)
-		defer cancel2()
-		exporterRetriesTotal.Inc()
-		if err2 := i.exporter.Export(fctx2, req); err2 != nil {
-			code = status.Code(err2).String()
-			logExportFailure(ctx, err2, true)
-			return nil, err2
-		}
-		code = rpcOkCode
-		logExportSuccess(ctx, true, dryRun)
-		return &metricspb.ExportMetricsServiceResponse{}, nil
-	} else if err != nil {
-		code = status.Code(err).String()
+	if err = i.forwarder.forward(ctx, req); err != nil {
 		logExportFailure(ctx, err, true)
 		return nil, err
 	}
-
-	code = rpcOkCode
 	logExportSuccess(ctx, true, dryRun)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }
 
-func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.exporter = exp }
+func (i *OtlpIngester) SetExporter(exp MetricsExporter) { i.forwarder.setExporter(exp) }
 
 func (i *OtlpIngester) SetMetricCache(cache MetricUsageCache) {
 	i.lookups.setCache(cache)
