@@ -65,9 +65,15 @@ func RegisterFlags(fs *flag.FlagSet, configFile *string) {
 	config.RegisterMemoryLimitFlags(fs)
 }
 
+// Run serves until SIGINT/SIGTERM or an actor fails.
 func Run() error {
+	return serve(context.Background())
+}
+
+// serve runs until parent is canceled, SIGINT/SIGTERM, or an actor fails.
+func serve(parent context.Context) error {
 	var g run.Group
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	dbProvider, err := db.GetDbProvider(ctx, db.DatabaseProvider(config.DefaultConfig.Database.Provider))
