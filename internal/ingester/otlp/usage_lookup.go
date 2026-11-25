@@ -14,12 +14,14 @@ import (
 
 // usageResolver resolves which metrics are unused from the cache, then the
 // database. It holds what a usageLookup uses: the cache (nil: none), the
-// store, the lookup chunk size and the cache operation timeout.
+// store, the lookup chunk size, the cache operation timeout and the lookup
+// timeout.
 type usageResolver struct {
 	cache            MetricUsageCache
 	store            Store
 	chunkSize        int
 	operationTimeout time.Duration
+	timeout          time.Duration
 }
 
 // usageLookup is the usage lookup of one Export request. It asks the cache,
@@ -33,6 +35,7 @@ type usageLookup struct {
 	histogramBases map[string]struct{}
 	summaryBases   map[string]struct{}
 	unusedSeries   map[string]struct{}
+	databaseFailed bool // a database call failed; skip the database
 }
 
 func (r *usageResolver) newLookup(histogramBases, summaryBases map[string]struct{}) *usageLookup {
@@ -45,8 +48,13 @@ func (r *usageResolver) newLookup(histogramBases, summaryBases map[string]struct
 }
 
 // resolve returns the metrics among names confirmed unused, looking each
-// chunk of names up in the cache first and the rest in the database.
+// chunk of names up in the cache first and the rest in the database. The
+// whole lookup, cache calls included, runs under the lookup timeout, capped
+// to leave forwardReserve of ctx's time.
 func (l *usageLookup) resolve(ctx context.Context, names map[string]struct{}) map[string]struct{} {
+	ctx, cancel := context.WithTimeout(ctx, l.r.lookupTimeout(ctx))
+	defer cancel()
+
 	chunkSize := l.r.chunkSize
 	batch := make([]string, 0, chunkSize)
 	flush := func() {
@@ -56,8 +64,8 @@ func (l *usageLookup) resolve(ctx context.Context, names map[string]struct{}) ma
 		unusedFromCache, misses := l.lookupCache(ctx, batch)
 		l.confirmUnused(ctx, "cache", unusedFromCache)
 		if len(misses) > 0 {
-			// A DB error for this chunk fails open (see lookupDatabase) and does
-			// not stop the remaining chunks from being looked up.
+			// A DB error for this chunk fails open (see lookupDatabase); the
+			// remaining chunks still read the cache.
 			l.confirmUnused(ctx, "db", l.lookupDatabase(ctx, misses))
 		}
 		batch = batch[:0]
@@ -156,9 +164,10 @@ func hasBaseIn(bases map[string]struct{}, name string, suffixes ...string) bool 
 
 // lookupCache returns the names of batch the cache confirms unused, and the
 // names it does not resolve, which go to the database: misses, and names a
-// failed read did not answer.
+// failed read did not answer. Once ctx's deadline has expired, the cache is
+// not read and every name goes to the database.
 func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, toDB []string) {
-	if l.r.cache == nil {
+	if l.r.cache == nil || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, batch
 	}
 
@@ -183,11 +192,19 @@ func (l *usageLookup) lookupCache(ctx context.Context, batch []string) (unused, 
 // downstream instead of being silently discarded.
 // See https://github.com/nicolastakashi/prom-analytics-proxy/issues/569.
 // A lookup the database gate refuses before connecting fails open the same
-// way, but is neither observed nor counted as a failed lookup.
+// way, but is neither observed nor counted as a failed lookup. After any
+// failed call, the lookup does not call the database again: later names fail
+// open like a refused lookup.
 func (l *usageLookup) lookupDatabase(ctx context.Context, names []string) []string {
+	if l.databaseFailed {
+		slog.DebugContext(ctx, "ingester.lookup.database_skipped", "names_count", len(names))
+		countUnresolved(ctx, len(names), reasonDatabaseUnavailable)
+		return nil
+	}
 	t0 := time.Now()
 	metas, err := l.r.store.GetSeriesMetadataByNames(ctx, names, "")
 	if err != nil {
+		l.databaseFailed = true
 		if errors.Is(err, errDatabaseUnavailable) {
 			slog.DebugContext(ctx, "ingester.lookup.database_unavailable", "names_count", len(names))
 			countUnresolved(ctx, len(names), reasonDatabaseUnavailable)
@@ -228,14 +245,22 @@ func (r *usageResolver) close() {
 	}
 }
 
-// cacheTimeout returns the cache operation timeout, capped at a tenth of the
-// time the incoming request has left; the cap is at least minCacheTimeout.
-func (r *usageResolver) cacheTimeout(ctx context.Context) time.Duration {
-	cacheTimeout := r.operationTimeout
+// lookupTimeout returns the lookup timeout, capped at the time ctx has left
+// less forwardReserve; zero or negative when ctx has no more than that left.
+func (r *usageResolver) lookupTimeout(ctx context.Context) time.Duration {
+	timeout := r.timeout
 	if deadline, ok := ctx.Deadline(); ok {
-		cacheTimeout = min(cacheTimeout, max(time.Until(deadline)/10, minCacheTimeout))
+		timeout = min(timeout, time.Until(deadline)-forwardReserve)
 	}
-	return cacheTimeout
+	return timeout
+}
+
+// cacheTimeout returns the cache operation timeout, capped at a tenth of the
+// time the usage lookup's ctx has left; the cap is at least minCacheTimeout.
+// That ctx always has a deadline.
+func (r *usageResolver) cacheTimeout(ctx context.Context) time.Duration {
+	deadline, _ := ctx.Deadline()
+	return min(r.operationTimeout, max(time.Until(deadline)/10, minCacheTimeout))
 }
 
 // recordCacheFailure logs and counts a cache call that failed with err under

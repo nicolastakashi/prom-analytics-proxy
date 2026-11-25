@@ -390,7 +390,7 @@ Flags (metrics ingester):
   -ingester-cache-enabled
     	Enable metric usage caching (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_ENABLED)
   -ingester-cache-operation-timeout duration
-    	Timeout for cache get/set operations, capped at a tenth of the time the incoming request has left; the cap is at least 5ms (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_OPERATION_TIMEOUT) (default 200ms)
+    	Timeout for cache get/set operations, capped at a tenth of the time the usage lookup has left; the cap is at least 5ms (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_OPERATION_TIMEOUT) (default 200ms)
   -ingester-cache-password string
     	Cache password (optional) (env PROM_ANALYTICS_PROXY_INGESTER_CACHE_PASSWORD)
   -ingester-cache-unused-ttl duration
@@ -463,6 +463,8 @@ Flags (metrics ingester):
     	The address the metrics ingester should listen on. (env PROM_ANALYTICS_PROXY_OTLP_LISTEN_ADDRESS) (default ":4317")
   -otlp-lookup-chunk-size int
     	Batch size for database lookups when checking metric usage (default 500, SQLite max 999) (env PROM_ANALYTICS_PROXY_OTLP_LOOKUP_CHUNK_SIZE) (default 500)
+  -otlp-lookup-timeout duration
+    	Time limit for looking up a request's metric usage in the cache and database, shortened to leave 1s of the incoming request's deadline for forwarding downstream. 0 or negative uses the default. (env PROM_ANALYTICS_PROXY_OTLP_LOOKUP_TIMEOUT) (default 2.5s)
   -otlp-max-recv-bytes int
     	Max gRPC receive message size for OTLP server (bytes) (env PROM_ANALYTICS_PROXY_OTLP_MAX_RECV_BYTES) (default 10485760)
   -otlp-max-send-bytes int

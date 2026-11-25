@@ -234,6 +234,7 @@ var DefaultConfig = &Config{
 			DownstreamGRPCMaxRecvMsgSizeBytes:  10 * 1024 * 1024,
 			DownstreamGRPCMaxSendMsgSizeBytes:  10 * 1024 * 1024,
 			DownstreamTimeout:                  5 * time.Second,
+			LookupTimeout:                      2500 * time.Millisecond,
 			DownstreamRetryMaxAttempts:         2,
 			DownstreamRetryInitialBackoff:      250 * time.Millisecond,
 			DownstreamRetryMaxBackoff:          1 * time.Second,
@@ -286,6 +287,10 @@ type OtlpIngesterConfig struct {
 	// shortened when the incoming request's deadline leaves less time. 0 or
 	// negative uses 5s.
 	DownstreamTimeout time.Duration `yaml:"downstream_timeout,omitempty"`
+	// LookupTimeout bounds the usage lookup of each request in the cache and
+	// database, shortened to leave 1s of the incoming request's deadline for
+	// forwarding downstream. 0 or negative uses 2.5s.
+	LookupTimeout time.Duration `yaml:"lookup_timeout,omitempty"`
 	// Downstream retry policy configuration for OTLP client
 	DownstreamRetryMaxAttempts       int           `yaml:"downstream_retry_max_attempts,omitempty"`
 	DownstreamRetryInitialBackoff    time.Duration `yaml:"downstream_retry_initial_backoff,omitempty"`
@@ -705,6 +710,7 @@ func logIngesterOTLPConfig(cfg *Config) {
 		"Ingester.OTLP.DownstreamConnectMaxDelay", cfg.Ingester.OTLP.DownstreamConnectMaxDelay,
 		"Ingester.OTLP.DownstreamConnectBackoffMultiplier", cfg.Ingester.OTLP.DownstreamConnectBackoffMultiplier,
 		"Ingester.OTLP.LookupChunkSize", cfg.Ingester.OTLP.LookupChunkSize,
+		"Ingester.OTLP.LookupTimeout", cfg.Ingester.OTLP.LookupTimeout,
 	)
 }
 
