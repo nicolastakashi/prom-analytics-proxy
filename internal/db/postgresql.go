@@ -380,13 +380,8 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 	}
 	ValidateSortField(&params.SortBy, &params.SortOrder, validSortFields, "avgDuration")
 
-	baseQuery := `
-	WITH filtered_queries AS (
-		SELECT
-			queryParam,
-			AVG(duration) AS avgDuration,
-			AVG(peakSamples) AS avgPeakySamples,
-			MAX(peakSamples) AS maxPeakSamples
+	// filter is shared by the count and the page so both see the same rows.
+	filter := `
 		FROM
 			queries
 		WHERE
@@ -400,38 +395,33 @@ func (p *PostGreSQLProvider) GetQueriesBySerieName(
 				END
 		GROUP BY
 			queryParam
-	),
-	counted_queries AS (
-		SELECT COUNT(*) as total_count
-		FROM filtered_queries
-	)
-	SELECT
-		q.*,
-		cq.total_count
-	FROM
-		filtered_queries q,
-		counted_queries cq
 	`
+	from, to := params.TimeRange.Format(ISOTimeFormat)
+	filterArgs := []interface{}{metricMatcherJSON(params.SerieName), from, to, params.Filter}
+
+	var totalCount int
+	countQuery := `SELECT COUNT(*) FROM (SELECT 1 ` + filter + `) grouped`
+	if err := p.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&totalCount); err != nil {
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	baseQuery := `
+		SELECT
+			queryParam,
+			AVG(duration) AS avgDuration,
+			AVG(peakSamples) AS avgPeakySamples,
+			MAX(peakSamples) AS maxPeakSamples
+	` + filter
 	// Build ORDER BY clause dynamically to avoid mixed-type CASE expressions
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $5 OFFSET $6;"
 
-	from, to := params.TimeRange.Format(ISOTimeFormat)
-	args := []interface{}{
-		metricMatcherJSON(params.SerieName),
-		from,
-		to,
-		params.Filter,
-		params.PageSize,
-		(params.Page - 1) * params.PageSize,
-	}
-
+	args := append(filterArgs, params.PageSize, (params.Page-1)*params.PageSize)
 	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return PagedResult{}, err
 	}
-	var totalCount int
-	results, err := ScanRows(rows, scanQueriesBySerieName(&totalCount))
+	results, err := ScanRows(rows, scanQueriesBySerieName)
 	if err != nil {
 		return PagedResult{}, err
 	}
@@ -1604,12 +1594,23 @@ func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params Que
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
-	baseQuery := `
-        WITH filtered AS (
-            SELECT *
+	// filter is shared by the count and the page so both see the same rows.
+	filter := `
             FROM queries
             WHERE ts BETWEEN $1 AND $2
               AND CASE WHEN $3 <> '' THEN queryParam ILIKE '%%' || $3 || '%%' ELSE TRUE END
+    `
+	filterArgs := []interface{}{from, to, params.Filter}
+
+	var totalCount int
+	countQuery := `SELECT COUNT(*) FROM (SELECT 1 ` + filter + ` GROUP BY fingerprint) grouped`
+	if err := p.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&totalCount); err != nil {
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	baseQuery := `
+        WITH filtered AS (
+            SELECT *` + filter + `
         ), grouped AS (
             SELECT
                 fingerprint,
@@ -1620,23 +1621,21 @@ func (p *PostGreSQLProvider) GetQueryExpressions(ctx context.Context, params Que
                 (ARRAY_AGG(queryParam ORDER BY ts DESC))[1] AS query
             FROM filtered
             GROUP BY fingerprint
-        ), counted AS (
-            SELECT COUNT(*) AS total_count FROM grouped
         )
-        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples, total_count
-        FROM grouped, counted
+        SELECT fingerprint, query, executions, avgDuration, errorRatePercent, peakSamples
+        FROM grouped
     `
 
 	// Safe ORDER BY
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := baseQuery + orderClause + " LIMIT $4 OFFSET $5;"
 
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to, params.Filter, params.PageSize, (params.Page-1)*params.PageSize)
+	args := append(filterArgs, params.PageSize, (params.Page-1)*params.PageSize)
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return PagedResult{}, err
 	}
-	var totalCount int
-	results, err := ScanRows(rows, scanQueryExpression(&totalCount))
+	results, err := ScanRows(rows, scanQueryExpression)
 	if err != nil {
 		return PagedResult{}, err
 	}
@@ -1663,32 +1662,35 @@ func (p *PostGreSQLProvider) GetQueryExecutions(ctx context.Context, params Quer
 
 	from, to := params.TimeRange.Format(ISOTimeFormat)
 
-	base := `
-        WITH filtered AS (
-            SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type, start, "end", step, httpHeaders
+	// filter is shared by the count and the page so both see the same rows.
+	filter := `
             FROM queries
             WHERE ts BETWEEN $1 AND $2
               AND fingerprint = $3
               AND ($4 = '' OR type = $4)
-        ), counted AS (
-            SELECT COUNT(*) AS total_count FROM filtered
-        )
-        SELECT ts, statusCode, duration, samples, type,
-               COALESCE(step, 0) AS steps,
-               httpHeaders, start, "end", total_count
-        FROM filtered, counted
     `
+	filterArgs := []interface{}{from, to, params.Fingerprint, params.Type}
+
+	var total int
+	if err := p.db.QueryRowContext(ctx, `SELECT COUNT(*) `+filter, filterArgs...).Scan(&total); err != nil {
+		return PagedResult{}, fmt.Errorf("failed to query total count: %w", err)
+	}
+
+	base := `
+        SELECT ts, statusCode, duration, totalQueryableSamples AS samples, type,
+               COALESCE(step, 0) AS steps,
+               httpHeaders, start, "end"
+    ` + filter
 
 	orderClause := fmt.Sprintf(" ORDER BY %s %s NULLS LAST", params.SortBy, strings.ToUpper(params.SortOrder))
 	query := base + orderClause + " LIMIT $5 OFFSET $6;"
 
-	offset := (params.Page - 1) * params.PageSize
-	rows, err := ExecuteQuery(ctx, p.db, query, from, to, params.Fingerprint, params.Type, params.PageSize, offset)
+	args := append(filterArgs, params.PageSize, (params.Page-1)*params.PageSize)
+	rows, err := ExecuteQuery(ctx, p.db, query, args...)
 	if err != nil {
 		return PagedResult{}, err
 	}
-	var total int
-	results, err := ScanRows(rows, scanQueryExecution(&total))
+	results, err := ScanRows(rows, scanQueryExecution)
 	if err != nil {
 		return PagedResult{}, err
 	}

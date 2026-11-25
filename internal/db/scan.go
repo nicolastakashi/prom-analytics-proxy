@@ -12,42 +12,32 @@ import (
 // Row scanners shared by both providers. Each maps one result row, with its
 // columns in the order both providers' queries select them.
 
-// scanQueriesBySerieName scans a GetQueriesBySerieName row, storing the
-// listing's total row count in total.
-func scanQueriesBySerieName(total *int) func(*sql.Rows) (QueriesBySerieNameResult, error) {
-	return func(row *sql.Rows) (QueriesBySerieNameResult, error) {
-		var r QueriesBySerieNameResult
-		err := row.Scan(&r.Query, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples, total)
-		return r, err
-	}
+func scanQueriesBySerieName(row *sql.Rows) (QueriesBySerieNameResult, error) {
+	var r QueriesBySerieNameResult
+	err := row.Scan(&r.Query, &r.AvgDuration, &r.AvgPeakySamples, &r.MaxPeakSamples)
+	return r, err
 }
 
-// scanQueryExpression scans a GetQueryExpressions row, storing the listing's
-// total row count in total.
-func scanQueryExpression(total *int) func(*sql.Rows) (QueryExpression, error) {
-	return func(row *sql.Rows) (QueryExpression, error) {
-		var r QueryExpression
-		err := row.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples, total)
-		return r, err
-	}
+func scanQueryExpression(row *sql.Rows) (QueryExpression, error) {
+	var r QueryExpression
+	err := row.Scan(&r.Fingerprint, &r.Query, &r.Executions, &r.AvgDuration, &r.ErrorRatePercent, &r.PeakSamples)
+	return r, err
 }
 
-// scanQueryExecution scans a GetQueryExecutions row, storing the listing's
-// total row count in total. Headers stored as NULL read back as none.
-func scanQueryExecution(total *int) func(*sql.Rows) (QueryExecutionRow, error) {
-	return func(row *sql.Rows) (QueryExecutionRow, error) {
-		var r QueryExecutionRow
-		var headers []byte
-		if err := row.Scan(&r.Timestamp, &r.Status, &r.Duration, &r.Samples, &r.Type, &r.Steps, &headers, &r.Start, &r.End, total); err != nil {
-			return r, err
-		}
-		if len(headers) > 0 {
-			if err := json.Unmarshal(headers, &r.HTTPHeaders); err != nil {
-				return r, fmt.Errorf("unmarshal httpHeaders: %w", err)
-			}
-		}
-		return r, nil
+// scanQueryExecution scans a GetQueryExecutions row. Headers stored as NULL
+// read back as none.
+func scanQueryExecution(row *sql.Rows) (QueryExecutionRow, error) {
+	var r QueryExecutionRow
+	var headers []byte
+	if err := row.Scan(&r.Timestamp, &r.Status, &r.Duration, &r.Samples, &r.Type, &r.Steps, &headers, &r.Start, &r.End); err != nil {
+		return r, err
 	}
+	if len(headers) > 0 {
+		if err := json.Unmarshal(headers, &r.HTTPHeaders); err != nil {
+			return r, fmt.Errorf("unmarshal httpHeaders: %w", err)
+		}
+	}
+	return r, nil
 }
 
 func scanRulesUsage(row *sql.Rows) (RulesUsage, error) {
